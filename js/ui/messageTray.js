@@ -1491,11 +1491,9 @@ const MessageTrayMenu = new Lang.Class({
     Name: 'MessageTrayMenu',
     Extends: PopupMenu.PopupMenu,
 
-    _init: function(tray) {
-        this._dummy = new St.Bin({ opacity: 0 });
-        Main.uiGroup.add_actor(this._dummy);
+    _init: function(button, tray) {
+        this.parent(button, 0, St.Side.BOTTOM);
 
-        this.parent(this._dummy, 0, St.Side.BOTTOM);
         this._tray = tray;
 
         this.actor.hide();
@@ -1539,11 +1537,6 @@ const MessageTrayMenu = new Lang.Class({
         });
         this._clearItem.setSensitive(sources.length > 0);
     },
-
-    setPosition: function(x, y) {
-        this._dummy.set_position(x, y);
-    }
-
 });
 
 const MessageTray = new Lang.Class({
@@ -1586,6 +1579,7 @@ const MessageTray = new Lang.Class({
         this._notificationClickedId = 0;
 
         this.actor.connect('button-release-event', Lang.bind(this, function(actor, event) {
+            this._trayMenu.close(BoxPointer.PopupAnimation.FULL);
             this._setClickedSummaryItem(null);
             this._updateState();
             actor.grab_key_focus();
@@ -1718,34 +1712,37 @@ const MessageTray = new Lang.Class({
         this.actor.add_actor(this._noMessages);
         this._updateNoMessagesLabel();
 
-        this._trayMenu = new MessageTrayMenu(this);
+        let gearIcon = new St.Icon({ icon_name: 'emblem-system-symbolic',
+                                     icon_size: 24 });
+        this._messageTrayMenuButton = new St.Button({ style_class: 'message-tray-menu-button',
+                                                      reactive: true,
+                                                      track_hover: true,
+                                                      can_focus: true,
+                                                      accessible_name: _("Tray Menu"),
+                                                      accessible_role: Atk.Role.MENU,
+                                                      margin_left: 16,
+                                                      child: gearIcon });
+
+        // Standard hack for ClutterBinLayout.
+        this._messageTrayMenuButton.set_x_align(Clutter.ActorAlign.START);
+        this._messageTrayMenuButton.set_y_align(Clutter.ActorAlign.CENTER);
+        this._messageTrayMenuButton.set_x_expand(true);
+        this._messageTrayMenuButton.set_y_expand(true);
+        this.actor.add_actor(this._messageTrayMenuButton);
+
+        this._trayMenu = new MessageTrayMenu(this._messageTrayMenuButton, this);
         this._trayMenuManager = new PopupMenu.PopupMenuManager({ grabHelper: this._grabHelper });
         this._trayMenuManager.addMenu(this._trayMenu);
-
-        let clickAction = new Clutter.ClickAction();
-        this.actor.add_action(clickAction);
-
-        clickAction.connect('clicked', Lang.bind(this, function(action) {
-            let button = action.get_button();
-            if (button == 3)
-                this._openTrayMenu();
+        this._trayMenu.connect('open-state-changed', Lang.bind(this, function(menu, open) {
+            if (open)
+                this._messageTrayMenuButton.add_style_pseudo_class('active');
+            else
+                this._messageTrayMenuButton.remove_style_pseudo_class('active');
         }));
 
-        clickAction.connect('long-press', Lang.bind(this, function(action, actor, state) {
-            switch (state) {
-            case Clutter.LongPressState.QUERY:
-                return true;
-            case Clutter.LongPressState.ACTIVATE:
-                this._openTrayMenu();
-            }
-            return false;
+        this._messageTrayMenuButton.connect('clicked', Lang.bind(this, function() {
+            this._trayMenu.toggle();
         }));
-    },
-
-    _openTrayMenu: function () {
-        let [x, y, mask] = global.get_pointer();
-        this._trayMenu.setPosition(Math.round(x), Math.round(y));
-        this._trayMenu.open(BoxPointer.PopupAnimation.FULL);
     },
 
     close: function() {
