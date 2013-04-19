@@ -82,10 +82,6 @@ const GrabHelper = new Lang.Class({
         return this._grabStack[this._grabStack.length - 1] || {};
     },
 
-    get grabbed() {
-        return this._grabStack.length > 0;
-    },
-
     get grabStack() {
         return this._grabStack;
     },
@@ -305,7 +301,7 @@ const GrabHelper = new Lang.Class({
                 this._releaseFocusGrab();
         }
 
-        if (!this.grabbed && this._capturedEventId > 0) {
+        if (this._grabStack.length == 0 && this._capturedEventId > 0) {
             global.stage.disconnect(this._capturedEventId);
             this._capturedEventId = 0;
 

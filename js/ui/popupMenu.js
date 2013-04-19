@@ -2082,7 +2082,7 @@ const PopupMenuManager = new Lang.Class({
     },
 
     _onMenuSourceEnter: function(menu) {
-        if (!this._grabHelper.grabbed)
+        if (!this.activeMenu)
             return false;
 
         if (this._grabHelper.isActorGrabbed(menu.actor))
