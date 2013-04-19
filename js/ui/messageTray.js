@@ -1498,6 +1498,9 @@ const MessageTrayContextMenu = new Lang.Class({
         this.parent(this._dummy, 0, St.Side.BOTTOM);
         this._tray = tray;
 
+        this.actor.hide();
+        Main.layoutManager.addChrome(this.actor);
+
         this._clearItem = this.addAction(_("Clear Messages"), function() {
             let toDestroy = [];
             let sources = tray.getSources();
@@ -1737,10 +1740,6 @@ const MessageTray = new Lang.Class({
             }
             return false;
         }));
-
-        this._contextMenu.actor.hide();
-        Main.layoutManager.addChrome(this._contextMenu.actor);
-
     },
 
     _openContextMenu: function () {
