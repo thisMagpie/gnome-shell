@@ -693,7 +693,7 @@ const AppIcon = new Lang.Class({
         this.actor.connect('popup-menu', Lang.bind(this, this._onKeyboardPopupMenu));
 
         this._menu = null;
-        this._menuManager = new PopupMenu.PopupMenuManager(this);
+        this._menuManager = new PopupMenu.PopupMenuManager({ actor: this.actor });
 
         this._draggable = DND.makeDraggable(this.actor);
         this._draggable.connect('drag-begin', Lang.bind(this,

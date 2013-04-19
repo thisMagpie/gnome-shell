@@ -1977,9 +1977,19 @@ const RemoteMenu = new Lang.Class({
 const PopupMenuManager = new Lang.Class({
     Name: 'PopupMenuManager',
 
-    _init: function(owner, grabParams) {
-        this._owner = owner;
-        this._grabHelper = new GrabHelper.GrabHelper(owner.actor, grabParams);
+    _init: function(params) {
+        params = Params.parse(params, { grabHelper: null,
+                                        actor: null }, true);
+
+        if (params.grabHelper) {
+            this._grabHelper = params.grabHelper;
+        } else {
+            let actor = params.actor;
+            delete params.actor;
+            delete params.grabHelper;
+            this._grabHelper = new GrabHelper.GrabHelper(actor, params);
+        }
+
         this._menus = [];
     },
 
@@ -2037,7 +2047,7 @@ const PopupMenuManager = new Lang.Class({
 
     get activeMenu() {
         let firstGrab = this._grabHelper.grabStack[0];
-        if (firstGrab)
+        if (firstGrab && firstGrab.actor && firstGrab.actor._delegate)
             return firstGrab.actor._delegate;
         else
             return null;
@@ -2079,6 +2089,8 @@ const PopupMenuManager = new Lang.Class({
             return false;
 
         let isChildMenu = this._grabHelper.grabStack.some(function(grab) {
+            if (!grab || !grab.actor || !grab.actor._delegate)
+                return false;
             let existingMenu = grab.actor._delegate;
             return existingMenu.isChildMenu(menu);
         });
