@@ -1719,6 +1719,8 @@ const MessageTray = new Lang.Class({
         this._updateNoMessagesLabel();
 
         this._contextMenu = new MessageTrayContextMenu(this);
+        this._contextMenuManager = new PopupMenu.PopupMenuManager({ grabHelper: this._grabHelper });
+        this._contextMenuManager.addMenu(this._contextMenu);
 
         let clickAction = new Clutter.ClickAction();
         this.actor.add_action(clickAction);
@@ -1727,8 +1729,6 @@ const MessageTray = new Lang.Class({
             let button = action.get_button();
             if (button == 3)
                 this._openContextMenu();
-            if (button == 1 && this._contextMenu.isOpen)
-                this._grabHelper.ungrab({ actor: this._contextMenu.actor });
         }));
 
         clickAction.connect('long-press', Lang.bind(this, function(action, actor, state) {
@@ -1745,12 +1745,6 @@ const MessageTray = new Lang.Class({
     _openContextMenu: function () {
         let [x, y, mask] = global.get_pointer();
         this._contextMenu.setPosition(Math.round(x), Math.round(y));
-        this._grabHelper.grab({ actor: this._contextMenu.actor,
-                                modal: true,
-                                onUngrab: Lang.bind(this, function () {
-                                    this._contextMenu.close(BoxPointer.PopupAnimation.FULL);
-                                })
-        });
         this._contextMenu.open(BoxPointer.PopupAnimation.FULL);
     },
 
