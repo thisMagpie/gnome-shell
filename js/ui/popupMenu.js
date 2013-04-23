@@ -922,10 +922,6 @@ const PopupMenuBase = new Lang.Class({
         return !hasVisibleChildren;
     },
 
-    isChildMenu: function() {
-        return false;
-    },
-
     /**
      * _connectSubMenuSignals:
      * @object: a menu item, or a menu section
@@ -1202,8 +1198,6 @@ const PopupMenu = new Lang.Class({
 
         global.focus_manager.add_group(this.actor);
         this.actor.reactive = true;
-
-        this._childMenus = [];
     },
 
     _boxGetPreferredWidth: function (actor, forHeight, alloc) {
@@ -1230,28 +1224,6 @@ const PopupMenu = new Lang.Class({
         this._boxPointer.setSourceAlignment(alignment);
     },
 
-    isChildMenu: function(menu) {
-        return this._childMenus.indexOf(menu) != -1;
-    },
-
-    addChildMenu: function(menu) {
-        if (this.isChildMenu(menu))
-            return;
-
-        this._childMenus.push(menu);
-        this.emit('child-menu-added', menu);
-    },
-
-    removeChildMenu: function(menu) {
-        let index = this._childMenus.indexOf(menu);
-
-        if (index == -1)
-            return;
-
-        this._childMenus.splice(index, 1);
-        this.emit('child-menu-removed', menu);
-    },
-
     open: function(animate) {
         if (this.isOpen)
             return;
@@ -1273,10 +1245,6 @@ const PopupMenu = new Lang.Class({
         if (this._activeMenuItem)
             this._activeMenuItem.setActive(false);
 
-        this._childMenus.forEach(function(childMenu) {
-            childMenu.close();
-        });
-
         if (this._boxPointer.actor.visible)
             this._boxPointer.hide(animate);
 
@@ -1295,10 +1263,6 @@ const PopupDummyMenu = new Lang.Class({
         this.sourceActor = sourceActor;
         this.actor = sourceActor;
         this.actor._delegate = this;
-    },
-
-    isChildMenu: function() {
-        return false;
     },
 
     open: function() { this.emit('open-state-changed', true); },
@@ -1541,248 +1505,6 @@ const PopupSubMenuMenuItem = new Lang.Class({
 
     _onButtonReleaseEvent: function(actor) {
         this.menu.toggle();
-    }
-});
-
-const PopupComboMenu = new Lang.Class({
-    Name: 'PopupComboMenu',
-    Extends: PopupMenuBase,
-
-    _init: function(sourceActor) {
-        this.parent(sourceActor, 'popup-combo-menu');
-
-        this.actor = this.box;
-        this.actor._delegate = this;
-        this.actor.connect('key-focus-in', Lang.bind(this, this._onKeyFocusIn));
-        sourceActor.connect('style-changed',
-                            Lang.bind(this, this._onSourceActorStyleChanged));
-        this._activeItemPos = -1;
-        global.focus_manager.add_group(this.actor);
-    },
-
-    _onKeyFocusIn: function(actor) {
-        let items = this._getMenuItems();
-        let activeItem = items[this._activeItemPos];
-        activeItem.actor.grab_key_focus();
-    },
-
-    _onSourceActorStyleChanged: function() {
-        // PopupComboBoxMenuItem clones the active item's actors
-        // to work with arbitrary items in the menu; this means
-        // that we need to propagate some style information and
-        // enforce style updates even when the menu is closed
-        let activeItem = this._getMenuItems()[this._activeItemPos];
-        if (this.sourceActor.has_style_pseudo_class('insensitive'))
-            activeItem.actor.add_style_pseudo_class('insensitive');
-        else
-            activeItem.actor.remove_style_pseudo_class('insensitive');
-
-        // To propagate the :active style, we need to make sure that the
-        // internal state of the PopupComboMenu is updated as well, but
-        // we must not move the keyboard grab
-        activeItem.setActive(this.sourceActor.has_style_pseudo_class('active'),
-                             { grabKeyboard: false });
-
-        _ensureStyle(this.actor);
-    },
-
-    open: function() {
-        if (this.isOpen)
-            return;
-
-        if (this.isEmpty())
-            return;
-
-        this.isOpen = true;
-
-        let [sourceX, sourceY] = this.sourceActor.get_transformed_position();
-        let items = this._getMenuItems();
-        let activeItem = items[this._activeItemPos];
-
-        this.actor.set_position(sourceX, sourceY - activeItem.actor.y);
-        this.actor.width = Math.max(this.actor.width, this.sourceActor.width);
-        this.actor.raise_top();
-
-        this.actor.opacity = 0;
-        this.actor.show();
-
-        Tweener.addTween(this.actor,
-                         { opacity: 255,
-                           transition: 'linear',
-                           time: BoxPointer.POPUP_ANIMATION_TIME });
-
-        this.emit('open-state-changed', true);
-    },
-
-    close: function() {
-        if (!this.isOpen)
-            return;
-
-        this.isOpen = false;
-        Tweener.addTween(this.actor,
-                         { opacity: 0,
-                           transition: 'linear',
-                           time: BoxPointer.POPUP_ANIMATION_TIME,
-                           onComplete: Lang.bind(this,
-                               function() {
-                                   this.actor.hide();
-                               })
-                         });
-
-        this.emit('open-state-changed', false);
-    },
-
-    setActiveItem: function(position) {
-        this._activeItemPos = position;
-    },
-
-    getActiveItem: function() {
-        return this._getMenuItems()[this._activeItemPos];
-    },
-
-    setItemVisible: function(position, visible) {
-        if (!visible && position == this._activeItemPos) {
-            log('Trying to hide the active menu item.');
-            return;
-        }
-
-        this._getMenuItems()[position].actor.visible = visible;
-    },
-
-    getItemVisible: function(position) {
-        return this._getMenuItems()[position].actor.visible;
-    }
-});
-
-const PopupComboBoxMenuItem = new Lang.Class({
-    Name: 'PopupComboBoxMenuItem',
-    Extends: PopupBaseMenuItem,
-
-    _init: function (params) {
-        this.parent(params);
-
-        this.actor.accessible_role = Atk.Role.COMBO_BOX;
-
-        this._itemBox = new Shell.Stack();
-        this.addActor(this._itemBox);
-
-        let expander = new St.Label({ text: '\u2304' });
-        this.addActor(expander, { align: St.Align.END,
-                                  span: -1 });
-
-        this._menu = new PopupComboMenu(this.actor);
-        Main.uiGroup.add_actor(this._menu.actor);
-        this._menu.actor.hide();
-
-        if (params.style_class)
-            this._menu.actor.add_style_class_name(params.style_class);
-
-        this.actor.connect('scroll-event', Lang.bind(this, this._onScrollEvent));
-
-        this._activeItemPos = -1;
-        this._items = [];
-    },
-
-    _getTopMenu: function() {
-        let actor = this.actor.get_parent();
-        while (actor) {
-            if (actor._delegate && actor._delegate instanceof PopupMenu)
-                return actor._delegate;
-
-            actor = actor.get_parent();
-        }
-
-        return null;
-    },
-
-    _onScrollEvent: function(actor, event) {
-        if (this._activeItemPos == -1)
-            return;
-
-        let position = this._activeItemPos;
-        let direction = event.get_scroll_direction();
-        if (direction == Clutter.ScrollDirection.DOWN) {
-            while (position < this._items.length - 1) {
-                position++;
-                if (this._menu.getItemVisible(position))
-                    break;
-            }
-        } else if (direction == Clutter.ScrollDirection.UP) {
-            while (position > 0) {
-                position--;
-                if (this._menu.getItemVisible(position))
-                    break;
-            }
-        }
-
-        if (position == this._activeItemPos)
-            return;
-
-        this.setActiveItem(position);
-        this.emit('active-item-changed', position);
-    },
-
-    activate: function(event) {
-        let topMenu = this._getTopMenu();
-        if (!topMenu)
-            return;
-
-        topMenu.addChildMenu(this._menu);
-        this._menu.toggle();
-    },
-
-    addMenuItem: function(menuItem, position) {
-        if (position === undefined)
-            position = this._menu.numMenuItems;
-
-        this._menu.addMenuItem(menuItem, position);
-        _ensureStyle(this._menu.actor);
-
-        let item = new St.BoxLayout({ style_class: 'popup-combobox-item' });
-
-        let children = menuItem.actor.get_children();
-        for (let i = 0; i < children.length; i++) {
-            let clone = new Clutter.Clone({ source: children[i] });
-            item.add(clone, { y_fill: false });
-        }
-
-        let oldItem = this._items[position];
-        if (oldItem)
-            this._itemBox.remove_actor(oldItem);
-
-        this._items[position] = item;
-        this._itemBox.add_actor(item);
-
-        menuItem.connect('activate',
-                         Lang.bind(this, this._itemActivated, position));
-    },
-
-    checkAccessibleLabel: function() {
-        let activeItem = this._menu.getActiveItem();
-        this.actor.label_actor = activeItem.label;
-    },
-
-    setActiveItem: function(position) {
-        let item = this._items[position];
-        if (!item)
-            return;
-        if (this._activeItemPos == position)
-            return;
-        this._menu.setActiveItem(position);
-        this._activeItemPos = position;
-        for (let i = 0; i < this._items.length; i++)
-            this._items[i].visible = (i == this._activeItemPos);
-
-        this.checkAccessibleLabel();
-    },
-
-    setItemVisible: function(position, visible) {
-        this._menu.setItemVisible(position, visible);
-    },
-
-    _itemActivated: function(menuItem, event, position) {
-        this.setActiveItem(position);
-        this.emit('active-item-changed', position);
     }
 });
 
@@ -2035,8 +1757,6 @@ const PopupMenuManager = new Lang.Class({
         let menudata = {
             menu:              menu,
             openStateChangeId: menu.connect('open-state-changed', Lang.bind(this, this._onMenuOpenState)),
-            childMenuAddedId:  menu.connect('child-menu-added', Lang.bind(this, this._onChildMenuAdded)),
-            childMenuRemovedId: menu.connect('child-menu-removed', Lang.bind(this, this._onChildMenuRemoved)),
             destroyId:         menu.connect('destroy', Lang.bind(this, this._onMenuDestroy)),
             enterId:           0,
             focusInId:         0
@@ -2066,8 +1786,6 @@ const PopupMenuManager = new Lang.Class({
 
         let menudata = this._menus[position];
         menu.disconnect(menudata.openStateChangeId);
-        menu.disconnect(menudata.childMenuAddedId);
-        menu.disconnect(menudata.childMenuRemovedId);
         menu.disconnect(menudata.destroyId);
 
         if (menudata.enterId)
@@ -2103,14 +1821,6 @@ const PopupMenuManager = new Lang.Class({
         }
     },
 
-    _onChildMenuAdded: function(menu, childMenu) {
-        this.addMenu(childMenu);
-    },
-
-    _onChildMenuRemoved: function(menu, childMenu) {
-        this.removeMenu(childMenu);
-    },
-
     _changeMenu: function(newMenu) {
         newMenu.open(this.activeMenu ? BoxPointer.PopupAnimation.FADE
                                      : BoxPointer.PopupAnimation.FULL);
@@ -2121,15 +1831,6 @@ const PopupMenuManager = new Lang.Class({
             return false;
 
         if (this._grabHelper.isActorGrabbed(menu.actor))
-            return false;
-
-        let isChildMenu = this._grabHelper.grabStack.some(function(grab) {
-            if (!grab || !grab.actor || !grab.actor._delegate)
-                return false;
-            let existingMenu = grab.actor._delegate;
-            return existingMenu.isChildMenu(menu);
-        });
-        if (isChildMenu)
             return false;
 
         this._changeMenu(menu);
