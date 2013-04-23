@@ -213,6 +213,10 @@ StScrollBar StButton#vhandle:active {
 .popup-image-menu-item {
 }
 
+.popup-slider-icon-menu-item {
+    spacing: 8px;
+}
+
 .popup-separator-menu-item {
     -gradient-height: 1px;
     -gradient-start: rgba(255,255,255,0.0);

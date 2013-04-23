@@ -9,6 +9,7 @@ const Signals = imports.signals;
 
 const PanelMenu = imports.ui.panelMenu;
 const PopupMenu = imports.ui.popupMenu;
+const Slider = imports.ui.slider;
 
 const VOLUME_NOTIFY_ID = 1;
 
@@ -28,18 +29,24 @@ function getMixerControl() {
 const StreamSlider = new Lang.Class({
     Name: 'StreamSlider',
 
-    _init: function(control, title) {
+    _init: function(control, iconMin, iconMax) {
         this._control = control;
 
-        this.item = new PopupMenu.PopupMenuSection();
+        this.section = new PopupMenu.PopupMenuSection();
+        this._item = new PopupMenu.PopupBaseMenuItem({ activate: false });
 
-        this._title = new PopupMenu.PopupMenuItem(title, { reactive: false });
-        this._slider = new PopupMenu.PopupSliderMenuItem(0);
+        this._actor = new St.BoxLayout({ style_class: 'popup-slider-icon-menu-item' });
+
+        this._slider = new Slider.Slider(0);
         this._slider.connect('value-changed', Lang.bind(this, this._sliderChanged));
         this._slider.connect('drag-end', Lang.bind(this, this._notifyVolumeChange));
 
-        this.item.addMenuItem(this._title);
-        this.item.addMenuItem(this._slider);
+        this._actor.add(new St.Icon({ icon_name: iconMin, icon_size: 16 }));
+        this._actor.add(this._slider.actor, { expand: true });
+        this._actor.add(new St.Icon({ icon_name: iconMax, icon_size: 16 }));
+
+        this._item.addActor(this._actor, { span: -1, expand: true });
+        this.section.addMenuItem(this._item);
 
         this._stream = null;
     },
@@ -83,8 +90,7 @@ const StreamSlider = new Lang.Class({
 
     _updateVisibility: function() {
         let visible = this._shouldBeVisible();
-        this._title.actor.visible = visible;
-        this._slider.actor.visible = visible;
+        this.section.actor.visible = visible;
     },
 
     scroll: function(event) {
@@ -191,8 +197,8 @@ const InputStreamSlider = new Lang.Class({
     Name: 'InputStreamSlider',
     Extends: StreamSlider,
 
-    _init: function(control, title) {
-        this.parent(control, title);
+    _init: function(control, iconMin, iconMax) {
+        this.parent(control, iconMin, iconMax);
         this._control.connect('stream-added', Lang.bind(this, this._maybeShowInput));
         this._control.connect('stream-removed', Lang.bind(this, this._maybeShowInput));
     },
@@ -243,17 +249,17 @@ const VolumeMenu = new Lang.Class({
         this._control.connect('default-source-changed', Lang.bind(this, this._readInput));
 
         /* Translators: This is the label for audio volume */
-        this._output = new OutputStreamSlider(this._control, _("Volume"));
+        this._output = new OutputStreamSlider(this._control, 'audio-volume-low-symbolic', 'audio-volume-high-symbolic');
         this._output.connect('stream-updated', Lang.bind(this, function() {
             this.emit('icon-changed');
         }));
         this._output.connect('headphones-changed', Lang.bind(this, function(stream, value) {
             this.emit('headphones-changed', value);
         }));
-        this.addMenuItem(this._output.item);
+        this.addMenuItem(this._output.section);
 
-        this._input = new InputStreamSlider(this._control, _("Microphone"));
-        this.addMenuItem(this._input.item);
+        this._input = new InputStreamSlider(this._control, 'microphone-sensitivity-low-symbolic', 'microphone-sensitivity-high-symbolic');
+        this.addMenuItem(this._input.section);
 
         this.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
