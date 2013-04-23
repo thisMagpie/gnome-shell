@@ -920,30 +920,46 @@ const PanelCorner = new Lang.Class({
     }
 });
 
+const AggregateMenu = new Lang.Class({
+    Name: 'AggregateMenu',
+    Extends: PanelMenu.Button,
+
+    _init: function() {
+        this.parent(0.0, _("Settings Menu"), false);
+
+        this._indicators = new St.BoxLayout({ style_class: 'panel-status-button-box' });
+        this.actor.add_child(this._indicators);
+
+        let network = new imports.ui.status.network.NMApplet();
+        let power = new imports.ui.status.power.Indicator();
+        let volume = new imports.ui.status.volume.Indicator();
+        let brightness = new imports.ui.status.brightness.Indicator();
+        let userMenu = new imports.ui.userMenu.UserMenuButton();
+
+        this._indicators.add_child(network.indicators);
+        this._indicators.add_child(power.indicators);
+        this._indicators.add_child(volume.indicators);
+        this._indicators.add_child(new St.Label({ text: '\u25BE' }));
+
+        this.menu.addMenuItem(volume.menu);
+        this.menu.addMenuItem(brightness.menu);
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        this.menu.addMenuItem(network.menu);
+        this.menu.addMenuItem(power.menu);
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        this.menu.addMenuItem(userMenu.menu);
+    },
+});
+
 const PANEL_ITEM_IMPLEMENTATIONS = {
     'activities': ActivitiesButton,
+    'aggregateMenu': AggregateMenu,
     'appMenu': AppMenuButton,
     'dateMenu': imports.ui.dateMenu.DateMenuButton,
     'a11y': imports.ui.status.accessibility.ATIndicator,
     'a11yGreeter': imports.ui.status.accessibility.ATGreeterIndicator,
-    'volume': imports.ui.status.volume.Indicator,
-    'battery': imports.ui.status.power.Indicator,
-    'lockScreen': imports.ui.status.lockScreenMenu.Indicator,
     'keyboard': imports.ui.status.keyboard.InputSourceIndicator,
-    'powerMenu': imports.gdm.powerMenu.PowerMenuButton,
-    'userMenu': imports.ui.userMenu.UserMenuButton
 };
-
-if (Config.HAVE_BLUETOOTH)
-    PANEL_ITEM_IMPLEMENTATIONS['bluetooth'] =
-        imports.ui.status.bluetooth.Indicator;
-
-try {
-    PANEL_ITEM_IMPLEMENTATIONS['network'] =
-        imports.ui.status.network.NMApplet;
-} catch(e) {
-    log('NMApplet is not supported. It is possible that your NetworkManager version is too old');
-}
 
 const Panel = new Lang.Class({
     Name: 'Panel',

@@ -22,10 +22,10 @@ const ConnectionState = {
 
 const Indicator = new Lang.Class({
     Name: 'BTIndicator',
-    Extends: PanelMenu.SystemStatusButton,
+    Extends: PanelMenu.SystemIndicator,
 
     _init: function() {
-        this.parent('bluetooth-disabled-symbolic', _("Bluetooth"));
+        this.parent('bluetooth-disabled-symbolic');
 
         this._applet = new GnomeBluetoothApplet.Applet();
 

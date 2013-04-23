@@ -224,37 +224,28 @@ const Button = new Lang.Class({
 });
 Signals.addSignalMethods(Button.prototype);
 
-/* SystemStatusButton:
+/* SystemIndicator:
  *
- * This class manages one System Status indicator (network, keyboard,
- * volume, bluetooth...), which is just a PanelMenuButton with an
- * icon.
+ * This class manages one system indicator, which are the icons
+ * that you see at the top right. A system indicator is composed
+ * of an icon and a menu section, which will be composed into the
+ * aggregate section.
  */
-const SystemStatusButton = new Lang.Class({
-    Name: 'SystemStatusButton',
-    Extends: Button,
+const SystemIndicator = new Lang.Class({
+    Name: 'SystemIndicator',
 
-    _init: function(iconName, nameText) {
-        this.parent(0.0, nameText);
-        this.actor.add_style_class_name('panel-status-button');
-
-        this._box = new St.BoxLayout({ style_class: 'panel-status-button-box' });
-        this.actor.add_actor(this._box);
+    _init: function(iconName) {
+        this.indicators = new St.BoxLayout({ style_class: 'panel-status-button-box' });
+        this.menu = new PopupMenu.PopupMenuSection();
 
         if (iconName)
             this.setIcon(iconName);
     },
 
-    get icons() {
-        return this._box.get_children();
-    },
-
     addIcon: function(gicon) {
         let icon = new St.Icon({ gicon: gicon,
                                  style_class: 'system-status-icon' });
-        this._box.add_actor(icon);
-
-        this.emit('icons-changed');
+        this.indicators.add_actor(icon);
 
         return icon;
     },

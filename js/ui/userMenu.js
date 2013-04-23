@@ -57,10 +57,10 @@ const SystemdLoginSession = Gio.DBusProxy.makeProxyWrapper(SystemdLoginSessionIf
 
 const UserMenuButton = new Lang.Class({
     Name: 'UserMenuButton',
-    Extends: PanelMenu.SystemStatusButton,
+    Extends: PanelMenu.SystemIndicator,
 
     _init: function() {
-        this.parent('user-available-symbolic', _("User Menu"));
+        this.parent('user-available-symbolic');
 
         this._screenSaverSettings = new Gio.Settings({ schema: SCREENSAVER_SCHEMA });
         this._lockdownSettings = new Gio.Settings({ schema: LOCKDOWN_SCHEMA });
@@ -113,14 +113,6 @@ const UserMenuButton = new Lang.Class({
             }));
         this._lockdownSettings.connect('changed::' + DISABLE_LOG_OUT_KEY,
                                        Lang.bind(this, this._updateHaveShutdown));
-
-        Main.sessionMode.connect('updated', Lang.bind(this, this._sessionUpdated));
-        this._sessionUpdated();
-    },
-
-    _sessionUpdated: function() {
-        this.actor.visible = !Main.sessionMode.isGreeter;
-        this.setSensitive(!Main.sessionMode.isLocked);
     },
 
     _updateMultiUser: function() {

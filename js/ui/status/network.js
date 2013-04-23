@@ -1532,10 +1532,10 @@ const NMVPNSection = new Lang.Class({
 
 const NMApplet = new Lang.Class({
     Name: 'NMApplet',
-    Extends: PanelMenu.SystemStatusButton,
+    Extends: PanelMenu.SystemIndicator,
 
     _init: function() {
-        this.parent('network-offline-symbolic', _('Network'));
+        this.parent('network-offline-symbolic');
 
         this.secondaryIcon = this.addIcon(new Gio.ThemedIcon({ name: 'network-vpn-symbolic' }));
         this.secondaryIcon.hide();
@@ -2119,7 +2119,7 @@ const NMApplet = new Lang.Class({
 
     _syncNMState: function() {
         this.mainIcon.visible = this._client.manager_running;
-        this.actor.visible = this.mainIcon.visible;
+        this.indicators.visible = this.mainIcon.visible;
 
         if (!this._client.networking_enabled) {
             this.setIcon('network-offline-symbolic');

@@ -30,10 +30,10 @@ const HIGH_CONTRAST_THEME = 'HighContrast';
 
 const ATIndicator = new Lang.Class({
     Name: 'ATIndicator',
-    Extends: PanelMenu.SystemStatusButton,
+    Extends: PanelMenu.Button,
 
     _init: function() {
-        this.parent('preferences-desktop-accessibility-symbolic', _("Accessibility"));
+        this.parent('preferences-desktop-accessibility-symbolic');
 
         let highContrast = this._buildHCItem();
         this.menu.addMenuItem(highContrast);
