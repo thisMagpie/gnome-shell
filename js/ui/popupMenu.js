@@ -1803,7 +1803,7 @@ const RemoteMenu = new Lang.Class({
         this.actionGroup = actionGroup;
 
         this._actions = {};
-        this._trackMenu(model, this);
+        this._trackMenu(model, this, null);
 
         this._actionStateChangeId = this.actionGroup.connect('action-state-changed', Lang.bind(this, this._actionStateChanged));
         this._actionEnableChangeId = this.actionGroup.connect('action-enabled-changed', Lang.bind(this, this._actionEnabledChanged));
@@ -1883,9 +1883,9 @@ const RemoteMenu = new Lang.Class({
         }));
     },
 
-    _trackMenu: function(model, item) {
+    _trackMenu: function(model, item, action_namespace) {
         item._tracker = Shell.MenuTracker.new(model,
-                                              null, /* action namespace */
+                                              action_namespace,
                                               Lang.bind(this, this._insertItem, item),
                                               Lang.bind(this, this._removeItem, item));
 
@@ -1903,18 +1903,32 @@ const RemoteMenu = new Lang.Class({
         return label;
     },
 
-    _createMenuItem: function(model, index) {
+    _buildActionNamespace: function(a, b) {
+        if (a && b)
+            return a + '.' + b;
+        else if (a)
+            return a;
+        else if (b)
+            return b;
+        else
+            return null;
+    },
+
+    _createMenuItem: function(model, index, action_namespace) {
         let label = this._getLabel(model, index);
 
         let submenuModel = model.get_item_link(index, Gio.MENU_LINK_SUBMENU);
         if (submenuModel) {
+            let ns = model.get_item_attribute_value(index, Gio.MENU_ATTRIBUTE_ACTION_NAMESPACE, null);
+            let section_namespace = (ns !== null) ? ns.deep_unpack() : null;
             let item = new PopupSubMenuMenuItem(label);
-            this._trackMenu(submenuModel, item.menu);
+            this._trackMenu(submenuModel, item.menu, this._buildActionNamespace(action_namespace, section_namespace));
             return item;
         }
 
         let item = new PopupMenuItem(label);
         let action_id = model.get_item_attribute_value(index, Gio.MENU_ATTRIBUTE_ACTION, null).deep_unpack();
+        action_id = this._buildActionNamespace(action_namespace, action_id);
         item.actor.can_focus = item.actor.reactive = false;
 
         item.action_id = action_id;
@@ -1980,7 +1994,7 @@ const RemoteMenu = new Lang.Class({
             let label = this._getLabel(model, item_index);
             item = new PopupSeparatorMenuItem(label);
         } else {
-            item = this._createMenuItem(model, item_index);
+            item = this._createMenuItem(model, item_index, action_namespace);
         }
 
         target.addMenuItem(item, position);
