@@ -393,12 +393,23 @@ const PopupSeparatorMenuItem = new Lang.Class({
     Name: 'PopupSeparatorMenuItem',
     Extends: PopupBaseMenuItem,
 
-    _init: function () {
+    _init: function (text) {
         this.parent({ reactive: false,
                       can_focus: false});
 
+        this._box = new St.BoxLayout();
+        this.addActor(this._box, { span: -1, expand: true });
+
+        if (text) {
+            this.label = new St.Label({ text: text });
+            this._box.add(this.label);
+            this.actor.label_actor = this.label;
+        } else {
+            this.label = null;
+        }
+
         this._separator = new Separator.HorizontalSeparator({ style_class: 'popup-separator-menu-item' });
-        this.addActor(this._separator.actor, { span: -1, expand: true });
+        this._box.add(this._separator.actor, { expand: true });
     }
 });
 
@@ -983,6 +994,9 @@ const PopupMenuBase = new Lang.Class({
     },
 
     _updateSeparatorVisibility: function(menuItem) {
+        if (menuItem.label !== null)
+            return;
+
         let children = this.box.get_children();
 
         let index = children.indexOf(menuItem.actor);
@@ -1881,11 +1895,16 @@ const RemoteMenu = new Lang.Class({
         });
     },
 
-    _createMenuItem: function(model, index) {
+    _getLabel: function(model, index) {
         let labelValue = model.get_item_attribute_value(index, Gio.MENU_ATTRIBUTE_LABEL, null);
         let label = labelValue ? labelValue.deep_unpack() : '';
         // remove all underscores that are not followed by another underscore
         label = label.replace(/_([^_])/, '$1');
+        return label;
+    },
+
+    _createMenuItem: function(model, index) {
+        let label = this._getLabel(model, index);
 
         let submenuModel = model.get_item_link(index, Gio.MENU_LINK_SUBMENU);
         if (submenuModel) {
@@ -1957,10 +1976,12 @@ const RemoteMenu = new Lang.Class({
     _insertItem: function(position, model, item_index, action_namespace, is_separator, target) {
         let item;
 
-        if (is_separator)
-            item = new PopupSeparatorMenuItem();
-        else
+        if (is_separator) {
+            let label = this._getLabel(model, item_index);
+            item = new PopupSeparatorMenuItem(label);
+        } else {
             item = this._createMenuItem(model, item_index);
+        }
 
         target.addMenuItem(item, position);
     },
