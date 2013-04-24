@@ -101,9 +101,9 @@ const AuthenticationDialog = new Lang.Class({
             let userBox = new St.BoxLayout({ style_class: 'polkit-dialog-user-layout',
                                              vertical: false });
             messageBox.add(userBox);
-            this._userAvatar = new UserMenu.UserAvatarWidget(this._user,
-                                                             { iconSize: DIALOG_ICON_SIZE,
-                                                               styleClass: 'polkit-dialog-user-icon' });
+            this._userAvatar = new UserWidget.Avatar(this._user,
+                                                     { iconSize: DIALOG_ICON_SIZE,
+                                                       styleClass: 'polkit-dialog-user-icon' });
             this._userAvatar.actor.hide();
             userBox.add(this._userAvatar.actor,
                         { x_fill:  true,
