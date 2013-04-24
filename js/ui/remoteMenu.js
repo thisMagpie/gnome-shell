@@ -11,6 +11,29 @@ const St = imports.gi.St;
 
 const PopupMenu = imports.ui.popupMenu;
 
+function stripMnemonics(label) {
+    if (!label)
+        return '';
+
+    // remove all underscores that are not followed by another underscore
+    return label.replace(/_([^_])/, '$1');
+}
+
+const RemoteMenuSeparatorItemMapper = new Lang.Class({
+    Name: 'RemoteMenuSeparatorItemMapper',
+
+    _init: function(trackerItem) {
+        this._trackerItem = trackerItem;
+        this.menuItem = new PopupMenu.PopupSeparatorMenuItem();
+        this._trackerItem.connect('notify::label', Lang.bind(this, this._updateLabel));
+        this._updateLabel();
+    },
+
+    _updateLabel: function() {
+        this.menuItem.label.text = stripMnemonics(this._trackerItem.label);
+    },
+});
+
 const RemoteMenuItemMapper = new Lang.Class({
     Name: 'RemoteMenuItemMapper',
 
@@ -39,10 +62,7 @@ const RemoteMenuItemMapper = new Lang.Class({
     },
 
     _updateLabel: function() {
-        let label = this._trackerItem.label;
-        // remove all underscores that are not followed by another underscore
-        label = label.replace(/_([^_])/, '$1');
-        this._label.text = label;
+        this._label.text = stripMnemonics(this._trackerItem.label);
     },
 
     _updateSensitivity: function() {
@@ -99,7 +119,8 @@ const RemoteMenu = new Lang.Class({
         let item;
 
         if (trackerItem.get_is_separator()) {
-            item = new PopupMenu.PopupSeparatorMenuItem();
+            let mapper = new RemoteMenuSeparatorItemMapper(trackerItem);
+            item = mapper.menuItem;
         } else {
             let mapper = new RemoteMenuItemMapper(trackerItem);
             item = mapper.menuItem;
