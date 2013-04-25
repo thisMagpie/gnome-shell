@@ -13,7 +13,6 @@ const Main = imports.ui.main;
 const PanelMenu = imports.ui.panelMenu;
 const PopupMenu = imports.ui.popupMenu;
 const MessageTray = imports.ui.messageTray;
-const NotificationDaemon = imports.ui.notificationDaemon;
 const ModemManager = imports.misc.modemManager;
 const Util = imports.misc.util;
 
@@ -549,14 +548,6 @@ const NMDevice = new Lang.Class({
 
         if (oldstate == NetworkManager.DeviceState.ACTIVATED) {
             this.emit('network-lost');
-        }
-
-        /* Emit a notification if activation fails, but don't do it
-           if the reason is no secrets, as that indicates the user
-           cancelled the agent dialog */
-        if (newstate == NetworkManager.DeviceState.FAILED &&
-            reason != NetworkManager.DeviceStateReason.NO_SECRETS) {
-            this.emit('activation-failed', reason);
         }
 
         this._updateStatusItem();
@@ -1479,14 +1470,6 @@ const NMVPNSection = new Lang.Class({
     },
 
     _connectionStateChanged: function(vpnConnection, newstate, reason) {
-        if (newstate == NetworkManager.VPNConnectionState.FAILED &&
-            reason != NetworkManager.VPNConnectionStateReason.NO_SECRETS) {
-            // FIXME: if we ever want to show something based on reason,
-            // we need to convert from NetworkManager.VPNConnectionStateReason
-            // to NetworkManager.DeviceStateReason
-            this.emit('activation-failed', reason);
-        }
-
         let pos = this._findConnection(vpnConnection.uuid);
         if (pos >= 0) {
             let obj = this._connections[pos];
@@ -1622,7 +1605,6 @@ const NMApplet = new Lang.Class({
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
         this._vpnSection = new NMVPNSection(this._client, this._connections);
-        this._vpnSection.connect('activation-failed', Lang.bind(this, this._onActivationFailed));
         this.menu.addMenuItem(this._vpnSection.section);
 
         this._readConnections();
@@ -1636,19 +1618,6 @@ const NMApplet = new Lang.Class({
         this._client.connect('device-added', Lang.bind(this, this._deviceAdded));
         this._client.connect('device-removed', Lang.bind(this, this._deviceRemoved));
         this._settings.connect('new-connection', Lang.bind(this, this._newConnection));
-    },
-
-    _ensureSource: function() {
-        if (!this._source) {
-            this._source = new MessageTray.Source(_("Network Manager"),
-                                                  'network-transmit-receive');
-            this._source.policy = new NotificationDaemon.NotificationApplicationPolicy('gnome-network-panel');
-
-            this._source.connect('destroy', Lang.bind(this, function() {
-                this._source = null;
-            }));
-            Main.messageTray.add(this._source);
-        }
     },
 
     _makeWirelessToggle: function() {
@@ -1707,34 +1676,6 @@ const NMApplet = new Lang.Class({
         this._syncDeviceNames();
     },
 
-    _notifyForDevice: function(device, iconName, title, text, urgency) {
-        if (device._notification)
-            device._notification.destroy();
-
-        /* must call after destroying previous notification,
-           or this._source will be cleared */
-        this._ensureSource();
-
-        let gicon = new Gio.ThemedIcon({ name: iconName });
-        device._notification = new MessageTray.Notification(this._source, title, text,
-                                                            { gicon: gicon });
-        device._notification.setUrgency(urgency);
-        device._notification.setTransient(true);
-        device._notification.connect('destroy', function() {
-            device._notification = null;
-        });
-        this._source.notify(device._notification);
-    },
-
-    _onActivationFailed: function(device, reason) {
-        // XXX: nm-applet has no special text depending on reason
-        // but I'm not sure of this generic message
-        this._notifyForDevice(device, 'network-error-symbolic',
-                              _("Connection failed"),
-                              _("Activation of network connection failed"),
-                              MessageTray.Urgency.HIGH);
-    },
-
     _syncDeviceNames: function() {
         let names = NMGtk.utils_disambiguate_device_names(this._nmDevices);
         for (let i = 0; i < this._nmDevices.length; i++) {
@@ -1772,8 +1713,6 @@ const NMApplet = new Lang.Class({
     },
 
     _addDeviceWrapper: function(wrapper) {
-        wrapper._activationFailedId = wrapper.connect('activation-failed',
-                                                      Lang.bind(this, this._onActivationFailed));
         wrapper._deviceStateChangedId = wrapper.connect('state-changed', Lang.bind(this, function(dev) {
             this._syncSectionTitle(dev.category);
         }));
@@ -1808,7 +1747,6 @@ const NMApplet = new Lang.Class({
     },
 
     _removeDeviceWrapper: function(wrapper) {
-        wrapper.disconnect(wrapper._activationFailedId);
         wrapper.disconnect(wrapper._deviceStateChangedId);
         wrapper.destroy();
 
@@ -1923,12 +1861,6 @@ const NMApplet = new Lang.Class({
 
                 if (a._primaryDevice)
                     a._primaryDevice.setActiveConnection(a);
-
-                if (a.state == NetworkManager.ActiveConnectionState.ACTIVATED
-                    && a._primaryDevice && a._primaryDevice._notification) {
-                    a._primaryDevice._notification.destroy();
-                    a._primaryDevice._notification = null;
-                }
             }
         }
 
@@ -1937,12 +1869,6 @@ const NMApplet = new Lang.Class({
     },
 
     _notifyActivated: function(activeConnection) {
-        if (activeConnection.state == NetworkManager.ActiveConnectionState.ACTIVATED
-            && activeConnection._primaryDevice && activeConnection._primaryDevice._notification) {
-            activeConnection._primaryDevice._notification.destroy();
-            activeConnection._primaryDevice._notification = null;
-        }
-
         this._updateIcon();
     },
 
