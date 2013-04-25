@@ -120,7 +120,6 @@ const UserMenuButton = new Lang.Class({
 
     _sessionUpdated: function() {
         this.actor.visible = !Main.sessionMode.isGreeter;
-        this._systemSettings.visible = Main.sessionMode.allowSettings;
         this.setSensitive(!Main.sessionMode.isLocked);
     },
 
@@ -196,10 +195,7 @@ const UserMenuButton = new Lang.Class({
     _createSubMenu: function() {
         let item;
 
-        item = new PopupMenu.PopupMenuItem(_("Settings"));
-        item.connect('activate', Lang.bind(this, this._onPreferencesActivate));
-        this.menu.addMenuItem(item);
-        this._systemSettings = item;
+        this.menu.addSettingsAction(_("Settings"), 'gnome-control-center.desktop');
 
         item = new PopupMenu.PopupSeparatorMenuItem();
         this.menu.addMenuItem(item);
@@ -233,12 +229,6 @@ const UserMenuButton = new Lang.Class({
         item.connect('activate', Lang.bind(this, this._onInstallUpdatesActivate));
         this.menu.addMenuItem(item);
         this._installUpdatesItem = item;
-    },
-
-    _onPreferencesActivate: function() {
-        Main.overview.hide();
-        let app = Shell.AppSystem.get_default().lookup_app('gnome-control-center.desktop');
-        app.activate();
     },
 
     _onLockScreenActivate: function() {
