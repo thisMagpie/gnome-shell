@@ -1206,23 +1206,32 @@ const NMDeviceVirtual = new Lang.Class({
 
 const NMVPNSection = new Lang.Class({
     Name: 'NMVPNSection',
-    Extends: NMConnectionBased,
     category: NMConnectionCategory.VPN,
 
     _init: function(client) {
-        this.parent([]);
         this._client = client;
+        this._connections = [];
 
         this.section = new PopupMenu.PopupMenuSection();
-        this._deferredWorkId = Main.initializeDeferredWork(this.section.actor, Lang.bind(this, this._createSection));
     },
 
-    connectionValid: function(connection) {
-        // filtering is done by NMApplet code
-        return true;
+    checkConnection: function(connection) {
+        let exists = this._connections.indexOf(connection) >= 0;
+        if (exists)
+            return;
+
+        this._createConnectionItem(connection);
+        this.section.addMenuItem(connection.item);
+        this._connections.push(connection);
     },
 
-    getStatusLabel: function(activeConnection) {
+    removeConnection: function(connection) {
+        connection.item.destroy();
+        let pos = this._connections.indexOf(connection);
+        this._connections.splice(pos, 1);
+    },
+
+    _getStatusLabel: function(activeConnection) {
         switch(activeConnection.vpn_state) {
         case NetworkManager.VPNConnectionState.DISCONNECTED:
         case NetworkManager.VPNConnectionState.ACTIVATED:
@@ -1242,91 +1251,47 @@ const NMVPNSection = new Lang.Class({
         }
     },
 
-    clearActiveConnection: function(activeConnection) {
-        let pos = this._findConnection(activeConnection.uuid);
-        if (pos < 0)
-            return;
-
-        let obj = this._connections[pos];
-        obj.active.disconnect(obj.stateChangedId);
-        obj.active = null;
-
-        if (obj.item) {
-            obj.item.setToggleState(false);
-            obj.item.setStatus(null);
+    _syncConnectionItem: function(activeConnection, connection) {
+        let item = connection.item;
+        if (activeConnection == null) {
+            item.setToggleState(false);
+            item.setStatus(null);
+        } else {
+            item.setToggleState(activeConnection.vpn_state == NetworkManager.VPNConnectionState.ACTIVATED);
+            item.setStatus(this._getStatusLabel(activeConnection));
         }
+    },
+
+    _connectionStateChanged: function(activeConnection) {
+        this._syncConnectionItem(activeConnection, activeConnection._connection);
+    },
+
+    clearActiveConnection: function(activeConnection) {
+        activeConnection._connection._activeConnection = null;
+        activeConnection.disconnect(activeConnection._stateChangedId);
+        this._syncConnectionItem(null, activeConnection._connection);
     },
 
     setActiveConnection: function(activeConnection) {
-        let pos = this._findConnection(activeConnection.uuid);
-        if (pos < 0)
-            return;
-
-        let obj = this._connections[pos];
-        obj.active = activeConnection;
-        obj.stateChangedId = obj.active.connect('vpn-state-changed',
-                                                Lang.bind(this, this._connectionStateChanged));
-
-        if (obj.item) {
-            obj.item.setToggleState(obj.active.vpn_state ==
-                                    NetworkManager.VPNConnectionState.ACTIVATED);
-            obj.item.setStatus(this.getStatusLabel(obj.active));
-        }
+        activeConnection._connection._activeConnection = activeConnection;
+        activeConnection._stateChangedId = activeConnection.connect('vpn-state-changed',
+                                                                    Lang.bind(this, this._connectionStateChanged));
+        this._syncConnectionItem(activeConnection, activeConnection._connection);
     },
 
-    _queueCreateSection: function() {
-        this.section.removeAll();
-        Main.queueDeferredWork(this._deferredWorkId);
-    },
-
-    _createConnectionItem: function(obj) {
-        let menuItem = new PopupMenu.PopupSwitchMenuItem(obj.name, false,
-                                                         { style_class: 'popup-subtitle-menu-item' });
-        menuItem.connect('toggled', Lang.bind(this, function(menuItem) {
+    _createConnectionItem: function(connection) {
+        connection.item = new PopupMenu.PopupSwitchMenuItem(connection.get_id(), false,
+                                                            { style_class: 'popup-subtitle-menu-item' });
+        connection.item.connect('toggled', Lang.bind(this, function(menuItem) {
             if (menuItem.state) {
-                this._client.activate_connection(obj.connection, null, null, null);
+                this._client.activate_connection(connection, null, null);
+
                 // Immediately go back to disconnected, until NM tells us to change
                 menuItem.setToggleState(false);
-            } else if (obj.active) {
-                this._client.deactivate_connection(obj.active);
+            } else {
+                this._client.deactivate_connection(connection._activeConnection);
             }
         }));
-
-        if (obj.active) {
-            menuItem.setToggleState(obj.active.vpn_state ==
-                                    NetworkManager.VPNConnectionState.ACTIVATED);
-            menuItem.setStatus(this.getStatusLabel(obj.active));
-        }
-
-        return menuItem;
-    },
-
-    _createSection: function() {
-        if (this._connections.length > 0) {
-            this.section.actor.show();
-
-            for(let j = 0; j < this._connections.length; ++j) {
-                let obj = this._connections[j];
-                obj.item = this._createConnectionItem(obj);
-                this.section.addMenuItem(obj.item);
-            }
-        } else {
-            this.section.actor.hide()
-        }
-    },
-
-    _connectionStateChanged: function(vpnConnection, newstate, reason) {
-        let pos = this._findConnection(vpnConnection.uuid);
-        if (pos >= 0) {
-            let obj = this._connections[pos];
-            if (obj.item) {
-                obj.item.setToggleState(vpnConnection.vpn_state ==
-                                        NetworkManager.VPNConnectionState.ACTIVATED);
-                obj.item.setStatus(this.getStatusLabel(vpnConnection));
-            }
-        } else {
-            log('Could not find connection for vpn-state-changed handler');
-        }
     },
 });
 
