@@ -1417,7 +1417,6 @@ const NMApplet = new Lang.Class({
         }));
         this._statusSection.actor.hide();
         this.menu.addMenuItem(this._statusSection);
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
         this._activeConnections = [ ];
         this._connections = [ ];
@@ -1437,19 +1436,15 @@ const NMApplet = new Lang.Class({
             section: new PopupMenu.PopupMenuSection(),
             devices: [ ],
         };
-
         this._devices.wired.section.actor.hide();
         this.menu.addMenuItem(this._devices.wired.section);
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
         this._devices.virtual = {
             section: new PopupMenu.PopupMenuSection(),
             devices: [ ],
         };
-
         this._devices.virtual.section.actor.hide();
         this.menu.addMenuItem(this._devices.virtual.section);
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
         this._devices.wireless = {
             section: new PopupMenu.PopupMenuSection(),
@@ -1457,7 +1452,6 @@ const NMApplet = new Lang.Class({
         };
         this._devices.wireless.section.actor.hide();
         this.menu.addMenuItem(this._devices.wireless.section);
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
         this._devices.wwan = {
             section: new PopupMenu.PopupMenuSection(),
@@ -1465,7 +1459,6 @@ const NMApplet = new Lang.Class({
         };
         this._devices.wwan.section.actor.hide();
         this.menu.addMenuItem(this._devices.wwan.section);
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
         this._vpnSection = new NMVPNSection(this._client, this._connections);
         this.menu.addMenuItem(this._vpnSection.section);
