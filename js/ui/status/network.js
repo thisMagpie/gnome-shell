@@ -244,6 +244,7 @@ const NMDevice = new Lang.Class({
             this.device = device;
             this.device._delegate = this;
             this._stateChangedId = this.device.connect('state-changed', Lang.bind(this, this._deviceStateChanged));
+            this._activeConnectionChangedId = this.device.connect('notify::active-connection', Lang.bind(this, this._activeConnectionChanged));
         } else if (this.device) {
             this.device._delegate = null;
 
@@ -299,11 +300,9 @@ const NMDevice = new Lang.Class({
         return this.device && this.device.state == NetworkManager.DeviceState.ACTIVATED;
     },
 
-    clearActiveConnection: function(activeConnection) {
-        this.setActiveConnection(null);
-    },
+    _activeConnectionChanged: function() {
+        let activeConnection = this.device.active_connection;
 
-    setActiveConnection: function(activeConnection) {
         if (activeConnection == this._activeConnection)
             // nothing to do
             return;
@@ -780,7 +779,7 @@ const NMDeviceWireless = new Lang.Class({
                 this._activeNetwork = this._networks[res.network];
         }
 
-        // we don't refresh the view here, setActiveConnection will
+        // we don't refresh the view here, _activeConnectionChanged will
     },
 
     _getApSecurityType: function(accessPoint) {
@@ -1256,13 +1255,13 @@ const NMVPNSection = new Lang.Class({
         this._syncConnectionItem(activeConnection, activeConnection._connection);
     },
 
-    clearActiveConnection: function(activeConnection) {
+    removeActiveConnection: function(activeConnection) {
         activeConnection._connection._activeConnection = null;
         activeConnection.disconnect(activeConnection._stateChangedId);
         this._syncConnectionItem(null, activeConnection._connection);
     },
 
-    setActiveConnection: function(activeConnection) {
+    addActiveConnection: function(activeConnection) {
         activeConnection._connection._activeConnection = activeConnection;
         activeConnection._stateChangedId = activeConnection.connect('vpn-state-changed',
                                                                     Lang.bind(this, this._connectionStateChanged));
@@ -1548,9 +1547,9 @@ const NMApplet = new Lang.Class({
 
         for (let i = 0; i < closedConnections.length; i++) {
             let active = closedConnections[i];
-            if (active._primaryDevice) {
-                active._primaryDevice.clearActiveConnection(active);
-                active._primaryDevice = null;
+            if (active._vpnSection) {
+                active._vpnSection.removeDevice(active);
+                active._vpnSection = null;
             }
             if (active._inited) {
                 active.disconnect(active._notifyStateId);
@@ -1610,14 +1609,15 @@ const NMApplet = new Lang.Class({
                 active_vpn = a;
 
             if (!a._primaryDevice) {
-                if (a._type != NetworkManager.SETTING_VPN_SETTING_NAME)
+                if (a._type != NetworkManager.SETTING_VPN_SETTING_NAME) {
                     // This list is guaranteed to have one device in it.
                     a._primaryDevice = a.get_devices()[0]._delegate;
-                else
+                } else {
                     a._primaryDevice = this._vpnSection;
+                    a._vpnSection = this._vpnSection;
 
-                if (a._primaryDevice)
-                    a._primaryDevice.setActiveConnection(a);
+                    this._vpnSection.addActiveConnection(a);
+                }
             }
         }
 
