@@ -86,7 +86,7 @@ const NMDevice = new Lang.Class({
         this._activeConnection = null;
         this._activeConnectionItem = null;
 
-        this.statusItem = new PopupMenu.PopupSwitchMenuItem('', this.connected, { style_class: 'popup-subtitle-menu-item' });
+        this.statusItem = new PopupMenu.PopupSwitchMenuItem('', this.connected);
         this._statusChanged = this.statusItem.connect('toggled', Lang.bind(this, function(item, state) {
             let ok;
             if (state)
@@ -1054,7 +1054,7 @@ const NMDeviceWireless = new Lang.Class({
         this._dialog = null;
         this._item = new PopupMenu.PopupBaseMenuItem({ reactive: true });
         this._item.connect('activate', Lang.bind(this, this._showDialog));
-        this._nameLabel = new St.Label({ style_class: 'popup-subtitle-menu-item' });
+        this._nameLabel = new St.Label();
         this._item.addActor(this._nameLabel);
 
         this._statusLabel = new St.Label({ style_class: 'popup-status-menu-item' });
@@ -1277,8 +1277,7 @@ const NMVPNSection = new Lang.Class({
     },
 
     _createConnectionItem: function(connection) {
-        connection.item = new PopupMenu.PopupSwitchMenuItem(connection.get_id(), false,
-                                                            { style_class: 'popup-subtitle-menu-item' });
+        connection.item = new PopupMenu.PopupSwitchMenuItem(connection.get_id(), false);
         connection.item.connect('toggled', Lang.bind(this, function(menuItem) {
             if (menuItem.state) {
                 this._client.activate_connection(connection, null, null);
