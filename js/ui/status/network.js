@@ -527,11 +527,6 @@ const NMDeviceModem = new Lang.Class({
                         this._operatorItem.actor.hide();
                 }
             }));
-            this._signalQualityId = this.mobileDevice.connect('notify::signal-quality', Lang.bind(this, function() {
-                if (this._operatorItem) {
-                    this._operatorItem.setIcon(this._getSignalIcon());
-                }
-            }));
         }
 
         this.parent(client, device, connections);
@@ -560,9 +555,8 @@ const NMDeviceModem = new Lang.Class({
 
         if (this.mobileDevice) {
             // If operator_name is null, just pass the empty string, as the item is hidden anyway
-            this._operatorItem = new PopupMenu.PopupImageMenuItem(this.mobileDevice.operator_name || '',
-                                                                  this._getSignalIcon(),
-                                                                  { reactive: false });
+            this._operatorItem = new PopupMenu.PopupMenuItem(this.mobileDevice.operator_name || '',
+                                                             { style_class: 'popup-status-menu-item' });
             if (!this.mobileDevice.operator_name)
                 this._operatorItem.actor.hide();
             this.section.addMenuItem(this._operatorItem);
