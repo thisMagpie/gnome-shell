@@ -472,6 +472,13 @@ const NMDeviceWired = new Lang.Class({
 
         this.parent(client, device, connections);
     },
+
+    getIndicatorIcon: function(mc) {
+        if (mc.state == NetworkManager.ActiveConnectionState.ACTIVATING)
+            return 'network-wired-acquiring-symbolic';
+        else
+            return 'network-wired-symbolic';
+    },
 });
 
 const NMDeviceModem = new Lang.Class({
@@ -527,6 +534,9 @@ const NMDeviceModem = new Lang.Class({
                         this._operatorItem.actor.hide();
                 }
             }));
+            this._signalQualityId = this.mobileDevice.connect('notify::signal-quality', Lang.bind(this, function() {
+                this.emit('icon-changed');
+            }));
         }
 
         this.parent(client, device, connections);
@@ -578,6 +588,18 @@ const NMDeviceModem = new Lang.Class({
                     'connect-3g', this.device.get_path()]);
         return true;
     },
+
+    getIndicatorIcon: function(mc) {
+        if (mc.state == NetworkManager.ActiveConnectionState.ACTIVATING)
+            return 'network-cellular-acquiring-symbolic';
+
+        if (!this.mobileDevice) {
+            // this can happen for bluetooth in PAN mode
+            return 'network-cellular-connected-symbolic';
+        }
+
+        return this._getSignalIcon();
+    }
 });
 
 const NMDeviceBluetooth = new Lang.Class({
@@ -600,7 +622,14 @@ const NMDeviceBluetooth = new Lang.Class({
         // that this phone supports PAN
 
         return this.parent();
-    }
+    },
+
+    getIndicatorIcon: function(mc) {
+        if (mc.state == NetworkManager.ActiveConnectionState.ACTIVATING)
+            return 'network-wired-acquiring-symbolic';
+        else
+            return 'network-wired-symbolic';
+    },
 });
 
 const NMWirelessDialogItem = new Lang.Class({
@@ -1056,8 +1085,11 @@ const NMDeviceWireless = new Lang.Class({
         this.section.addMenuItem(this._item);
 
         this.syncDescription();
-        this.device.connect('notify::active-access-point', Lang.bind(this, this._syncStatusLabel));
-        this._syncStatusLabel();
+
+        this._activeAccessPoint = null;
+        this.device.connect('notify::active-access-point', Lang.bind(this, this._updateAccessPoint));
+        // Also calls _syncStatusLabel
+        this._updateAccessPoint();
     },
 
     checkConnection: function() {
@@ -1071,11 +1103,10 @@ const NMDeviceWireless = new Lang.Class({
     },
 
     _getStatus: function() {
-        let ap = this.device.active_access_point;
-        if (!ap)
+        if (!this._activeAccessPoint)
             return _("off"); // XXX -- interpret actual status
 
-        return ssidToLabel(ap.get_ssid());
+        return ssidToLabel(this._activeAccessPoint.get_ssid());
     },
 
     _syncStatusLabel: function() {
@@ -1091,6 +1122,45 @@ const NMDeviceWireless = new Lang.Class({
     _dialogClosed: function() {
         this._dialog.destroy();
         this._dialog = null;
+    },
+
+    _updateAccessPoint: function() {
+        let ap = this.device.active_access_point;
+        if (this._activeAccessPoint == ap)
+            return;
+
+        if (this._activeAccessPoint) {
+            this._activeAccessPoint.disconnect(this._strengthChangedId);
+            this._strengthChangedId = 0;
+        }
+
+        this._activeAccessPoint = ap;
+
+        if (this._activeAccessPoint) {
+            this._strengthChangedId = this._activeAccessPoint.connect('notify::strength',
+                                                                      Lang.bind(this, this._strengthChanged));
+        }
+
+        this._syncStatusLabel();
+    },
+
+    _strengthChanged: function() {
+        this.emit('icon-changed');
+    },
+
+    getIndicatorIcon: function(mc) {
+        if (mc.state == NetworkManager.ActiveConnectionState.ACTIVATING)
+            return 'network-wireless-acquiring-symbolic';
+
+        let ap = this.device.active_access_point;
+        if (!ap) {
+            if (this.device.mode != NM80211Mode.ADHOC)
+                log('An active wireless connection, in infrastructure mode, involves no access point?');
+
+            return 'network-wireless-connected-symbolic';
+        }
+
+        return 'network-wireless-signal-' + signalToIcon(ap.strength) + '-symbolic';
     },
 });
 Signals.addSignalMethods(NMDeviceWireless.prototype);
@@ -1142,7 +1212,14 @@ const NMDeviceVirtual = new Lang.Class({
 
     hasConnections: function() {
         return this._connections.length != 0;
-    }
+    },
+
+    getIndicatorIcon: function(mc) {
+        if (mc.state == NetworkManager.ActiveConnectionState.ACTIVATING)
+            return 'network-wired-acquiring-symbolic';
+        else
+            return 'network-wired-connected-symbolic';
+    },
 });
 
 const NMVPNSection = new Lang.Class({
@@ -1309,11 +1386,8 @@ const NMApplet = new Lang.Class({
         this._connections = [ ];
 
         this._mainConnection = null;
+        this._mainConnectionIconChangedId = 0;
         this._vpnConnection = null;
-        this._activeAccessPointUpdateId = 0;
-        this._activeAccessPoint = null;
-        this._mobileUpdateId = 0;
-        this._mobileUpdateDevice = null;
 
         this._nmDevices = [];
         this._devices = { };
@@ -1512,6 +1586,11 @@ const NMApplet = new Lang.Class({
             }
         }
 
+        if (this._mainConnectionIconChangedId > 0) {
+            this._mainConnection._primaryDevice.disconnect(this._mainConnectionIconChangedId);
+            this._mainConnectionIconChangedId = 0;
+        }
+
         this._activeConnections = newActiveConnections;
         this._mainConnection = null;
         this._vpnConnection = null;
@@ -1576,6 +1655,11 @@ const NMApplet = new Lang.Class({
 
         this._mainConnection = activating || default_ip4 || default_ip6 || active_any || null;
         this._vpnConnection = active_vpn;
+
+        if (this._mainConnection) {
+            let dev = this._mainConnection._primaryDevice;
+            this._mainConnectionIconChangedId = dev.connect('icon-changed', Lang.bind(this, this._updateIcon));
+        }
     },
 
     _notifyActivated: function(activeConnection) {
@@ -1740,87 +1824,13 @@ const NMApplet = new Lang.Class({
 
         if (!mc) {
             this.setIcon('network-offline-symbolic');
-        } else if (mc.state == NetworkManager.ActiveConnectionState.ACTIVATING) {
-            switch (mc._section) {
-            case NMConnectionCategory.WWAN:
-                this.setIcon('network-cellular-acquiring-symbolic');
-                break;
-            case NMConnectionCategory.WIRELESS:
-                this.setIcon('network-wireless-acquiring-symbolic');
-                break;
-            case NMConnectionCategory.WIRED:
-            case NMConnectionCategory.VIRTUAL:
-                this.setIcon('network-wired-acquiring-symbolic');
-                break;
-            default:
-                // fallback to a generic connected icon
-                // (it could be a private connection of some other user)
-                this.setIcon('network-wired-acquiring-symbolic');
-            }
         } else {
-            let dev;
-            switch (mc._section) {
-            case NMConnectionCategory.WIRELESS:
-                dev = mc._primaryDevice;
-                if (dev) {
-                    let ap = dev.device.active_access_point;
-                    let mode = dev.device.mode;
-                    if (!ap) {
-                        if (mode != NM80211Mode.ADHOC) {
-                            log('An active wireless connection, in infrastructure mode, involves no access point?');
-                            break;
-                        }
-                        this.setIcon('network-wireless-connected-symbolic');
-                    } else {
-                        if (this._activeAccessPoint != ap) {
-                            if (this._accessPointUpdateId)
-                                this._activeAccessPoint.disconnect(this._accessPointUpdateId);
-                            this._activeAccessPoint = ap;
-                            this._activeAccessPointUpdateId = ap.connect('notify::strength', Lang.bind(this, function() {
-                                this.setIcon('network-wireless-signal-' + signalToIcon(ap.strength) + '-symbolic');
-                            }));
-                        }
-                        this.setIcon('network-wireless-signal-' + signalToIcon(ap.strength) + '-symbolic');
-                        hasApIcon = true;
-                    }
-                    break;
-                } else {
-                    log('Active connection with no primary device?');
-                    break;
-                }
-            case NMConnectionCategory.WIRED:
-            case NMConnectionCategory.VIRTUAL:
-                this.setIcon('network-wired-symbolic');
-                break;
-            case NMConnectionCategory.WWAN:
-                dev = mc._primaryDevice;
-                if (!dev) {
-                    log('Active connection with no primary device?');
-                    break;
-                }
-                if (!dev.mobileDevice) {
-                    // this can happen for bluetooth in PAN mode
-                    this.setIcon('network-cellular-connected-symbolic');
-                    break;
-                }
-
-                if (dev.mobileDevice != this._mobileUpdateDevice) {
-                    if (this._mobileUpdateId)
-                        this._mobileUpdateDevice.disconnect(this._mobileUpdateId);
-                    this._mobileUpdateDevice = dev.mobileDevice;
-                    this._mobileUpdateId = dev.mobileDevice.connect('notify::signal-quality', Lang.bind(this, function() {
-                        this.setIcon('network-cellular-signal-' + signalToIcon(dev.mobileDevice.signal_quality) + '-symbolic');
-                    }));
-                }
-                this.setIcon('network-cellular-signal-' + signalToIcon(dev.mobileDevice.signal_quality) + '-symbolic');
-                hasMobileIcon = true;
-                break;
-            default:
-                // fallback to a generic connected icon
-                // (it could be a private connection of some other user)
-                this.setIcon('network-wired-symbolic');
-                break;
+            let dev = mc._primaryDevice;
+            if (!dev) {
+                log('Active connection with no primary device?');
+                return;
             }
+            this.setIcon(dev.getIndicatorIcon(mc));
         }
 
         // update VPN indicator
@@ -1840,19 +1850,6 @@ const NMApplet = new Lang.Class({
             }
         } else {
             this.secondaryIcon.hide();
-        }
-
-        // cleanup stale signal connections
-
-        if (!hasApIcon && this._activeAccessPointUpdateId) {
-            this._activeAccessPoint.disconnect(this._activeAccessPointUpdateId);
-            this._activeAccessPoint = null;
-            this._activeAccessPointUpdateId = 0;
-        }
-        if (!hasMobileIcon && this._mobileUpdateId) {
-            this._mobileUpdateDevice.disconnect(this._mobileUpdateId);
-            this._mobileUpdateDevice = null;
-            this._mobileUpdateId = 0;
         }
     }
 });
