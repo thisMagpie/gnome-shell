@@ -88,7 +88,7 @@ enum {
   PROP_STATE,
   PROP_ID,
   PROP_DBUS_ID,
-  PROP_ACTION_GROUP,
+  PROP_ACTION_MUXER,
   PROP_MENU
 };
 
@@ -120,7 +120,7 @@ shell_app_get_property (GObject    *gobject,
     case PROP_ID:
       g_value_set_string (value, shell_app_get_id (app));
       break;
-    case PROP_ACTION_GROUP:
+    case PROP_ACTION_MUXER:
       if (app->running_state)
         g_value_set_object (value, app->running_state->muxer);
       break;
@@ -568,7 +568,7 @@ shell_app_update_window_actions (ShellApp *app, MetaWindow *window)
         app->running_state->muxer = gtk_action_muxer_new ();
 
       gtk_action_muxer_insert (app->running_state->muxer, "win", actions);
-      g_object_notify (G_OBJECT (app), "action-group");
+      g_object_notify (G_OBJECT (app), "action-muxer");
     }
 }
 
@@ -1656,17 +1656,16 @@ shell_app_class_init(ShellAppClass *klass)
                                                         G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
 
   /**
-   * ShellApp:action-group:
+   * ShellApp:action-muxer:
    *
-   * The #GDBusActionGroup associated with this ShellApp, if any. See the
-   * documentation of #GApplication and #GActionGroup for details.
+   * The #GtkActionMuxer associated with this ShellApp, if any.
    */
   g_object_class_install_property (gobject_class,
-                                   PROP_ACTION_GROUP,
-                                   g_param_spec_object ("action-group",
-                                                        "Application Action Group",
-                                                        "The action group exported by the remote application",
-                                                        G_TYPE_ACTION_GROUP,
+                                   PROP_ACTION_MUXER,
+                                   g_param_spec_object ("action-muxer",
+                                                        "Application Action Muxer",
+                                                        "",
+                                                        GTK_TYPE_ACTION_MUXER,
                                                         G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
   /**
    * ShellApp:menu:

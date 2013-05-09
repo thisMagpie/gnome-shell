@@ -620,12 +620,12 @@ const AppMenuButton = new Lang.Class({
     _maybeSetMenu: function() {
         let menu;
 
-        if (this._targetApp.action_group && this._targetApp.menu) {
+        if (this._targetApp.action_muxer && this._targetApp.menu) {
             if (this.menu instanceof PopupMenu.RemoteMenu &&
-                this.menu.actionGroup == this._targetApp.action_group)
+                this.menu.actionGroup == this._targetApp.action_muxer)
                 return;
 
-            menu = new PopupMenu.RemoteMenu(this.actor, this._targetApp.menu, this._targetApp.action_group);
+            menu = new PopupMenu.RemoteMenu(this.actor, this._targetApp.menu, this._targetApp.action_muxer);
             menu.connect('activate', Lang.bind(this, function() {
                 let win = this._targetApp.get_windows()[0];
                 win.check_alive(global.get_current_time());
