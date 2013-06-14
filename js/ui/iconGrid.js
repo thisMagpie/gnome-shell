@@ -196,6 +196,7 @@ const IconGrid = new Lang.Class({
         this._grid.connect('get-preferred-width', Lang.bind(this, this._getPreferredWidth));
         this._grid.connect('get-preferred-height', Lang.bind(this, this._getPreferredHeight));
         this._grid.connect('allocate', Lang.bind(this, this._allocate));
+        this._currentPage = 0;
     },
 
     _getPreferredWidth: function (grid, forHeight, alloc) {
@@ -231,6 +232,7 @@ const IconGrid = new Lang.Class({
             return;
 
         let children = this._getVisibleChildren();
+        //global.log("Num children visible"  + children.length);
         let nColumns, spacing;
         if (forWidth < 0) {
             nColumns = children.length;
@@ -246,13 +248,19 @@ const IconGrid = new Lang.Class({
             nRows = 0;
         if (this._rowLimit)
             nRows = Math.min(nRows, this._rowLimit);
+        //global.log("Rows "+nRows);
+        //global.log("Columns "+nColumns);
         let totalSpacing = Math.max(0, nRows - 1) * spacing;
         let height = nRows * this._vItemSize + totalSpacing;
+        //global.log("Heigth "+height);
         alloc.min_size = height;
         alloc.natural_size = height;
     },
 
     _allocate: function (grid, box, flags) {
+        let firstTime = true;
+        let maxChildsPerPage = 0;
+        let spacingBetweenPages = 0;
         if (this._fillParent) {
             // Reset the passed in box to fill the parent
             let parentBox = this.actor.get_parent().allocation;
@@ -261,11 +269,14 @@ const IconGrid = new Lang.Class({
         }
 
         let children = this._getVisibleChildren();
+        //global.log("Allocate visible children " + children.length);
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
-
+        //global.log("Allocate availHeigth " + availHeight);
+        //global.log("Allocate availWidth " + availWidth);
         let [nColumns, usedWidth, spacing] = this._computeLayout(availWidth);
-
+        //global.log("Allocate nColumnds " + nColumns);
+        //global.log("Allocate usedWidth " + nColumns);
         let leftPadding;
         switch(this._xAlign) {
             case St.Align.START:
@@ -282,32 +293,29 @@ const IconGrid = new Lang.Class({
         let y = box.y1;
         let columnIndex = 0;
         let rowIndex = 0;
+        let count1 = 0;
+        let count2 = 0;
         for (let i = 0; i < children.length; i++) {
-            let [childMinWidth, childMinHeight, childNaturalWidth, childNaturalHeight]
-                = children[i].get_preferred_size();
-
-            /* Center the item in its allocation horizontally */
-            let width = Math.min(this._hItemSize, childNaturalWidth);
-            let childXSpacing = Math.max(0, width - childNaturalWidth) / 2;
-            let height = Math.min(this._vItemSize, childNaturalHeight);
-            let childYSpacing = Math.max(0, height - childNaturalHeight) / 2;
-
-            let childBox = new Clutter.ActorBox();
-            if (Clutter.get_default_text_direction() == Clutter.TextDirection.RTL) {
-                let _x = box.x2 - (x + width);
-                childBox.x1 = Math.floor(_x - childXSpacing);
-            } else {
-                childBox.x1 = Math.floor(x + childXSpacing);
-            }
-            childBox.y1 = Math.floor(y + childYSpacing);
-            childBox.x2 = childBox.x1 + width;
-            childBox.y2 = childBox.y1 + height;
-
+            let childBox = this._calculateChildrenBox(children[i], x, y);
+            
             if (this._rowLimit && rowIndex >= this._rowLimit ||
-                this._fillParent && childBox.y2 > availHeight) {
-                this._grid.set_skip_paint(children[i], true);
+                 childBox.y2 > availHeight || this.parentSize && (childBox.y2 > this.parentSize[1]) ) {
+                if(firstTime && this.parentSize) {
+                    maxChildsPerPage = count2;
+                    firstTime = false;
+                    spacingBetweenPages = this.parentSize[1] - ( children[i-1].y + children[i-1].size.height);
+                    y+= spacingBetweenPages;
+                    global.log("Spacing between pages " + spacingBetweenPages);
+                  //Recalculate child box
+                  childBox = this._calculateChildrenBox(children[i], x, y);  
+                }
+                
+                count1 += 1;
+                children[i].allocate(childBox, flags);
+                this._grid.set_skip_paint(children[i], false);
             } else {
                 children[i].allocate(childBox, flags);
+                count2 += 1;
                 this._grid.set_skip_paint(children[i], false);
             }
 
@@ -319,15 +327,47 @@ const IconGrid = new Lang.Class({
 
             if (columnIndex == 0) {
                 y += this._vItemSize + spacing;
+                if(!firstTime && count1 % maxChildsPerPage == 0)
+                    {
+                        y+= spacingBetweenPages;
+                    }
                 x = box.x1 + leftPadding;
             } else {
                 x += this._hItemSize + spacing;
             }
         }
+        /*global.log("Final count 1 " + count1);
+        global.log("Final count 2 " + count2);
+        global.log("Final n children " + this._grid.get_n_children());
+        global.log("Final n skip " + this._grid.get_n_skip_paint());*/
+        global.log("Allocation final visible count " + this.visibleItemsCount());
     },
 
+    _calculateChildrenBox: function(child, x, y) {
+        let [childMinWidth, childMinHeight, childNaturalWidth, childNaturalHeight]
+        = child.get_preferred_size();
+
+        /* Center the item in its allocation horizontally */
+        let width = Math.min(this._hItemSize, childNaturalWidth);
+        let childXSpacing = Math.max(0, width - childNaturalWidth) / 2;
+        let height = Math.min(this._vItemSize, childNaturalHeight);
+        let childYSpacing = Math.max(0, height - childNaturalHeight) / 2;
+    
+        let childBox = new Clutter.ActorBox();
+        if (Clutter.get_default_text_direction() == Clutter.TextDirection.RTL) {
+            let _x = box.x2 - (x + width);
+            childBox.x1 = Math.floor(_x - childXSpacing);
+        } else {
+            childBox.x1 = Math.floor(x + childXSpacing);
+        }
+        childBox.y1 = Math.floor(y + childYSpacing);
+        childBox.x2 = childBox.x1 + width;
+        childBox.y2 = childBox.y1 + height;
+        return childBox;
+    },
+    
     childrenInRow: function(rowWidth) {
-        return this._computeLayout(rowWidth)[0];
+        return this._computeLayout(rowWidth)[0]
     },
 
     getRowLimit: function() {
