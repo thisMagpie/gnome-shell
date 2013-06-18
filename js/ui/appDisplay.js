@@ -60,7 +60,6 @@ const AlphabeticalView = new Lang.Class({
 
     _init: function() {
         this._grid = new IconGrid.IconGrid({ xAlign: St.Align.MIDDLE,
-                                             
                                              columnLimit: MAX_COLUMNS });
 
         // Standard hack for ClutterBinLayout
@@ -189,11 +188,13 @@ const AllViewLayout = new Lang.Class({
 const AppPage = new Lang.Class({
     Name: 'AppPage',
     Extends: AlphabeticalView,
-    
+   
     _init: function() {
         this.parent();
-        this._grid.actor.y_align = Clutter.ActorAlign.START;
-        this._grid.actor.y_expand = false;
+        
+        //this._grid.actor.y_align = St.Align.START;
+        //this._grid.actor.y_expand = false;
+        this._grid._fillParentV2 = true;
         this.actor = this._grid.actor;
     },
 
@@ -205,7 +206,7 @@ const AppPage = new Lang.Class({
         else
             return null;
     },
-    
+   
     _createItemIcon: function(item) {
         if (item instanceof Shell.App)
             return new AppIcon(item);
@@ -222,57 +223,109 @@ const AppPage = new Lang.Class({
         let nameB = GLib.utf8_collate_key(itemB.get_name(), -1);
         return (nameA > nameB) ? 1 : (nameA < nameB ? -1 : 0);
     },
-    
+   
     addItem: function(item) {
         this._addItem(item);
     }
 });
-
-const PaginationScrollView = new Lang.Class({
-    Name: 'PaginationScrollView',
-    Extends: St.ScrollView,
+const PaginationScrollActor = new Lang.Class({
+    Name: 'PaginationScrollActor',
+    Extends: Clutter.ScrollActor,
     
-    _init: function(params) {
-        
+    setPageController: function(page) {
+        this._page = page;
+    },
+    
+    vfunc_get_preferred_height: function (container, forWidht) {
+        return [0,0];
     },
 
+    vfunc_get_preferred_width: function(container, forHeight) {
+        return [0,0];
+    },
+    
     vfunc_allocate: function(box, flags) {
+        let originalBox = box;
+        //Retrieve parent size
+        box = this.get_parent().allocation;
         this.set_allocation(box, flags);
-        global.log("ALLOCATION DONE!!!");
+        
+        let availWidth = box.x2 - box.x1;
+        let availHeight = box.y2 - box.y1;
+        
+        let childBox = new Clutter.ActorBox();
+        let child = this.get_children()[0];
+        let childWidth = child.get_preferred_width(availHeight)[1];
+        let childHeight = child.get_preferred_height(availWidth)[1];
+        childBox.x1 = (availWidth - childWidth)/2;
+        childBox.y1 = 0;
+        childBox.x2 = childBox.x1 + childWidth;
+        childBox.y2 = availHeight;   
+
+        child.allocate(childBox, flags);
+        global.log("PAGES!!!" + this._page._grid.nPages());
+        
+        //this.scroll_to_point(this._page._grid.goToNextPage());
+    },
+    
+    goToNextPage: function() {
+        this.scroll_to_point(this._page._grid.goToNextPage());
+    }, 
+    
+    goToPreviousPage: function() {
+        this.scroll_to_point(this._page._grid.goToPreviousPage());
     }
 });
 
-
 const AllView = new Lang.Class({
     Name: 'AllView',
-    Extends: St.ScrollView,
-    
+   
     _init: function() {
-        this.parent({ 
-            x_fill: true,
-            y_fill: false,
-            y_align: St.Align.START,
-            x_expand: true,
-            y_expand: true,
-            overlay_scrollbars: true,
-            style_class: 'all-apps vfade' });
-        this._actorLayoutManager = new AllViewLayout();
-        this.actor = this;
+       
+        this.actor = new PaginationScrollActor({layout_manager: new Clutter.BinLayout()});
+        this._box = new St.BoxLayout({vertical: true, x_align: St.Align.MIDDLE, y_align: St.Align.MIDDLE});
+        this._page = new AppPage();
+        this._labels = [];
+        /*
+        for(let i = 0; i<100; i++) {
+            this._labels[i] = new St.Label({ text: "TESSSSST "+i});
+            this._box.add_actor(this._labels[i]);
+        }*/
+       
+        this._box.add_actor(this._page.actor);
+        this.actor.add_actor(this._box);
+        this.actor.setPageController(this._page);
+        this.actor.set_reactive(true);
+
+        this.actor.connect('scroll-event', Lang.bind(this, function(actor, event) {
+            global.log("scroll! "+event.get_scroll_direction());
+            let direction = event.get_scroll_direction();
+            if (direction == Clutter.ScrollDirection.UP)
+                this.actor.goToPreviousPage();
+            if (direction == Clutter.ScrollDirection.DOWN)
+                this.actor.goToNextPage();
+        }));
+        
+        /*this._actorLayoutManager = new AllViewLayout();
         global.log(" SERAAA?? " + this.actor.scroll_to_point);
         this._box = new St.BoxLayout({vertical: true});
         this._widgetLayoutManager = new AllViewLayout();
-        
-        
+       
+       
         this._widgetForLayout = new St.Widget({ layout_manager:  this._widgetLayoutManager });
-        this._page = new AppPage();       
+              
         this._widgetForLayout.add_actor(this._page.actor);
-        this._box.add_actor(this._widgetForLayout);
-        this.actor.add_actor(this._box); 
+        this._box.add_actor(this._widgetForLayout);*/
+        /*this._box =  new St.Widget({ style_class: 'frequent-apps',
+            x_expand: true, y_expand: true });*/
+        
+        
+        //this.actor.connect('allocate', Lang.bind(this, this._allocate));
         //this.clip_to_allocation = true;
         //this.actor.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC);
         /*let box = new St.BoxLayout({ vertical: true });
         this._stack = new St.Widget();*/
-        
+       
         /*this._stack.add_actor(this._page.actor);
         this._eventBlocker = new St.Widget({ x_expand: true, y_expand: true });
         this._stack.add_actor(this._eventBlocker);
@@ -285,19 +338,19 @@ const AllView = new Lang.Class({
                                          y_expand: true,
                                          overlay_scrollbars: true,
                                          style_class: 'all-apps vfade' });*/
-        
+       
         /*this._widgetForLayout2 = new St.Widget({ layout_manager: new AllViewLayout() });
         this._widgetForLayout2.add_actor(this._page2.actor);
         this._textLabel = new St.Label({text: "HOLAAA"});
         this._textLabel2 = new St.Label({text: "HOLAAA"});
         this._box.add_actor(this._textLabel);
         this._box.add_actor(this._widgetForLayout);
-        
-        
+       
+       
         this._box.add(this._textLabel2);
         this._box.add(this._widgetForLayout2);*/
-        
-        
+       
+       
         /*this.actor = new St.Bin({ style_class: 'all-apps vfade',
             x_fill: true,
             y_fill: false,
@@ -305,14 +358,14 @@ const AllView = new Lang.Class({
 
         this.actor.add_actor(this._page.actor);*/
         //this.actor.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC);
-        
-        
+       
+       
         this._pageControl = new St.Widget();
-        
+       
         /*this.actor = new St.Widget({ style_class: 'frequent-apps',
             x_expand: true, y_expand: true });*/
-              
-        
+             
+       
        /* let action = new Clutter.PanAction({ interpolate: true });
         action.connect('pan', Lang.bind(this, this._onPan));
         this.actor.add_action(action);
@@ -328,10 +381,22 @@ const AllView = new Lang.Class({
                 this._currentPopup.popdown();
         }));
         this._eventBlocker.add_action(this._clickAction);*/
-        global.log("PPP visible items after init " + this._page._grid.visibleItemsCount());
+        //global.log("PPP visible items after init " + this._page._grid.visibleItemsCount());
     },
     
-    vfunc_allocate: function(box, flags) {
+    _onKeyRelease: function(actor, event) {
+        if (event.get_key_symbol() == Clutter.KEY_Up) {
+            this.actor.goToNextPage();
+            return true;
+        } else if(event.get_key_symbol() == Clutter.KEY_Down) {
+            this.actor.goToPreviousPage();
+            return true
+        }
+
+        return false;
+    },
+   
+        _allocate: function(box, flags) {
         this.set_allocation(box, flags);
         global.log("ALLOCATIONS!!!!!!");
         global.log("Allocation width "+ this.clip_rect.size.width);
@@ -339,12 +404,22 @@ const AllView = new Lang.Class({
         global.log("Allocation box "+ [box.x2 - box.x1, box.y2 - box.y1]);
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
+        //this._label.allocate(box, flags);
+        this._box.allocate(box, flags);
+        /*
         this._page._grid.parentSize = [availWidth, availHeight];
         this._widgetLayoutManager.parentSize = [availWidth, availHeight];
         this._actorLayoutManager.parentSize = [availWidth, availHeight];
         this._box.allocate(box, flags);
+        */
     },
     
+    _allocate: function(actor, box, flags) {
+        let availWidth = box.x2 - box.x1;
+        let availHeight = box.y2 - box.y1;
+        this._page._grid.parentSize = [availWidth, availHeight];
+    },
+   
     _onPan: function(action) {
         /*
         this._clickAction.release();
@@ -356,7 +431,7 @@ const AllView = new Lang.Class({
     },
 
     addApp: function(app) {
-        let appIcon = this._page.addItem(app);
+       let appIcon = this._page.addItem(app);
         /*if (appIcon)
             appIcon.actor.connect('key-focus-in',
                                   Lang.bind(this, this._ensureIconVisible));*/
@@ -398,14 +473,14 @@ const AllView = new Lang.Class({
                 this._items[id].actor.opacity = 255;
         }
     },
-    
+   
     removeAll: function() {
         this._page.removeAll();
     },
 
     loadGrid: function() {
         this._page.loadGrid();
-        global.log("ZZZ visible items after load grid " + this._page._grid.visibleItemsCount());
+        //global.log("ZZZ visible items after load grid " + this._page._grid.visibleItemsCount());
     }
 });
 
@@ -419,7 +494,7 @@ const FrequentView = new Lang.Class({
         this.actor = new St.Widget({ style_class: 'frequent-apps',
                                      x_expand: true, y_expand: true });
         this.actor.add_actor(this._grid.actor);
-        
+       
         //global.log("Frequent visible items " + this._grid.visibleItemsCount());
 
         this._usage = Shell.AppUsage.get_default();
@@ -1148,3 +1223,4 @@ const AppIconMenu = new Lang.Class({
     }
 });
 Signals.addSignalMethods(AppIconMenu.prototype);
+
