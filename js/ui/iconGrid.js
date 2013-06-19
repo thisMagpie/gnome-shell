@@ -182,8 +182,6 @@ const IconGrid = new Lang.Class({
         this._colLimit = params.columnLimit;
         this._xAlign = params.xAlign;
         this._fillParent = params.fillParent;
-        
-        this._fillParentV2 = false;
 
         this.actor = new St.BoxLayout({ style_class: 'icon-grid',
                                         vertical: true });
@@ -235,7 +233,7 @@ const IconGrid = new Lang.Class({
             return;
 
         let children = this._getVisibleChildren();
-        //global.log("Num children visible"  + children.length);
+        global.log("Num children visible"  + children.length);
         let nColumns, spacing;
         if (forWidth < 0) {
             nColumns = children.length;
@@ -251,11 +249,18 @@ const IconGrid = new Lang.Class({
             nRows = 0;
         if (this._rowLimit)
             nRows = Math.min(nRows, this._rowLimit);
-        //global.log("Rows "+nRows);
-        //global.log("Columns "+nColumns);
         let totalSpacing = Math.max(0, nRows - 1) * spacing;
         let height = nRows * this._vItemSize + totalSpacing;
-        global.log("getPreferredHeigth Heigth "+height);
+        if(this._parentHeight) {
+            let rowsPerPage = Math.floor(this._parentHeight / (this._vItemSize + spacing));
+            let spacePerRow = this._vItemSize + spacing;
+            this._nPages = Math.ceil(nRows / rowsPerPage);
+            this._spaceBetweenPages = this._parentHeight - (rowsPerPage * (this._vItemSize + spacing));
+            let spaceBetweenPagesTotal = this._spaceBetweenPages * (this._nPages); 
+            alloc.min_size = rowsPerPage* spacePerRow * this._nPages + spaceBetweenPagesTotal;
+            alloc.natural_size = rowsPerPage* spacePerRow * this._nPages + spaceBetweenPagesTotal;
+            return;
+        }
         alloc.min_size = height;
         alloc.natural_size = height;
     },
@@ -264,7 +269,6 @@ const IconGrid = new Lang.Class({
         
         let firstTime = true;
         let maxChildsPerPage = 0;
-        let spacingBetweenPages = 0;
         if (this._fillParent) {
             // Reset the passed in box to fill the parent
             let parentBox = this.actor.get_parent().allocation;
@@ -301,10 +305,8 @@ const IconGrid = new Lang.Class({
         let rowIndex = 0;
         let count1 = 0;
         let count2 = 0;
-        let parentBox = this.actor.get_parent().allocation;
-        let parentAvailWidth = parentBox.x2 - parentBox.x1;
-        let parentAvailHeight = parentBox.y2 - parentBox.y1;
-        global.log("IconGrid allocation, parent box "+ parentAvailWidth + " " + parentAvailHeight);
+
+        global.log("IconGrid allocation, parent box "+ this._parentHeight);
         if(children.length > 0) {
             this._firstPagesItems = [children[0]];
         }
@@ -312,17 +314,17 @@ const IconGrid = new Lang.Class({
             let childBox = this._calculateChildrenBox(children[i], x, y);
             
             if (this._rowLimit && rowIndex >= this._rowLimit ||
-                 childBox.y2 > availHeight || this._fillParentV2 && (childBox.y2 > parentAvailHeight) ) {
+                 childBox.y2 > availHeight || this._parentHeight && (childBox.y2 > this._parentHeight) ) {
                 if(firstTime) {
                     maxChildsPerPage = count2;
                     global.log("MAx children per page " + maxChildsPerPage);
                     firstTime = false;
-                    spacingBetweenPages = parentAvailHeight - ( children[i-1].y + children[i-1].size.height);
+                    spacingBetweenPages = this._parentHeight - ( children[i-1].y + children[i-1].size.height);
                     if(i < children.length) {
                         this._firstPagesItems.push(children[i]);
                     }
-                    y+= spacingBetweenPages;
-                    global.log("Spacing between pages " + spacingBetweenPages);
+                    y+= this._spaceBetweenPages;
+                    global.log("Spacing between pages " + this._spaceBetweenPages);
                     // Recalculate child box
                     childBox = this._calculateChildrenBox(children[i], x, y);
                 }
@@ -345,7 +347,7 @@ const IconGrid = new Lang.Class({
             if (columnIndex == 0) {
                 y += this._vItemSize + spacing;
                 if(!firstTime && count1 % maxChildsPerPage == 0) {
-                    y+= spacingBetweenPages;
+                    y+= this._spaceBetweenPages;
                     if(i < children.length) {
                         this._firstPagesItems.push(children[i+1]);
                     }
@@ -355,10 +357,6 @@ const IconGrid = new Lang.Class({
                 x += this._hItemSize + spacing;
             }
         }
-        /*global.log("Final count 1 " + count1);
-        global.log("Final count 2 " + count2);
-        global.log("Final n children " + this._grid.get_n_children());
-        global.log("Final n skip " + this._grid.get_n_skip_paint());*/
         global.log("WE NEED N PAGES " + this.nPages());
     },
 
@@ -445,34 +443,30 @@ const IconGrid = new Lang.Class({
     },
     
     nPages: function() {
-        return this._firstPagesItems.length;
+        return this._nPages;
     },
     
     goToNextPage: function() {
-        if(this._firstPagesItems.length == 0) {
+        if(this._nPages == 0) {
             return;
         }
         if(this._currentPage + 1 < this._firstPagesItems.length) {
             this._currentPage++;
         }
-        let point = new Clutter.Point();
         let childBox = this._firstPagesItems[this._currentPage].get_allocation_box();
-        point.x = childBox.x1;
-        point.y = childBox.y1;
-        return point;
+        let scrollY = childBox.y1;
+        return scrollY;
     },
     
     goToPreviousPage: function() {
-        if(this._firstPagesItems.length == 0) {
+        if(this._nPages == 0) {
             return;
         }
         if(this._currentPage - 1 > -1) {
             this._currentPage--;
         }
-        let point = new Clutter.Point();
         let childBox = this._firstPagesItems[this._currentPage].get_allocation_box();
-        point.x = childBox.x1;
-        point.y = childBox.y1;
-        return point;
+        let scrollY = childBox.y1;
+        return scrollY;
     }
 });

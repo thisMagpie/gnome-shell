@@ -230,18 +230,33 @@ const AppPage = new Lang.Class({
 });
 const PaginationScrollActor = new Lang.Class({
     Name: 'PaginationScrollActor',
-    Extends: Clutter.ScrollActor,
+    Extends: St.ScrollView,
     
-    setPageController: function(page) {
-        this._page = page;
+    _init: function() {
+        this.parent();
+        this._box = new St.BoxLayout({vertical: true, x_align: St.Align.MIDDLE, y_align: St.Align.MIDDLE});
+        this._page = new AppPage();
+       
+        this._box.add_actor(this._page.actor);
+        this.add_actor(this._box);
+        this.set_reactive(true);
+        this.connect('scroll-event', Lang.bind(this, function(actor, event) {
+            global.log("scroll! "+event.get_scroll_direction());
+            let direction = event.get_scroll_direction();
+            if (direction == Clutter.ScrollDirection.UP)
+                this.goToPreviousPage();
+            if (direction == Clutter.ScrollDirection.DOWN)
+                this.goToNextPage();
+        }));
+        
     },
     
     vfunc_get_preferred_height: function (container, forWidht) {
-        return [0,0];
+        return [0, 0];
     },
 
     vfunc_get_preferred_width: function(container, forHeight) {
-        return [0,0];
+        return [0, 0];
     },
     
     vfunc_allocate: function(box, flags) {
@@ -249,31 +264,35 @@ const PaginationScrollActor = new Lang.Class({
         //Retrieve parent size
         box = this.get_parent().allocation;
         this.set_allocation(box, flags);
+        //this.set_allocation(box, flags);
         
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
         
         let childBox = new Clutter.ActorBox();
-        let child = this.get_children()[0];
+        let child = this.get_children()[2];
         let childWidth = child.get_preferred_width(availHeight)[1];
         let childHeight = child.get_preferred_height(availWidth)[1];
         childBox.x1 = (availWidth - childWidth)/2;
         childBox.y1 = 0;
         childBox.x2 = childBox.x1 + childWidth;
         childBox.y2 = availHeight;   
-
-        child.allocate(childBox, flags);
-        global.log("PAGES!!!" + this._page._grid.nPages());
         
-        //this.scroll_to_point(this._page._grid.goToNextPage());
+        //Put parentSize in grid
+        this._page._grid._parentHeight = availHeight;
+        
+        global.log("PAGES!!!" + this._page._grid.nPages());
+        global.log("ADJUSTMENT before" + this.vscroll.adjustment.get_values());
+        //this.vscroll.adjustment= new St.Adjustment({lower:0, upper:3000, value:1900, step_increment:145, page_increment:726, page_size:872});
+        child.allocate(childBox, flags);
+        global.log("ADJUSTMENT " + this.vscroll.adjustment.get_values());
     },
     
     goToNextPage: function() {
-        this.scroll_to_point(this._page._grid.goToNextPage());
-    }, 
-    
+        this.vscroll.adjustment.set_value(this._page._grid.goToNextPage());
+    },
     goToPreviousPage: function() {
-        this.scroll_to_point(this._page._grid.goToPreviousPage());
+        this.vscroll.adjustment.set_value(this._page._grid.goToPreviousPage());
     }
 });
 
@@ -282,29 +301,9 @@ const AllView = new Lang.Class({
    
     _init: function() {
        
-        this.actor = new PaginationScrollActor({layout_manager: new Clutter.BinLayout()});
-        this._box = new St.BoxLayout({vertical: true, x_align: St.Align.MIDDLE, y_align: St.Align.MIDDLE});
-        this._page = new AppPage();
-        this._labels = [];
-        /*
-        for(let i = 0; i<100; i++) {
-            this._labels[i] = new St.Label({ text: "TESSSSST "+i});
-            this._box.add_actor(this._labels[i]);
-        }*/
-       
-        this._box.add_actor(this._page.actor);
-        this.actor.add_actor(this._box);
-        this.actor.setPageController(this._page);
-        this.actor.set_reactive(true);
+        this.actor = new PaginationScrollActor();
+        
 
-        this.actor.connect('scroll-event', Lang.bind(this, function(actor, event) {
-            global.log("scroll! "+event.get_scroll_direction());
-            let direction = event.get_scroll_direction();
-            if (direction == Clutter.ScrollDirection.UP)
-                this.actor.goToPreviousPage();
-            if (direction == Clutter.ScrollDirection.DOWN)
-                this.actor.goToNextPage();
-        }));
         
         /*this._actorLayoutManager = new AllViewLayout();
         global.log(" SERAAA?? " + this.actor.scroll_to_point);
@@ -396,30 +395,6 @@ const AllView = new Lang.Class({
         return false;
     },
    
-        _allocate: function(box, flags) {
-        this.set_allocation(box, flags);
-        global.log("ALLOCATIONS!!!!!!");
-        global.log("Allocation width "+ this.clip_rect.size.width);
-        global.log("Allocation heithg "+ this.clip_rect.size.height);
-        global.log("Allocation box "+ [box.x2 - box.x1, box.y2 - box.y1]);
-        let availWidth = box.x2 - box.x1;
-        let availHeight = box.y2 - box.y1;
-        //this._label.allocate(box, flags);
-        this._box.allocate(box, flags);
-        /*
-        this._page._grid.parentSize = [availWidth, availHeight];
-        this._widgetLayoutManager.parentSize = [availWidth, availHeight];
-        this._actorLayoutManager.parentSize = [availWidth, availHeight];
-        this._box.allocate(box, flags);
-        */
-    },
-    
-    _allocate: function(actor, box, flags) {
-        let availWidth = box.x2 - box.x1;
-        let availHeight = box.y2 - box.y1;
-        this._page._grid.parentSize = [availWidth, availHeight];
-    },
-   
     _onPan: function(action) {
         /*
         this._clickAction.release();
@@ -431,14 +406,14 @@ const AllView = new Lang.Class({
     },
 
     addApp: function(app) {
-       let appIcon = this._page.addItem(app);
+       let appIcon = this.actor._page.addItem(app);
         /*if (appIcon)
             appIcon.actor.connect('key-focus-in',
                                   Lang.bind(this, this._ensureIconVisible));*/
     },
 
     addFolder: function(dir) {
-        let folderIcon = this._page.addItem(dir);
+        let folderIcon = this.actor._page.addItem(dir);
         /*if (folderIcon)
             folderIcon.actor.connect('key-focus-in',
                                      Lang.bind(this, this._ensureIconVisible));*/
@@ -475,11 +450,11 @@ const AllView = new Lang.Class({
     },
    
     removeAll: function() {
-        this._page.removeAll();
+        this.actor._page.removeAll();
     },
 
     loadGrid: function() {
-        this._page.loadGrid();
+        this.actor._page.loadGrid();
         //global.log("ZZZ visible items after load grid " + this._page._grid.visibleItemsCount());
     }
 });
