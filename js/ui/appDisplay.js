@@ -60,6 +60,7 @@ const AlphabeticalView = new Lang.Class({
 
     _init: function() {
         this._grid = new IconGrid.IconGrid({ xAlign: St.Align.MIDDLE,
+                                             usePagination: true,
                                              columnLimit: MAX_COLUMNS });
 
         // Standard hack for ClutterBinLayout
@@ -156,37 +157,8 @@ const FolderView = new Lang.Class({
     }
 });
 
-const AllViewLayout = new Lang.Class({
-    Name: 'AllViewLayout',
-    Extends: Clutter.BinLayout,
-
-    vfunc_get_preferred_height: function(container, forWidth) {
-        if(this.parentSize)
-            {
-            return this.parentSize;
-            }
-        global.log("Parent size " + this.parentSize);
-        let minBottom = 0;
-        let naturalBottom = 0;
-
-        for (let child = container.get_first_child();
-             child;
-             child = child.get_next_sibling()) {
-            let childY = child.y;
-            let [childMin, childNatural] = child.get_preferred_height(forWidth);
-
-            if (childMin + childY > minBottom)
-                minBottom = childMin + childY;
-
-            if (childNatural + childY > naturalBottom)
-                naturalBottom = childNatural + childY;
-        }
-        return [minBottom, naturalBottom];
-    }
-});
-
-const AppPage = new Lang.Class({
-    Name: 'AppPage',
+const AppPages = new Lang.Class({
+    Name: 'AppPages',
     Extends: AlphabeticalView,
    
     _init: function() {
@@ -222,6 +194,30 @@ const AppPage = new Lang.Class({
    
     addItem: function(item) {
         this._addItem(item);
+    },
+    
+    nPages: function() {
+        return this._grid.nPages();
+    },
+    
+    goToPreviousPage: function() {
+        this._grid.goToPreviousPage();
+    },
+    
+    goToNextPage: function() {
+        this._grid.goToNextPage();
+    },
+    
+    goToFirstPage: function() {
+        this._grid.goToFirstPage();
+    },
+    
+    currentPagePosition: function() {
+        return this._grid.currentPagePosition();
+    },
+    
+    setGridParentSize: function(size) {
+        this._grid._parentSize = size;
     }
 });
 const PaginationScrollActor = new Lang.Class({
@@ -230,10 +226,9 @@ const PaginationScrollActor = new Lang.Class({
     
     _init: function() {
         this.parent();
-        this.expand_x = true;
         this._box = new St.BoxLayout({vertical: true});
-        this._page = new AppPage();
-        this._box.add_actor(this._page.actor);
+        this._pages = new AppPages();
+        this._box.add_actor(this._pages.actor);
         this.add_actor(this._box);
 
         this.connect('scroll-event', Lang.bind(this, this._onScroll));
@@ -263,17 +258,23 @@ const PaginationScrollActor = new Lang.Class({
         childBox.x2 = availWidth;
         childBox.y2 = availHeight;   
         
-        //Put parentSize in grid
-        this._page._grid._parentHeight = availHeight;
+        this._pages.setGridParentSize([availWidth, availHeight]);
 
         child.allocate(childBox, flags);
+        
+        if(this._pages.nPages > 0) {
+            this._pages.goToFirstPage();
+            this.vscroll.adjustment.set_value(this._pages.currentPagePosition()[1]);
+       }
     },
     
     goToNextPage: function() {
-        this.vscroll.adjustment.set_value(this._page._grid.goToNextPage());
+        this._pages.goToNextPage();
+        this.vscroll.adjustment.set_value(this._pages.currentPagePosition()[1]);
     },
     goToPreviousPage: function() {
-        this.vscroll.adjustment.set_value(this._page._grid.goToPreviousPage());
+        this._pages.goToPreviousPage();
+        this.vscroll.adjustment.set_value(this._pages.currentPagePosition()[1]);
     },
     
     _onScroll: function(actor, event) {
@@ -316,14 +317,14 @@ const AllView = new Lang.Class({
     },
 
     addApp: function(app) {
-       let appIcon = this.actor._page.addItem(app);
+       let appIcon = this.actor._pages.addItem(app);
         /*if (appIcon)
             appIcon.actor.connect('key-focus-in',
                                   Lang.bind(this, this._ensureIconVisible));*/
     },
 
     addFolder: function(dir) {
-        let folderIcon = this.actor._page.addItem(dir);
+        let folderIcon = this.actor._pages.addItem(dir);
         /*if (folderIcon)
             folderIcon.actor.connect('key-focus-in',
                                      Lang.bind(this, this._ensureIconVisible));*/
@@ -356,11 +357,11 @@ const AllView = new Lang.Class({
     },
    
     removeAll: function() {
-        this.actor._page.removeAll();
+        this.actor._pages.removeAll();
     },
 
     loadGrid: function() {
-        this.actor._page.loadGrid();
+        this.actor._pages.loadGrid();
     }
 });
 

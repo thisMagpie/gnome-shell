@@ -177,12 +177,21 @@ const IconGrid = new Lang.Class({
         params = Params.parse(params, { rowLimit: null,
                                         columnLimit: null,
                                         fillParent: false,
-                                        xAlign: St.Align.MIDDLE });
+                                        xAlign: St.Align.MIDDLE,
+                                        usePagination: false});
         this._rowLimit = params.rowLimit;
         this._colLimit = params.columnLimit;
         this._xAlign = params.xAlign;
         this._fillParent = params.fillParent;
-
+        this._usePagination = params.usePagination;
+        
+        if(this._usePagination) {
+            this._nPages = 0;
+            //Set this variable properly before getPreferredHeight function is called
+            this._parentSize = [0, 0];
+            this._currentPage = 0;
+            this._firstPagesItems = [];
+        }
         this.actor = new St.BoxLayout({ style_class: 'icon-grid',
                                         vertical: true });
 
@@ -196,8 +205,7 @@ const IconGrid = new Lang.Class({
         this._grid.connect('get-preferred-width', Lang.bind(this, this._getPreferredWidth));
         this._grid.connect('get-preferred-height', Lang.bind(this, this._getPreferredHeight));
         this._grid.connect('allocate', Lang.bind(this, this._allocate));
-        this._currentPage = 0;
-        this._firstPagesItems = [];
+        
     },
 
     _getPreferredWidth: function (grid, forHeight, alloc) {
@@ -227,14 +235,12 @@ const IconGrid = new Lang.Class({
     },
 
     _getPreferredHeight: function (grid, forWidth, alloc) {
-        
         if (this._fillParent)
             // Ignore all size requests of children and request a size of 0;
             // later we'll allocate as many children as fit the parent
             return;
 
         let children = this._getVisibleChildren();
-        global.log("Num children visible"  + children.length);
         let nColumns, spacing;
         if (forWidth < 0) {
             nColumns = children.length;
@@ -242,7 +248,6 @@ const IconGrid = new Lang.Class({
         } else {
             [nColumns, , spacing] = this._computeLayout(forWidth);
         }
-        this._spacePerRow = this._vItemSize + spacing;
 
         let nRows;
         if (nColumns > 0)
@@ -254,15 +259,16 @@ const IconGrid = new Lang.Class({
         let totalSpacing = Math.max(0, nRows - 1) * spacing;
         let height = nRows * this._vItemSize + totalSpacing;
         
-        if(this._parentHeight) {
+        if(this._usePagination) {
             
-            let rowsPerPage = Math.floor(this._parentHeight / this._spacePerRow);            
-            this._nPages = Math.ceil(nRows / rowsPerPage);
-            this._spaceBetweenPages = this._parentHeight - (rowsPerPage * (this._vItemSize + spacing));
+            this._spacePerRow = this._vItemSize + spacing;
+            this._rowsPerPage = Math.floor(this._parentSize[1] / this._spacePerRow);            
+            this._nPages = Math.ceil(nRows / this._rowsPerPage);
+            this._spaceBetweenPages = this._parentSize[1] - (this._rowsPerPage * (this._vItemSize + spacing));
             let spaceBetweenPagesTotal = this._spaceBetweenPages * (this._nPages);
-            this._childrenPerPage = nColumns * rowsPerPage;
-            alloc.min_size = rowsPerPage * this._spacePerRow * this._nPages + spaceBetweenPagesTotal;
-            alloc.natural_size = rowsPerPage * this._spacePerRow * this._nPages + spaceBetweenPagesTotal;
+            this._childrenPerPage = nColumns * this._rowsPerPage;
+            alloc.min_size = this._rowsPerPage * this._spacePerRow * this._nPages + spaceBetweenPagesTotal;
+            alloc.natural_size = this._rowsPerPage * this._spacePerRow * this._nPages + spaceBetweenPagesTotal;
             return;
         }
         alloc.min_size = height;
@@ -280,8 +286,11 @@ const IconGrid = new Lang.Class({
         let children = this._getVisibleChildren();
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
-
         let [nColumns, usedWidth, spacing] = this._computeLayout(availWidth);
+        if(this._usePagination) {
+            //Recalculate the space between pages with the new spacing
+            this._spaceBetweenPages = this._parentSize[1] - (this._rowsPerPage * (this._vItemSize + spacing));
+        }
 
         let leftPadding;
         switch(this._xAlign) {
@@ -305,17 +314,19 @@ const IconGrid = new Lang.Class({
         }
         for (let i = 0; i < children.length; i++) {
             let childBox = this._calculateChildrenBox(children[i], x, y);
-            if (this._rowLimit && rowIndex >= this._rowLimit ||
-                    this._fillParent && childBox.y2 > availHeight) {
+            if(!this._usePagination) {
+                if (this._rowLimit && rowIndex >= this._rowLimit ||
+                        this._fillParent && childBox.y2 > availHeight) {
                     this._grid.set_skip_paint(children[i], true);
                 } else {
                     children[i].allocate(childBox, flags);
                     this._grid.set_skip_paint(children[i], false);
                 }
+            } else {
+                children[i].allocate(childBox, flags);
+                this._grid.set_skip_paint(children[i], false);
+            }
             
-            
-            //children[i].allocate(childBox, flags);
-
             columnIndex++;
             if (columnIndex == nColumns) {
                 columnIndex = 0;
@@ -324,10 +335,12 @@ const IconGrid = new Lang.Class({
 
             if (columnIndex == 0) {
                 y += this._vItemSize + spacing;
-                if((i + 1) % this._childrenPerPage == 0) {
-                    y+= this._spaceBetweenPages;
-                    if(i < children.length) {
-                        this._firstPagesItems.push(children[i+1]);
+                if(this._usePagination) {
+                    if((i + 1) % this._childrenPerPage == 0) {
+                        y+= this._spaceBetweenPages;
+                        if(i < children.length) {
+                            this._firstPagesItems.push(children[i+1]);
+                        }
                     }
                 }
                 x = box.x1 + leftPadding;
@@ -422,28 +435,29 @@ const IconGrid = new Lang.Class({
     nPages: function() {
         return this._nPages;
     },
+
+    currentPagePosition: function() {
+        let childBox = this._firstPagesItems[this._currentPage].get_allocation_box();
+        return [childBox.x1, childBox.y1];
+    },
     
     goToNextPage: function() {
-        if(this._nPages == 0) {
+        if(!this._nPages)
             return;
-        }
-        if(this._currentPage + 1 < this._firstPagesItems.length) {
+        if(this._currentPage + 1 < this._firstPagesItems.length)
             this._currentPage++;
-        }
-        let childBox = this._firstPagesItems[this._currentPage].get_allocation_box();
-        let scrollY = childBox.y1;
-        return scrollY;
     },
     
     goToPreviousPage: function() {
-        if(this._nPages == 0) {
+        if(!this._nPages)
             return;
-        }
-        if(this._currentPage - 1 > -1) {
+        if(this._currentPage > 0)
             this._currentPage--;
-        }
-        let childBox = this._firstPagesItems[this._currentPage].get_allocation_box();
-        let scrollY = childBox.y1;
-        return scrollY;
+    },
+    
+    goToFirstPage: function() {
+        if(!this._nPages)
+            return;
+        this._currentPage = 0;
     }
 });
