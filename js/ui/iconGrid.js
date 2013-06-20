@@ -282,7 +282,7 @@ const IconGrid = new Lang.Class({
             let gridBox = this.actor.get_theme_node().get_content_box(parentBox);
             box = this._grid.get_theme_node().get_content_box(gridBox);
         }
-
+        
         let children = this._getVisibleChildren();
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;

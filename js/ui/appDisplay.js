@@ -114,11 +114,16 @@ const AlphabeticalView = new Lang.Class({
 
 const FolderView = new Lang.Class({
     Name: 'FolderView',
-    Extends: AlphabeticalView,
 
     _init: function() {
-        this.parent();
+        this._grid = new IconGrid.IconGrid({ xAlign: St.Align.MIDDLE,
+            columnLimit: MAX_COLUMNS });
+     // Standard hack for ClutterBinLayout
         this.actor = this._grid.actor;
+        this._grid.actor.x_expand = true;
+
+        this._items = {};
+        this._allItems = [];
     },
 
     _getItemId: function(item) {
@@ -154,6 +159,35 @@ const FolderView = new Lang.Class({
         }
 
         return icon;
+    },
+    
+    removeAll: function() {
+        this._grid.removeAll();
+        this._items = {};
+        this._allItems = [];
+    },
+
+    _addItem: function(item) {
+        let id = this._getItemId(item);
+        if (this._items[id] !== undefined)
+            return null;
+
+        let itemIcon = this._createItemIcon(item);
+        this._allItems.push(item);
+        this._items[id] = itemIcon;
+
+        return itemIcon;
+    },
+
+    loadGrid: function() {
+        this._allItems.sort(this._compareItems);
+
+        for (let i = 0; i < this._allItems.length; i++) {
+            let id = this._getItemId(this._allItems[i]);
+            if (!id)
+                continue;
+            this._grid.addItem(this._items[id].actor);
+        }
     }
 });
 
@@ -161,9 +195,10 @@ const AppPages = new Lang.Class({
     Name: 'AppPages',
     Extends: AlphabeticalView,
    
-    _init: function() {
+    _init: function(parent) {
         this.parent();
         this.actor = this._grid.actor;
+        this._parent = parent;
     },
 
     _getItemId: function(item) {
@@ -218,17 +253,28 @@ const AppPages = new Lang.Class({
     
     setGridParentSize: function(size) {
         this._grid._parentSize = size;
+    },
+    
+    addFolderPopup: function(popup) {
+        this._parent.addFolderPopup(popup);
     }
 });
-const PaginationScrollActor = new Lang.Class({
-    Name: 'PaginationScrollActor',
+const PaginationScrollView = new Lang.Class({
+    Name: 'PaginationScrollView',
     Extends: St.ScrollView,
     
     _init: function() {
         this.parent();
+        
+        this._stack = new St.Widget({layout_manager: new Clutter.BinLayout()});        
         this._box = new St.BoxLayout({vertical: true});
-        this._pages = new AppPages();
-        this._box.add_actor(this._pages.actor);
+        this._pages = new AppPages(this);
+        
+        this._stack.add_actor(this._pages.actor);
+        this._eventBlocker = new St.Widget({ x_expand: true, y_expand: true });
+        this._stack.add_actor(this._eventBlocker, {x_align:St.Align.MIDDLE});
+        
+        this._box.add_actor(this._stack);
         this.add_actor(this._box);
 
         this.connect('scroll-event', Lang.bind(this, this._onScroll));
@@ -283,6 +329,30 @@ const PaginationScrollActor = new Lang.Class({
             this.goToPreviousPage();
         if (direction == Clutter.ScrollDirection.DOWN)
             this.goToNextPage();
+    },
+    
+    addFolderPopup: function(popup) {
+        this._stack.add_actor(popup.actor);
+        popup.connect('open-state-changed', Lang.bind(this,
+                function(popup, isOpen) {
+                    this._eventBlocker.reactive = isOpen;
+                    this._currentPopup = isOpen ? popup : null;
+                    this._updateIconOpacities(isOpen);
+                    if (isOpen) {
+                        this._pages._grid.actor.y = popup.parentOffset;
+                    } else {
+                        this._pages._grid.actor.y = 0;
+                    }
+                }));
+    },
+    
+    _updateIconOpacities: function(folderOpen) {
+        for (let id in this._items) {
+            if (folderOpen && !this._items[id].actor.checked)
+                this._items[id].actor.opacity = INACTIVE_GRID_OPACITY;
+            else
+                this._items[id].actor.opacity = 255;
+        }
     }
 });
 
@@ -290,7 +360,15 @@ const AllView = new Lang.Class({
     Name: 'AllView',
    
     _init: function() {      
-        this.actor = new PaginationScrollActor(); 
+        this.actor = new PaginationScrollView(); 
+        /*
+        let box = new St.BoxLayout({ vertical: true });
+        this._stack = new St.Widget({ layout_manager: new AllViewLayout() });
+        this._stack.add_actor(this._grid.actor);
+        this._eventBlocker = new St.Widget({ x_expand: true, y_expand: true });
+        this._stack.add_actor(this._eventBlocker);
+        box.add(this._stack, { y_align: St.Align.START, expand: true });
+         */
         this._pageControl = new St.Widget();   
     },
     
@@ -331,29 +409,7 @@ const AllView = new Lang.Class({
     },
 
     addFolderPopup: function(popup) {
-        /*
-        this._stack.add_actor(popup.actor);
-        popup.connect('open-state-changed', Lang.bind(this,
-            function(popup, isOpen) {
-                this._eventBlocker.reactive = isOpen;
-                this._currentPopup = isOpen ? popup : null;
-                this._updateIconOpacities(isOpen);
-                if (isOpen) {
-                    this._ensureIconVisible(popup.actor);
-                    this._grid.actor.y = popup.parentOffset;
-                } else {
-                    this._grid.actor.y = 0;
-                }
-            }));*/
-    },
-
-    _updateIconOpacities: function(folderOpen) {
-        for (let id in this._items) {
-            if (folderOpen && !this._items[id].actor.checked)
-                this._items[id].actor.opacity = INACTIVE_GRID_OPACITY;
-            else
-                this._items[id].actor.opacity = 255;
-        }
+        this.actor.addFolderPopup(popup);
     },
    
     removeAll: function() {
