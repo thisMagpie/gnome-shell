@@ -891,7 +891,7 @@ StScrollBar StButton#vhandle:active {
 }
 
 .app-view-controls {
-    padding-bottom: 32px;
+    padding-bottom: 100px;
 }
 
 .app-view-control {
@@ -903,6 +903,11 @@ StScrollBar StButton#vhandle:active {
 .frequent-apps > StBoxLayout {
     /* horizontal padding to make sure scrollbars or dash don't overlap content */
     padding: 0px 88px;
+}
+
+.pages-indicator {
+	padding-right: 20px;
+	spacing: 20px;
 }
 
 .app-folder-icon {

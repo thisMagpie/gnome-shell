@@ -189,7 +189,6 @@ const IconGrid = new Lang.Class({
             this._nPages = 0;
             //Set this variable properly before getPreferredHeight function is called
             this._parentSize = [0, 0];
-            this._currentPage = 0;
             this._firstPagesItems = [];
         }
         this.actor = new St.BoxLayout({ style_class: 'icon-grid',
@@ -262,7 +261,7 @@ const IconGrid = new Lang.Class({
         if(this._usePagination) {
             
             this._spacePerRow = this._vItemSize + spacing;
-            this._rowsPerPage = Math.floor(this._parentSize[1] / this._spacePerRow);            
+            this._rowsPerPage = Math.floor(this._parentSize[1] / this._spacePerRow);
             this._nPages = Math.ceil(nRows / this._rowsPerPage);
             this._spaceBetweenPages = this._parentSize[1] - (this._rowsPerPage * (this._vItemSize + spacing));
             let spaceBetweenPagesTotal = this._spaceBetweenPages * (this._nPages);
@@ -286,7 +285,7 @@ const IconGrid = new Lang.Class({
         let children = this._getVisibleChildren();
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
-        let [nColumns, usedWidth, spacing] = this._computeLayout(availWidth);
+        let [nColumns, usedWidth, spacing] = this._computeLayout(availWidth, availHeight);
         if(this._usePagination) {
             //Recalculate the space between pages with the new spacing
             this._spaceBetweenPages = this._parentSize[1] - (this._rowsPerPage * (this._vItemSize + spacing));
@@ -381,24 +380,56 @@ const IconGrid = new Lang.Class({
         return this._rowLimit;
     },
 
-    _computeLayout: function (forWidth) {
+    _computeLayout: function (forWidth, forHeight) {
         let nColumns = 0;
         let usedWidth = 0;
         let spacing = this._spacing;
 
+        let spacePerRow = this._vItemSize + spacing;
+        let rowsPerPage = Math.floor(forHeight / spacePerRow);
+        let itemHeithg = this._vItemSize * rowsPerPage;
+        let emptyHeigthArea = forHeight - itemHeithg;
+        let spacingForHeight = Math.max(this._spacing, emptyHeigthArea / (2 * rowsPerPage));
+        
+        let spacePerColumn = this._hItemSize + spacing;
+        let columnsPerPage;
+        if(this._colLimit) {
+            columnsPerPage = this._colLimit;
+        } else {
+            columnsPerPage = Math.floor(forWidth / spacePerColumn);
+        }
+        let itemWidth = this._hItemSize * columnsPerPage;
+        let emptyWidthArea = forWidth - itemWidth;
+        let spacingForWidth = Math.max(this._spacing, emptyWidthArea / (2 * columnsPerPage));
+        
+        spacing = Math.max(this._spacing, Math.min(spacingForHeight, spacingForWidth));
+        
+        usedWidth = columnsPerPage * (this._hItemSize + spacing);
+        nColumns = columnsPerPage;
+        /*
         if (this._colLimit) {
+            
+            
             let itemWidth = this._hItemSize * this._colLimit;
             let emptyArea = forWidth - itemWidth;
             spacing = Math.max(this._spacing, emptyArea / (2 * this._colLimit));
-            spacing = Math.round(spacing);
+            // We have to care that new spacing must not change number of rows per page.
+            if(this._usePagination) {
+                let spaceBetweenPages = this._parentSize[1] - (this._rowsPerPage * (this._vItemSize + spacing));
+                if(spaceBetweenPages < 0) {
+                    spacing += spaceBetweenPages / this._rowsPerPage;
+                }
+            }
+            spacing = Math.floor(spacing);
+            global.log("Spacing adjusted " + spacing)
         }
 
         while ((this._colLimit == null || nColumns < this._colLimit) &&
                (usedWidth + this._hItemSize <= forWidth)) {
             usedWidth += this._hItemSize + spacing;
             nColumns += 1;
-        }
-
+        }*/
+        
         if (nColumns > 0)
             usedWidth -= spacing;
 
@@ -441,23 +472,13 @@ const IconGrid = new Lang.Class({
         return [childBox.x1, childBox.y1];
     },
     
-    goToNextPage: function() {
+    getPagePosition: function(pageNumber) {
         if(!this._nPages)
             return;
-        if(this._currentPage + 1 < this._firstPagesItems.length)
-            this._currentPage++;
-    },
-    
-    goToPreviousPage: function() {
-        if(!this._nPages)
-            return;
-        if(this._currentPage > 0)
-            this._currentPage--;
-    },
-    
-    goToFirstPage: function() {
-        if(!this._nPages)
-            return;
-        this._currentPage = 0;
+        if(pageNumber < 0 || pageNumber > this._nPages) {
+            throw new Error('Invalid page number ' + pageNumber);
+        }
+        let childBox = this._firstPagesItems[pageNumber].get_allocation_box();
+        return [childBox.x1, childBox.y1];
     }
 });

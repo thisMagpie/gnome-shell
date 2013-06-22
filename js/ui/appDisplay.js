@@ -13,6 +13,7 @@ const Meta = imports.gi.Meta;
 const St = imports.gi.St;
 const Mainloop = imports.mainloop;
 const Atk = imports.gi.Atk;
+const Gdk = imports.gi.Gdk;
 
 const AppFavorites = imports.ui.appFavorites;
 const BoxPointer = imports.ui.boxpointer;
@@ -235,20 +236,8 @@ const AppPages = new Lang.Class({
         return this._grid.nPages();
     },
     
-    goToPreviousPage: function() {
-        this._grid.goToPreviousPage();
-    },
-    
-    goToNextPage: function() {
-        this._grid.goToNextPage();
-    },
-    
-    goToFirstPage: function() {
-        this._grid.goToFirstPage();
-    },
-    
-    currentPagePosition: function() {
-        return this._grid.currentPagePosition();
+    getPagePosition: function(pageNumber) {
+        return this._grid.getPagePosition(pageNumber);
     },
     
     setGridParentSize: function(size) {
@@ -276,6 +265,8 @@ const PaginationScrollView = new Lang.Class({
         
         this._box.add_actor(this._stack);
         this.add_actor(this._box);
+        
+        this._currentPage = 0;
 
         this.connect('scroll-event', Lang.bind(this, this._onScroll));
     },
@@ -309,18 +300,24 @@ const PaginationScrollView = new Lang.Class({
         child.allocate(childBox, flags);
         
         if(this._pages.nPages > 0) {
-            this._pages.goToFirstPage();
-            this.vscroll.adjustment.set_value(this._pages.currentPagePosition()[1]);
+            this.vscroll.adjustment.set_value(this._pages.getPagePosition(0)[1]);
        }
     },
     
     goToNextPage: function() {
-        this._pages.goToNextPage();
-        this.vscroll.adjustment.set_value(this._pages.currentPagePosition()[1]);
+        if(this._currentPage < this._pages.nPages())
+        {
+            this._currentPage+=1;
+            this.vscroll.adjustment.set_value(this._pages.getPagePosition(this._currentPage)[1]);
+        }
     },
+    
     goToPreviousPage: function() {
-        this._pages.goToPreviousPage();
-        this.vscroll.adjustment.set_value(this._pages.currentPagePosition()[1]);
+        if(this._currentPage > 0)
+        {
+            this._currentPage-=1;
+            this.vscroll.adjustment.set_value(this._pages.getPagePosition(this._currentPage)[1]);
+        }
     },
     
     _onScroll: function(actor, event) {
@@ -359,26 +356,63 @@ const PaginationScrollView = new Lang.Class({
 const AllView = new Lang.Class({
     Name: 'AllView',
    
-    _init: function() {      
-        this.actor = new PaginationScrollView(); 
-        /*
-        let box = new St.BoxLayout({ vertical: true });
-        this._stack = new St.Widget({ layout_manager: new AllViewLayout() });
-        this._stack.add_actor(this._grid.actor);
-        this._eventBlocker = new St.Widget({ x_expand: true, y_expand: true });
-        this._stack.add_actor(this._eventBlocker);
-        box.add(this._stack, { y_align: St.Align.START, expand: true });
-         */
-        this._pageControl = new St.Widget();   
+    _init: function() {
+        this._paginationView = new PaginationScrollView();
+        let layout = new Clutter.BinLayout();
+        this.actor = new St.Widget({layout_manager: layout, x_expand:true, y_expand:true});
+        
+        let color = new Clutter.Color({blue:200, red:100, green:100, alpha: 200});
+        let ac= new Clutter.Actor({background_color: color, x_align:2, y_align: 2, x_expand: true, y_expand: true});
+        ac.set_size(100, 100);
+        
+        let color2 = new Clutter.Color({blue:100, red:200, green:100, alpha: 200});
+        let paginationIndicatorLayout = new Clutter.BoxLayout({orientation: Clutter.Orientation.VERTICAL});
+        //let ac2= new Clutter.Actor({layout_manager: paginationIndicatorLayout, x_align:3, y_align: 2, x_expand:true, y_expand:true});
+        
+        let ac2= new St.Widget({layout_manager: paginationIndicatorLayout, x_align:3, y_align: 2, x_expand:true, y_expand:true, style_class: 'pages-indicator'});
+        paginationIndicatorLayout.spacing = 40;
+        
+        let wraper = new St.Bin({x_expand: true, y_expand:true});
+        let wraper2 = new St.Bin({x_expand: true, y_expand:true});
+        let wraper3 = new St.Bin({x_expand: true, y_expand:true});
+        let wraper4 = new St.Bin({x_expand: true, y_expand:true});
+        //let ac2 = new St.BoxLayout({vertical:true, x_align:St.Align.END, y_align:St.Align.MIDDLE});
+        //wraper.child = ac2;
+        
+        let image = new Clutter.Texture();
+        image.set_from_file("testselected.svg");
+        //wraper.child = image;
+        //wraper.set_size(48,48);
+        let image2 = new Clutter.Texture();
+        //image2.set_size(48,48);
+        image2.set_from_file("testnormal.svg");
+        //wraper2.child = image2;
+        let image3 = new Clutter.Texture();
+        image3.set_from_file("testnormal.svg");
+       // wraper3.child = image3;
+        //image3.set_size(48,48);
+        let image4 = new Clutter.Texture();
+        //image4.set_size(48,48);
+        image4.set_from_file("testnormal.svg");
+       // wraper4.child = image4;
+
+        ac2.add_actor(image);
+        ac2.add_actor(image2);
+        ac2.add_actor(image3);
+        ac2.add_actor(image4);
+        //ac2.add_actor(ac);
+        
+        layout.add(this._paginationView, 2,2);
+        layout.add(ac2, 2,3);
     },
     
     _onKeyRelease: function(actor, event) {
         if (event.get_key_symbol() == Clutter.KEY_Up) {
-            this.actor.goToNextPage();
+            this._paginationView.goToNextPage();
             return true;
         } else if(event.get_key_symbol() == Clutter.KEY_Down) {
-            this.actor.goToPreviousPage();
-            return true
+            this._paginationView.goToPreviousPage();
+            return true;
         }
 
         return false;
@@ -395,29 +429,29 @@ const AllView = new Lang.Class({
     },
 
     addApp: function(app) {
-       let appIcon = this.actor._pages.addItem(app);
+       let appIcon = this._paginationView._pages.addItem(app);
         /*if (appIcon)
             appIcon.actor.connect('key-focus-in',
                                   Lang.bind(this, this._ensureIconVisible));*/
     },
 
     addFolder: function(dir) {
-        let folderIcon = this.actor._pages.addItem(dir);
+        let folderIcon = this._paginationView._pages.addItem(dir);
         /*if (folderIcon)
             folderIcon.actor.connect('key-focus-in',
                                      Lang.bind(this, this._ensureIconVisible));*/
     },
 
     addFolderPopup: function(popup) {
-        this.actor.addFolderPopup(popup);
+        this._paginationView.addFolderPopup(popup);
     },
    
     removeAll: function() {
-        this.actor._pages.removeAll();
+        this._paginationView._pages.removeAll();
     },
 
     loadGrid: function() {
-        this.actor._pages.loadGrid();
+        this._paginationView._pages.loadGrid();
     }
 });
 
