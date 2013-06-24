@@ -35,6 +35,8 @@ const MAX_COLUMNS = 6;
 const INACTIVE_GRID_OPACITY = 77;
 const FOLDER_SUBICON_FRACTION = .4;
 
+const MAX_APPS_PAGES = 20;
+
 
 // Recursively load a GMenuTreeDirectory; we could put this in ShellAppSystem too
 function _loadCategory(dir, list) {
@@ -119,8 +121,9 @@ const FolderView = new Lang.Class({
     _init: function() {
         this._grid = new IconGrid.IconGrid({ xAlign: St.Align.MIDDLE,
             columnLimit: MAX_COLUMNS });
-     // Standard hack for ClutterBinLayout
+     
         this.actor = this._grid.actor;
+        //Standard hack for ClutterBinLayout
         this._grid.actor.x_expand = true;
 
         this._items = {};
@@ -252,7 +255,7 @@ const PaginationScrollView = new Lang.Class({
     Name: 'PaginationScrollView',
     Extends: St.ScrollView,
     
-    _init: function() {
+    _init: function(parent) {
         this.parent();
         
         this._stack = new St.Widget({layout_manager: new Clutter.BinLayout()});        
@@ -267,7 +270,8 @@ const PaginationScrollView = new Lang.Class({
         this.add_actor(this._box);
         
         this._currentPage = 0;
-
+        this._parent = parent;
+        
         this.connect('scroll-event', Lang.bind(this, this._onScroll));
     },
     
@@ -288,7 +292,6 @@ const PaginationScrollView = new Lang.Class({
         let childBox = new Clutter.ActorBox();
         //Get the  boxLayout inside scrollView
         let child = this.get_children()[2];
-        let childWidth = child.get_preferred_width(availHeight)[1];
 
         childBox.x1 = 0;
         childBox.y1 = 0;
@@ -296,36 +299,34 @@ const PaginationScrollView = new Lang.Class({
         childBox.y2 = availHeight;   
         
         this._pages.setGridParentSize([availWidth, availHeight]);
-
         child.allocate(childBox, flags);
-        
-        if(this._pages.nPages > 0) {
-            this.vscroll.adjustment.set_value(this._pages.getPagePosition(0)[1]);
+        if(this._pages.nPages() > 0) {
+            this._parent.goToPage(0);
        }
     },
     
-    goToNextPage: function() {
-        if(this._currentPage < this._pages.nPages())
-        {
-            this._currentPage+=1;
+    goToPage: function(pageNumber) {
+        
+        if(pageNumber < this._pages.nPages() && pageNumber >= 0) {
+            this._currentPage = pageNumber;
             this.vscroll.adjustment.set_value(this._pages.getPagePosition(this._currentPage)[1]);
         }
     },
     
-    goToPreviousPage: function() {
-        if(this._currentPage > 0)
-        {
-            this._currentPage-=1;
-            this.vscroll.adjustment.set_value(this._pages.getPagePosition(this._currentPage)[1]);
-        }
+    nPages: function() {
+      return this._pages.nPages();  
+    },
+    
+    currentPage: function() {
+        return this._currentPage;
     },
     
     _onScroll: function(actor, event) {
         let direction = event.get_scroll_direction();
         if (direction == Clutter.ScrollDirection.UP)
-            this.goToPreviousPage();
+            this._parent.goToPage(this._currentPage - 1);
         if (direction == Clutter.ScrollDirection.DOWN)
-            this.goToNextPage();
+            this._parent.goToPage(this._currentPage + 1);
     },
     
     addFolderPopup: function(popup) {
@@ -353,57 +354,85 @@ const PaginationScrollView = new Lang.Class({
     }
 });
 
+const PaginationIconIndicator = new Lang.Class({
+    Name: 'PaginationIconIndicator',
+    
+    _init: function(parent, index) {
+
+        this.actor = new St.Button({ style_class: 'show-apps',
+                                        button_mask: St.ButtonMask.ONE || St.ButtonMask.TWO,
+                                        toggle_mode: true,
+                                        can_focus: true });
+        this._icon = new St.Icon({ icon_name: 'view-grid-symbolic',
+                                   icon_size: 32,
+                                   style_class: 'show-apps-icon',
+                                   track_hover: true});
+        this.actor.connect('clicked', Lang.bind(this, this._onClicked));
+        this.actor.set_child(this._icon);
+        this.actor._delegate = this;
+        this._parent = parent;
+        this._index = index;
+    },
+
+    _createIcon: function(size) {
+        this._icon = new St.Icon({ icon_name: 'view-grid-symbolic',
+                                    icon_size: size,
+                                    style_class: 'show-apps-icon',
+                                    track_hover: true });
+        return this._icon;
+    },
+
+    _onClicked: function(actor, button) {
+        this._parent.goToPage(this._index); 
+        return false;
+    },
+    
+    setChecked: function (checked) {
+        this.actor.set_checked(checked);
+    }
+});
+
+
 const AllView = new Lang.Class({
     Name: 'AllView',
    
     _init: function() {
-        this._paginationView = new PaginationScrollView();
-        let layout = new Clutter.BinLayout();
-        this.actor = new St.Widget({layout_manager: layout, x_expand:true, y_expand:true});
-        
-        let color = new Clutter.Color({blue:200, red:100, green:100, alpha: 200});
-        let ac= new Clutter.Actor({background_color: color, x_align:2, y_align: 2, x_expand: true, y_expand: true});
-        ac.set_size(100, 100);
-        
-        let color2 = new Clutter.Color({blue:100, red:200, green:100, alpha: 200});
+        this._paginationView = new PaginationScrollView(this);
         let paginationIndicatorLayout = new Clutter.BoxLayout({orientation: Clutter.Orientation.VERTICAL});
-        //let ac2= new Clutter.Actor({layout_manager: paginationIndicatorLayout, x_align:3, y_align: 2, x_expand:true, y_expand:true});
-        
-        let ac2= new St.Widget({layout_manager: paginationIndicatorLayout, x_align:3, y_align: 2, x_expand:true, y_expand:true, style_class: 'pages-indicator'});
+        //FIXME: hardcoded spacing
         paginationIndicatorLayout.spacing = 40;
+        this._paginationIndicator = new St.Widget({layout_manager: paginationIndicatorLayout, x_align:3, y_align: 2, x_expand:true, y_expand:true, style_class: 'pages-indicator'});
         
-        let wraper = new St.Bin({x_expand: true, y_expand:true});
-        let wraper2 = new St.Bin({x_expand: true, y_expand:true});
-        let wraper3 = new St.Bin({x_expand: true, y_expand:true});
-        let wraper4 = new St.Bin({x_expand: true, y_expand:true});
-        //let ac2 = new St.BoxLayout({vertical:true, x_align:St.Align.END, y_align:St.Align.MIDDLE});
-        //wraper.child = ac2;
-        
-        let image = new Clutter.Texture();
-        image.set_from_file("testselected.svg");
-        //wraper.child = image;
-        //wraper.set_size(48,48);
-        let image2 = new Clutter.Texture();
-        //image2.set_size(48,48);
-        image2.set_from_file("testnormal.svg");
-        //wraper2.child = image2;
-        let image3 = new Clutter.Texture();
-        image3.set_from_file("testnormal.svg");
-       // wraper3.child = image3;
-        //image3.set_size(48,48);
-        let image4 = new Clutter.Texture();
-        //image4.set_size(48,48);
-        image4.set_from_file("testnormal.svg");
-       // wraper4.child = image4;
-
-        ac2.add_actor(image);
-        ac2.add_actor(image2);
-        ac2.add_actor(image3);
-        ac2.add_actor(image4);
-        //ac2.add_actor(ac);
+        let layout = new Clutter.BinLayout();
+        this.actor = new Shell.GenericContainer({layout_manager: layout, x_expand:true, y_expand:true});
         
         layout.add(this._paginationView, 2,2);
-        layout.add(ac2, 2,3);
+        layout.add(this._paginationIndicator, 2,3);
+
+        for(let i = 0; i < MAX_APPS_PAGES; i++) {
+
+            let indicatorIcon = new PaginationIconIndicator(this, i);
+            if(i == 0) {
+                indicatorIcon.setChecked(true);
+            }
+            indicatorIcon.actor.hide();
+            this._paginationIndicator.add_actor(indicatorIcon.actor);
+        }
+        this.actor.connect('allocate', Lang.bind(this, this._allocate));
+    },
+        
+    _allocate: function(widget, box, flags) {
+        let children = this.actor.get_children();
+        this._paginationView.allocate(box, flags);
+        
+        let nPages = this._paginationView.nPages();
+        
+        if(nPages > 1) {
+            for(let i = 0; i < nPages; i++) {
+                this._paginationIndicator.get_child_at_index(i).show();
+            }         
+        }
+        this._paginationIndicator.allocate(box, flags);
     },
     
     _onKeyRelease: function(actor, event) {
@@ -452,6 +481,12 @@ const AllView = new Lang.Class({
 
     loadGrid: function() {
         this._paginationView._pages.loadGrid();
+    },
+    
+    goToPage: function(index) {
+        this._paginationIndicator.get_child_at_index(this._paginationView.currentPage()).set_checked(false);
+        this._paginationView.goToPage(index);
+        this._paginationIndicator.get_child_at_index(this._paginationView.currentPage()).set_checked(true);
     }
 });
 

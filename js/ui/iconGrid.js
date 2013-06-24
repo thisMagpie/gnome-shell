@@ -245,7 +245,7 @@ const IconGrid = new Lang.Class({
             nColumns = children.length;
             spacing = this._spacing;
         } else {
-            [nColumns, , spacing] = this._computeLayout(forWidth);
+            [nColumns, , spacing] = this._computeLayoutOld(forWidth);
         }
 
         let nRows;
@@ -285,7 +285,7 @@ const IconGrid = new Lang.Class({
         let children = this._getVisibleChildren();
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
-        let [nColumns, usedWidth, spacing] = this._computeLayout(availWidth, availHeight);
+        let [nColumns, usedWidth, spacing] = this._computeLayoutOld(availWidth);
         if(this._usePagination) {
             //Recalculate the space between pages with the new spacing
             this._spaceBetweenPages = this._parentSize[1] - (this._rowsPerPage * (this._vItemSize + spacing));
@@ -347,6 +347,7 @@ const IconGrid = new Lang.Class({
                 x += this._hItemSize + spacing;
             }
         }
+        
     },
 
     _calculateChildrenBox: function(child, x, y) {
@@ -379,37 +380,37 @@ const IconGrid = new Lang.Class({
     getRowLimit: function() {
         return this._rowLimit;
     },
-
-    _computeLayout: function (forWidth, forHeight) {
+    
+    _computeLayoutOldOld: function (forWidth) {
         let nColumns = 0;
         let usedWidth = 0;
         let spacing = this._spacing;
 
-        let spacePerRow = this._vItemSize + spacing;
-        let rowsPerPage = Math.floor(forHeight / spacePerRow);
-        let itemHeithg = this._vItemSize * rowsPerPage;
-        let emptyHeigthArea = forHeight - itemHeithg;
-        let spacingForHeight = Math.max(this._spacing, emptyHeigthArea / (2 * rowsPerPage));
-        
-        let spacePerColumn = this._hItemSize + spacing;
-        let columnsPerPage;
-        if(this._colLimit) {
-            columnsPerPage = this._colLimit;
-        } else {
-            columnsPerPage = Math.floor(forWidth / spacePerColumn);
-        }
-        let itemWidth = this._hItemSize * columnsPerPage;
-        let emptyWidthArea = forWidth - itemWidth;
-        let spacingForWidth = Math.max(this._spacing, emptyWidthArea / (2 * columnsPerPage));
-        
-        spacing = Math.max(this._spacing, Math.min(spacingForHeight, spacingForWidth));
-        
-        usedWidth = columnsPerPage * (this._hItemSize + spacing);
-        nColumns = columnsPerPage;
-        /*
         if (this._colLimit) {
-            
-            
+            let itemWidth = this._hItemSize * this._colLimit;
+            let emptyArea = forWidth - itemWidth;
+            spacing = Math.max(this._spacing, emptyArea / (2 * this._colLimit));
+            spacing = Math.round(spacing);
+        }
+
+        while ((this._colLimit == null || nColumns < this._colLimit) &&
+               (usedWidth + this._hItemSize <= forWidth)) {
+            usedWidth += this._hItemSize + spacing;
+            nColumns += 1;
+        }
+
+        if (nColumns > 0)
+            usedWidth -= spacing;
+
+        return [nColumns, usedWidth, spacing];
+    },
+    
+    _computeLayoutOld: function (forWidth, forHeight) {
+        let nColumns = 0;
+        let usedWidth = 0;
+        let spacing = this._spacing;
+
+        if (this._colLimit) {
             let itemWidth = this._hItemSize * this._colLimit;
             let emptyArea = forWidth - itemWidth;
             spacing = Math.max(this._spacing, emptyArea / (2 * this._colLimit));
@@ -421,15 +422,58 @@ const IconGrid = new Lang.Class({
                 }
             }
             spacing = Math.floor(spacing);
-            global.log("Spacing adjusted " + spacing)
         }
 
         while ((this._colLimit == null || nColumns < this._colLimit) &&
                (usedWidth + this._hItemSize <= forWidth)) {
             usedWidth += this._hItemSize + spacing;
             nColumns += 1;
-        }*/
+        }
+
+        if (nColumns > 0)
+            usedWidth -= spacing;
+
+        return [nColumns, usedWidth, spacing];
+    
+    },
+    _computeLayoutNew: function (forWidth, forHeight) {
+        global.log("############   START COMPUTE   ###############");
+        global.log("forWidth , forHEfith " + [forWidth, forHeight]);
+        //return [6, 800, 6];
+        let nColumns = 0;
+        let usedWidth = 0;
+        let spacing = this._spacing;
         
+        let spacePerRow = this._vItemSize + spacing;
+        let rowsPerPage = Math.floor(forHeight / spacePerRow);
+        let itemHeithg = this._vItemSize * rowsPerPage;
+        let emptyHeigthArea = forHeight - itemHeithg;
+        let spacingForHeight = Math.max(this._spacing, emptyHeigthArea / (2 * rowsPerPage));
+        
+        let spacePerColumn = this._hItemSize + spacing;
+        let columnsPerPage;
+        if(this._colLimit) {
+            global.log("colLimit " + this._colLimit);
+            columnsPerPage = this._colLimit;
+        } else {
+            columnsPerPage = Math.floor(forWidth / spacePerColumn);
+            global.log("No colLimit "+ columnsPerPage);
+        }
+        if(columnsPerPage == 0) {
+            global.log("############   END COMPUTE 0 COLUMNS   ###############");
+            return [0, 0, this._spacing];
+        }
+        let itemWidth = this._hItemSize * columnsPerPage;
+        let emptyWidthArea = forWidth - itemWidth;
+        let spacingForWidth = Math.max(this._spacing, emptyWidthArea / (2 * columnsPerPage));
+        global.log("SpacingForWidth, spacingForHeigth " + [spacingForWidth, spacingForHeight]);
+        
+        spacing = Math.max(this._spacing, Math.min(spacingForHeight, spacingForWidth));
+        
+        usedWidth = columnsPerPage * (this._hItemSize + spacing);
+        nColumns = columnsPerPage;
+        global.log("nColumns, usedWidth, spacing " + [nColumns, usedWidth, spacing]);
+
         if (nColumns > 0)
             usedWidth -= spacing;
 
@@ -467,11 +511,6 @@ const IconGrid = new Lang.Class({
         return this._nPages;
     },
 
-    currentPagePosition: function() {
-        let childBox = this._firstPagesItems[this._currentPage].get_allocation_box();
-        return [childBox.x1, childBox.y1];
-    },
-    
     getPagePosition: function(pageNumber) {
         if(!this._nPages)
             return;
