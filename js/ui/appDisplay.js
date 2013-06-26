@@ -36,7 +36,7 @@ const INACTIVE_GRID_OPACITY = 77;
 const FOLDER_SUBICON_FRACTION = .4;
 
 const MAX_APPS_PAGES = 20;
-const PAGE_SWITCH_TIME = 0.25;
+const PAGE_SWITCH_TIME = 0.3;
 
 
 // Recursively load a GMenuTreeDirectory; we could put this in ShellAppSystem too
@@ -274,6 +274,17 @@ const PaginationScrollView = new Lang.Class({
         this._parent = parent;
         
         this.connect('scroll-event', Lang.bind(this, this._onScroll));
+        
+        let panAction = new Clutter.PanAction({ interpolate: false });
+        panAction.connect('pan', Lang.bind(this, this._onPan));
+        panAction.connect('gesture-cancel', Lang.bind(this, function() {
+            this._goToNearestPage(Math.abs(this._panAction.get_velocity(0)[2]));
+        }));
+        panAction.connect('gesture-end', Lang.bind(this, function() {
+            this._goToNearestPage(Math.abs(this._panAction.get_velocity(0)[2]));
+        }));
+        this._panAction = panAction;
+        this.add_action(panAction);
     },
     
     vfunc_get_preferred_height: function (container, forWidht) {
@@ -301,17 +312,35 @@ const PaginationScrollView = new Lang.Class({
         
         this._pages.setGridParentSize([availWidth, availHeight]);
         child.allocate(childBox, flags);
-        if(this._pages.nPages() > 0) {
+        if(this._pages.nPages() > 0)
             this._parent.goToPage(0);
-       }
     },
     
-    goToPage: function(pageNumber) {
+    goToPage: function(pageNumber, velocity) {
+        if(!velocity)
+            velocity = 0;
+        // Tween the change between pages.
+        // If velocity is not specified (i.e. scrolling with mouse wheel),
+        // use the same speed regardless of original position
+        // if velocity is specified, it's in pixels per milliseconds
+        let computedSwitchTime;
+        let childBox = this.get_allocation_box();
+        let availHeight = childBox.y2 - childBox.y1;
+        let min_velocity = availHeight / (PAGE_SWITCH_TIME * 1000);
+        let velocity = Math.max(min_velocity, velocity);
+        let diffFromPage =  this._diffToPage(pageNumber);
+        let time = (diffFromPage / velocity) / 1000;
+        //Let a maximum time of swtich
+        time = Math.min(PAGE_SWITCH_TIME, time);
+        //Only take into account the velocity if we change of page, if not,
+        //we returns smoothly to the current page (not with a lot of velocity)
+        if(this._currentPage == pageNumber)
+            time = PAGE_SWITCH_TIME;       
         
         if(pageNumber < this._pages.nPages() && pageNumber >= 0) {
             this._currentPage = pageNumber;
             let params = { value: this._pages.getPagePosition(this._currentPage)[1],
-                           time: PAGE_SWITCH_TIME,
+                           time: time,
                            transition: 'easeOutQuad'
                           };
             Tweener.addTween(this.vscroll.adjustment, params);
@@ -326,12 +355,44 @@ const PaginationScrollView = new Lang.Class({
         return this._currentPage;
     },
     
+    _diffToPage: function (pageNumber) {
+        let currentScrollPosition = this.vscroll.adjustment.value;
+        return Math.abs(currentScrollPosition - this._pages._grid.getPagePosition(pageNumber)[1]);
+    },
+    
+    _nearestPage: function() {
+        let currentNearestPage = 0;
+        let diff = this._diffToPage(currentNearestPage);
+        let oldDiff = diff;
+        
+        while(diff <= oldDiff && currentNearestPage < (this._pages.nPages() - 1)) {
+            currentNearestPage++;
+            oldDiff = diff;
+            diff = this._diffToPage(currentNearestPage);            
+        }
+        if(diff > oldDiff)
+            currentNearestPage--;
+
+        return currentNearestPage; 
+    },
+
+    _goToNearestPage: function(velocity) {
+        this._parent.goToPage(this._nearestPage(), velocity);
+    },
+    
     _onScroll: function(actor, event) {
         let direction = event.get_scroll_direction();
+        let nextPage;
         if (direction == Clutter.ScrollDirection.UP)
-            this._parent.goToPage(this._currentPage - 1);
+            if(this._currentPage > 0) {
+                nextPage = this._currentPage - 1;
+                this._parent.goToPage(nextPage);
+            }
         if (direction == Clutter.ScrollDirection.DOWN)
-            this._parent.goToPage(this._currentPage + 1);
+            if(this._currentPage < (this.nPages() - 1)) {
+                nextPage = this._currentPage + 1;
+                this._parent.goToPage(nextPage);
+            }
     },
     
     addFolderPopup: function(popup) {
@@ -356,6 +417,13 @@ const PaginationScrollView = new Lang.Class({
             else
                 this._items[id].actor.opacity = 255;
         }
+    },
+    
+    _onPan: function(action) {
+        let [dist, dx, dy] = action.get_motion_delta(0);
+        let adjustment = this.vscroll.adjustment;
+        adjustment.value -= (dy / this.height) * adjustment.page_size;
+        return false;
     }
 });
 
@@ -365,9 +433,9 @@ const PaginationIconIndicator = new Lang.Class({
     _init: function(parent, index) {
 
         this.actor = new St.Button({ style_class: 'show-apps',
-                                        button_mask: St.ButtonMask.ONE || St.ButtonMask.TWO,
-                                        toggle_mode: true,
-                                        can_focus: true });
+                                     button_mask: St.ButtonMask.ONE || St.ButtonMask.TWO,
+                                     toggle_mode: true,
+                                     can_focus: true });
         this._icon = new St.Icon({ icon_name: 'view-grid-symbolic',
                                    icon_size: 32,
                                    style_class: 'show-apps-icon',
@@ -406,10 +474,14 @@ const AllView = new Lang.Class({
         let paginationIndicatorLayout = new Clutter.BoxLayout({orientation: Clutter.Orientation.VERTICAL});
         //FIXME: hardcoded spacing
         paginationIndicatorLayout.spacing = 40;
-        this._paginationIndicator = new St.Widget({layout_manager: paginationIndicatorLayout, x_align:3, y_align: 2, x_expand:true, y_expand:true, style_class: 'pages-indicator'});
+        this._paginationIndicator = new St.Widget({ layout_manager: paginationIndicatorLayout,
+                                                    x_align:3, y_align: 2,
+                                                    x_expand:true, y_expand:true,
+                                                    style_class: 'pages-indicator' });
         
         let layout = new Clutter.BinLayout();
-        this.actor = new Shell.GenericContainer({layout_manager: layout, x_expand:true, y_expand:true});
+        this.actor = new Shell.GenericContainer({ layout_manager: layout,
+                                                  x_expand:true, y_expand:true });
         
         layout.add(this._paginationView, 2,2);
         layout.add(this._paginationIndicator, 2,3);
@@ -451,16 +523,6 @@ const AllView = new Lang.Class({
 
         return false;
     },
-   
-    _onPan: function(action) {
-        /*
-        this._clickAction.release();
-
-        let [dist, dx, dy] = action.get_motion_delta(0);
-        let adjustment = this.actor.vscroll.adjustment;
-        adjustment.value -= (dy / this.actor.height) * adjustment.page_size;*/
-        return false;
-    },
 
     addApp: function(app) {
        let appIcon = this._paginationView._pages.addItem(app);
@@ -488,9 +550,9 @@ const AllView = new Lang.Class({
         this._paginationView._pages.loadGrid();
     },
     
-    goToPage: function(index) {
+    goToPage: function(index, velocity) {
         this._paginationIndicator.get_child_at_index(this._paginationView.currentPage()).set_checked(false);
-        this._paginationView.goToPage(index);
+        this._paginationView.goToPage(index, velocity);
         this._paginationIndicator.get_child_at_index(this._paginationView.currentPage()).set_checked(true);
     }
 });
