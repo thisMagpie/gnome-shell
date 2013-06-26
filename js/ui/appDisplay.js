@@ -36,6 +36,7 @@ const INACTIVE_GRID_OPACITY = 77;
 const FOLDER_SUBICON_FRACTION = .4;
 
 const MAX_APPS_PAGES = 20;
+const PAGE_SWITCH_TIME = 0.25;
 
 
 // Recursively load a GMenuTreeDirectory; we could put this in ShellAppSystem too
@@ -309,7 +310,11 @@ const PaginationScrollView = new Lang.Class({
         
         if(pageNumber < this._pages.nPages() && pageNumber >= 0) {
             this._currentPage = pageNumber;
-            this.vscroll.adjustment.set_value(this._pages.getPagePosition(this._currentPage)[1]);
+            let params = { value: this._pages.getPagePosition(this._currentPage)[1],
+                           time: PAGE_SWITCH_TIME,
+                           transition: 'easeOutQuad'
+                          };
+            Tweener.addTween(this.vscroll.adjustment, params);
         }
     },
     
