@@ -891,7 +891,7 @@ StScrollBar StButton#vhandle:active {
 }
 
 .app-view-controls {
-    padding-bottom: 100px;
+    padding-bottom: 32px;
 }
 
 .app-view-control {

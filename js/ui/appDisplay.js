@@ -39,7 +39,8 @@ const MAX_APPS_PAGES = 20;
 const PAGE_SWITCH_TIME = 0.3;
 
 
-// Recursively load a GMenuTreeDirectory; we could put this in ShellAppSystem too
+// Recursively load a GMenuTreeDirectory; we could put this in ShellAppSystem
+// too
 function _loadCategory(dir, list) {
     let iter = dir.iter();
     let appSystem = Shell.AppSystem.get_default();
@@ -124,7 +125,7 @@ const FolderView = new Lang.Class({
             columnLimit: MAX_COLUMNS });
      
         this.actor = this._grid.actor;
-        //Standard hack for ClutterBinLayout
+        // Standard hack for ClutterBinLayout
         this._grid.actor.x_expand = true;
 
         this._items = {};
@@ -258,7 +259,6 @@ const PaginationScrollView = new Lang.Class({
     
     _init: function(parent) {
         this.parent();
-        
         this._stack = new St.Widget({layout_manager: new Clutter.BinLayout()});        
         this._box = new St.BoxLayout({vertical: true});
         this._pages = new AppPages(this);
@@ -286,7 +286,7 @@ const PaginationScrollView = new Lang.Class({
         this._panAction = panAction;
         this.add_action(panAction);
     },
-    
+
     vfunc_get_preferred_height: function (container, forWidht) {
         return [0, 0];
     },
@@ -294,7 +294,7 @@ const PaginationScrollView = new Lang.Class({
     vfunc_get_preferred_width: function(container, forHeight) {
         return [0, 0];
     },
-    
+
     vfunc_allocate: function(box, flags) {
         box = this.get_parent().allocation;
         this.set_allocation(box, flags);        
@@ -302,9 +302,8 @@ const PaginationScrollView = new Lang.Class({
         let availHeight = box.y2 - box.y1;
         
         let childBox = new Clutter.ActorBox();
-        //Get the  boxLayout inside scrollView
+        // Get the boxLayout inside scrollView
         let child = this.get_children()[2];
-
         childBox.x1 = 0;
         childBox.y1 = 0;
         childBox.x2 = availWidth;
@@ -312,10 +311,8 @@ const PaginationScrollView = new Lang.Class({
         
         this._pages.setGridParentSize([availWidth, availHeight]);
         child.allocate(childBox, flags);
-        if(this._pages.nPages() > 0)
-            this._parent.goToPage(0);
     },
-    
+
     goToPage: function(pageNumber, velocity) {
         if(!velocity)
             velocity = 0;
@@ -330,10 +327,10 @@ const PaginationScrollView = new Lang.Class({
         let velocity = Math.max(min_velocity, velocity);
         let diffFromPage =  this._diffToPage(pageNumber);
         let time = (diffFromPage / velocity) / 1000;
-        //Let a maximum time of swtich
+        // Let a maximum time of swtich
         time = Math.min(PAGE_SWITCH_TIME, time);
-        //Only take into account the velocity if we change of page, if not,
-        //we returns smoothly to the current page (not with a lot of velocity)
+        // Only take into account the velocity if we change of page, if not,
+        // we returns smoothly with default velocity to the current page
         if(this._currentPage == pageNumber)
             time = PAGE_SWITCH_TIME;       
         
@@ -346,20 +343,20 @@ const PaginationScrollView = new Lang.Class({
             Tweener.addTween(this.vscroll.adjustment, params);
         }
     },
-    
+
     nPages: function() {
       return this._pages.nPages();  
     },
-    
+
     currentPage: function() {
         return this._currentPage;
     },
-    
+
     _diffToPage: function (pageNumber) {
         let currentScrollPosition = this.vscroll.adjustment.value;
         return Math.abs(currentScrollPosition - this._pages._grid.getPagePosition(pageNumber)[1]);
     },
-    
+
     _nearestPage: function() {
         let currentNearestPage = 0;
         let diff = this._diffToPage(currentNearestPage);
@@ -379,7 +376,7 @@ const PaginationScrollView = new Lang.Class({
     _goToNearestPage: function(velocity) {
         this._parent.goToPage(this._nearestPage(), velocity);
     },
-    
+
     _onScroll: function(actor, event) {
         let direction = event.get_scroll_direction();
         let nextPage;
@@ -402,14 +399,9 @@ const PaginationScrollView = new Lang.Class({
                     this._eventBlocker.reactive = isOpen;
                     this._currentPopup = isOpen ? popup : null;
                     this._updateIconOpacities(isOpen);
-                    if (isOpen) {
-                        this._pages._grid.actor.y = popup.parentOffset;
-                    } else {
-                        this._pages._grid.actor.y = 0;
-                    }
                 }));
     },
-    
+
     _updateIconOpacities: function(folderOpen) {
         for (let id in this._items) {
             if (folderOpen && !this._items[id].actor.checked)
@@ -429,7 +421,7 @@ const PaginationScrollView = new Lang.Class({
 
 const PaginationIconIndicator = new Lang.Class({
     Name: 'PaginationIconIndicator',
-    
+
     _init: function(parent, index) {
 
         this.actor = new St.Button({ style_class: 'show-apps',
@@ -449,9 +441,9 @@ const PaginationIconIndicator = new Lang.Class({
 
     _createIcon: function(size) {
         this._icon = new St.Icon({ icon_name: 'view-grid-symbolic',
-                                    icon_size: size,
-                                    style_class: 'show-apps-icon',
-                                    track_hover: true });
+                                   icon_size: size,
+                                   style_class: 'show-apps-icon',
+                                   track_hover: true });
         return this._icon;
     },
 
@@ -459,40 +451,79 @@ const PaginationIconIndicator = new Lang.Class({
         this._parent.goToPage(this._index); 
         return false;
     },
-    
+
     setChecked: function (checked) {
         this.actor.set_checked(checked);
     }
 });
 
+const IndicatorLayout = Lang.Class({
+    Name:'IndicatorLayout',
+    Extends: Clutter.BoxLayout,
+
+    vfunc_get_preferred_width: function(container, forHeight) {
+        let childWidth = container.get_children()[0].get_preferred_width(forHeight);
+        let totalWidth = childWidth + this.spacing * 2;
+        return [totalWidth, totalWidth];
+    },
+
+    vfunc_allocate: function(container, box, flags) {
+        let children = container.get_children();
+        if(!this._nPages || this._nPages < 2)
+            return;
+        let availHeight = box.y2 - box.y1;
+        let availWidth = box.x2 - box.x1;
+        let [minHeight, natHeight] = children[0].get_preferred_height(availWidth);
+        let totalUsedHeight = (this._nPages - 1) * this.spacing * 2 + this._nPages * natHeight;
+        let heightPerChild = totalUsedHeight / this._nPages;
+        let [minWidth, natWidth] = children[0].get_preferred_width(natHeight);
+        let widthPerChild = natWidth + this.spacing * 2;
+        let firstPosition = [this.spacing, availHeight / 2 - totalUsedHeight / 2];
+
+        for(let i = 0; i < this._nPages; i++) {
+            let childBox = new Clutter.ActorBox();
+            childBox.x1 = box.x2 - widthPerChild;
+            childBox.x2 = box.x2;
+            childBox.y1 = firstPosition[1] + i * heightPerChild;
+            childBox.y2 = childBox.y1 + heightPerChild;
+            children[i].allocate(childBox, flags);
+        }
+    },
+
+    vfunc_set_container: function(container) {
+        if(this._styleChangedId) {
+            this._container.disconnect(this._styleChangedId);
+            this._styleChangedId = 0;
+        }
+        if(container != null)
+            this._styleChangedId = container.connect('style-changed', Lang.bind(this,
+                    function() { this.spacing = this._container.get_theme_node().get_length('spacing'); }));
+        this._container = container;
+    }
+});
 
 const AllView = new Lang.Class({
     Name: 'AllView',
    
     _init: function() {
         this._paginationView = new PaginationScrollView(this);
-        let paginationIndicatorLayout = new Clutter.BoxLayout({orientation: Clutter.Orientation.VERTICAL});
-        //FIXME: hardcoded spacing
-        paginationIndicatorLayout.spacing = 40;
-        this._paginationIndicator = new St.Widget({ layout_manager: paginationIndicatorLayout,
-                                                    x_align:3, y_align: 2,
+        this._paginationIndicatorLayout = new IndicatorLayout({orientation: Clutter.Orientation.VERTICAL});
+
+        this._paginationIndicator = new St.Widget({ x_align:3, y_align: 2,
                                                     x_expand:true, y_expand:true,
                                                     style_class: 'pages-indicator' });
-        
+        this._paginationIndicator.set_layout_manager(this._paginationIndicatorLayout);
         let layout = new Clutter.BinLayout();
         this.actor = new Shell.GenericContainer({ layout_manager: layout,
                                                   x_expand:true, y_expand:true });
-        
         layout.add(this._paginationView, 2,2);
         layout.add(this._paginationIndicator, 2,3);
 
         for(let i = 0; i < MAX_APPS_PAGES; i++) {
-
             let indicatorIcon = new PaginationIconIndicator(this, i);
             if(i == 0) {
                 indicatorIcon.setChecked(true);
             }
-            indicatorIcon.actor.hide();
             this._paginationIndicator.add_actor(indicatorIcon.actor);
         }
         this.actor.connect('allocate', Lang.bind(this, this._allocate));
@@ -503,12 +534,7 @@ const AllView = new Lang.Class({
         this._paginationView.allocate(box, flags);
         
         let nPages = this._paginationView.nPages();
-        
-        if(nPages > 1) {
-            for(let i = 0; i < nPages; i++) {
-                this._paginationIndicator.get_child_at_index(i).show();
-            }         
-        }
+        this._paginationIndicatorLayout._nPages = nPages;
         this._paginationIndicator.allocate(box, flags);
     },
     
@@ -526,16 +552,18 @@ const AllView = new Lang.Class({
 
     addApp: function(app) {
        let appIcon = this._paginationView._pages.addItem(app);
-        /*if (appIcon)
-            appIcon.actor.connect('key-focus-in',
-                                  Lang.bind(this, this._ensureIconVisible));*/
+        /*
+         * if (appIcon) appIcon.actor.connect('key-focus-in', Lang.bind(this,
+         * this._ensureIconVisible));
+         */
     },
 
     addFolder: function(dir) {
         let folderIcon = this._paginationView._pages.addItem(dir);
-        /*if (folderIcon)
-            folderIcon.actor.connect('key-focus-in',
-                                     Lang.bind(this, this._ensureIconVisible));*/
+        /*
+         * if (folderIcon) folderIcon.actor.connect('key-focus-in',
+         * Lang.bind(this, this._ensureIconVisible));
+         */
     },
 
     addFolderPopup: function(popup) {
@@ -921,7 +949,6 @@ const AppFolderPopup = new Lang.Class({
                                      visible: false,
                                      // We don't want to expand really, but look
                                      // at the layout manager of our parent...
-                                     //
                                      // DOUBLE HACK: if you set one, you automatically
                                      // get the effect for the other direction too, so
                                      // we need to set the y_align
