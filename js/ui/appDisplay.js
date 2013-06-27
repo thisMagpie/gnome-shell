@@ -285,6 +285,18 @@ const PaginationScrollView = new Lang.Class({
         }));
         this._panAction = panAction;
         this.add_action(panAction);
+        
+        this._clickAction = new Clutter.ClickAction();
+        this._clickAction.connect('clicked', Lang.bind(this, function() {
+            if (!this._currentPopup)
+                return;
+
+            let [x, y] = this._clickAction.get_coords();
+            let actor = global.stage.get_actor_at_pos(Clutter.PickMode.ALL, x, y);
+            if (!this._currentPopup.actor.contains(actor))
+                this._currentPopup.popdown();
+        }));
+        this._eventBlocker.add_action(this._clickAction);
     },
 
     vfunc_get_preferred_height: function (container, forWidht) {
@@ -412,6 +424,7 @@ const PaginationScrollView = new Lang.Class({
     },
     
     _onPan: function(action) {
+        this._clickAction.release();
         let [dist, dx, dy] = action.get_motion_delta(0);
         let adjustment = this.vscroll.adjustment;
         adjustment.value -= (dy / this.height) * adjustment.page_size;
@@ -610,7 +623,8 @@ const FrequentView = new Lang.Class({
                 continue;
             let appIcon = new AppIcon(mostUsed[i]);
             this._grid.addItem(appIcon.actor, -1);
-        }    }
+        }
+    }
 });
 
 const Views = {
