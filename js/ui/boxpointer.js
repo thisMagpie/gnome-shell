@@ -219,7 +219,7 @@ const BoxPointer = new Lang.Class({
                 break;
         }
         this.bin.allocate(childBox, flags);
-
+        
         if (this._sourceActor && this._sourceActor.mapped) {
             this._reposition();
             this._updateFlip();
