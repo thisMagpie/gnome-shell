@@ -125,10 +125,9 @@ const FolderView = new Lang.Class({
     _init: function() {
         this._grid = new IconGrid.IconGrid({ xAlign: St.Align.MIDDLE,
             columnLimit: MAX_COLUMNS });
-     
         this.actor = this._grid.actor;
         // Standard hack for ClutterBinLayout
-        this._grid.actor.x_expand = true;
+        //this._grid.actor.x_expand = true;
 
         this._items = {};
         this._allItems = [];
@@ -412,6 +411,7 @@ const PaginationScrollView = new Lang.Class({
     },
     
     addFolderPopup: function(popup) {
+        popup.actor.set_width(1100);
         this._stack.add_actor(popup.actor);
         popup.connect('open-state-changed', Lang.bind(this,
                 function(popup, isOpen) {
@@ -604,10 +604,6 @@ const AllView = new Lang.Class({
          * if (folderIcon) folderIcon.actor.connect('key-focus-in',
          * Lang.bind(this, this._ensureIconVisible));
          */
-    },
-
-    addFolderPopup: function(popup) {
-        this._paginationView.addFolderPopup(popup);
     },
    
     removeAll: function() {

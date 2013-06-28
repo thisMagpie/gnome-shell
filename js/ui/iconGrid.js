@@ -217,12 +217,18 @@ const IconGrid = new Lang.Class({
         let nColumns = this._colLimit ? Math.min(this._colLimit,
                                                  children.length)
                                       : children.length;
-        let totalSpacing = Math.max(0, nColumns - 1) * this._spacing;
-        // Kind of a lie, but not really an issue right now.  If
-        // we wanted to support some sort of hidden/overflow that would
-        // need higher level design
-        alloc.min_size = this._hItemSize;
-        alloc.natural_size = nColumns * this._hItemSize + totalSpacing;
+        let spacing = this._spacing;
+        let totalSpacing = Math.max(0, nColumns - 1) * spacing;
+        if(this._parentSize && this._parentSize[0]) {
+            alloc.min_size = this._hItemSize;
+            alloc.natural_size = this._parentSize[0];
+        } else {
+            // Kind of a lie, but not really an issue right now.  If
+            // we wanted to support some sort of hidden/overflow that would
+            // need higher level design
+            alloc.min_size = this._hItemSize;
+            alloc.natural_size = nColumns * this._hItemSize + totalSpacing;
+        }
     },
 
     _getVisibleChildren: function() {
@@ -258,7 +264,7 @@ const IconGrid = new Lang.Class({
         let totalSpacing = Math.max(0, nRows - 1) * spacing;
         let height = nRows * this._vItemSize + totalSpacing;
         
-        if(this._usePagination) {
+        /*if(this._usePagination) {
             
             this._spacePerRow = this._vItemSize + spacing;
             this._rowsPerPage = Math.floor(this._parentSize[1] / this._spacePerRow);
@@ -269,7 +275,7 @@ const IconGrid = new Lang.Class({
             alloc.min_size = this._rowsPerPage * this._spacePerRow * this._nPages + spaceBetweenPagesTotal;
             alloc.natural_size = this._rowsPerPage * this._spacePerRow * this._nPages + spaceBetweenPagesTotal;
             return;
-        }
+        }*/
         alloc.min_size = height;
         alloc.natural_size = height;
     },
@@ -286,6 +292,10 @@ const IconGrid = new Lang.Class({
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
         let [nColumns, usedWidth, spacing] = this._computeLayoutOld(availWidth);
+        this._computedSpacing = spacing;
+        if(this._fixedSpacing)
+            spacing = this._fixedSpacing;
+        this._usedWidth = usedWidth;
         if(this._usePagination) {
             //Recalculate the space between pages with the new spacing
             this._spaceBetweenPages = this._parentSize[1] - (this._rowsPerPage * (this._vItemSize + spacing));
@@ -409,11 +419,16 @@ const IconGrid = new Lang.Class({
         let nColumns = 0;
         let usedWidth = 0;
         let spacing = this._spacing;
-
+        if(this._fixedSpacing) {
+            spacing = this._fixedSpacing;
+        }
         if (this._colLimit) {
             let itemWidth = this._hItemSize * this._colLimit;
             let emptyArea = forWidth - itemWidth;
             spacing = Math.max(this._spacing, emptyArea / (2 * this._colLimit));
+            if(this._fixedSpacing) {
+                spacing = this._fixedSpacing;
+            }
             // We have to care that new spacing must not change number of rows per page.
             if(this._usePagination) {
                 let spaceBetweenPages = this._parentSize[1] - (this._rowsPerPage * (this._vItemSize + spacing));
@@ -519,5 +534,13 @@ const IconGrid = new Lang.Class({
         }
         let childBox = this._firstPagesItems[pageNumber].get_allocation_box();
         return [childBox.x1, childBox.y1];
+    },
+    
+    getComputedSpacing: function() {
+        return this._computedSpacing;
+    },
+    
+    getUsedWidth: function() {
+        return this._usedWidth;
     }
 });
