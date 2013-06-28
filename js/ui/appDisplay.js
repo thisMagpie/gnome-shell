@@ -37,7 +37,9 @@ const FOLDER_SUBICON_FRACTION = .4;
 
 const MAX_APPS_PAGES = 20;
 const PAGE_SWITCH_TIME = 0.3;
-
+//fraction of page height the finger or mouse must reach before
+//change page
+const PAGE_SWITCH_TRESHOLD = 0.2;
 
 // Recursively load a GMenuTreeDirectory; we could put this in ShellAppSystem
 // too
@@ -278,10 +280,10 @@ const PaginationScrollView = new Lang.Class({
         let panAction = new Clutter.PanAction({ interpolate: false });
         panAction.connect('pan', Lang.bind(this, this._onPan));
         panAction.connect('gesture-cancel', Lang.bind(this, function() {
-            this._goToNearestPage(Math.abs(this._panAction.get_velocity(0)[2]));
+            this._onPanEnd(this._panAction);
         }));
         panAction.connect('gesture-end', Lang.bind(this, function() {
-            this._goToNearestPage(Math.abs(this._panAction.get_velocity(0)[2]));
+            this._onPanEnd(this._panAction);
         }));
         this._panAction = panAction;
         this.add_action(panAction);
@@ -325,27 +327,29 @@ const PaginationScrollView = new Lang.Class({
         child.allocate(childBox, flags);
     },
 
-    goToPage: function(pageNumber, velocity) {
-        if(!velocity)
+    goToPage: function(pageNumber, action) {
+        let velocity;
+        if(!action)
             velocity = 0;
+        else
+            velocity = Math.abs(action.get_velocity(0)[2]);
         // Tween the change between pages.
         // If velocity is not specified (i.e. scrolling with mouse wheel),
         // use the same speed regardless of original position
         // if velocity is specified, it's in pixels per milliseconds
-        let computedSwitchTime;
-        let childBox = this.get_allocation_box();
-        let availHeight = childBox.y2 - childBox.y1;
-        let min_velocity = availHeight / (PAGE_SWITCH_TIME * 1000);
-        let velocity = Math.max(min_velocity, velocity);
         let diffFromPage =  this._diffToPage(pageNumber);
-        let time = (diffFromPage / velocity) / 1000;
-        // Let a maximum time of swtich
-        time = Math.min(PAGE_SWITCH_TIME, time);
+        let childBox = this.get_allocation_box();
+        let totalHeight = childBox.y2 - childBox.y1;
+        let time;
         // Only take into account the velocity if we change of page, if not,
         // we returns smoothly with default velocity to the current page
-        if(this._currentPage == pageNumber)
-            time = PAGE_SWITCH_TIME;       
-        
+        if(this._currentPage != pageNumber) {
+            let min_velocity = totalHeight / (PAGE_SWITCH_TIME * 1000);
+            velocity = Math.max(min_velocity, velocity);
+            time = (diffFromPage / velocity) / 1000;
+            
+        } else
+            time = PAGE_SWITCH_TIME * diffFromPage / totalHeight;       
         if(pageNumber < this._pages.nPages() && pageNumber >= 0) {
             this._currentPage = pageNumber;
             let params = { value: this._pages.getPagePosition(this._currentPage)[1],
@@ -385,8 +389,8 @@ const PaginationScrollView = new Lang.Class({
         return currentNearestPage; 
     },
 
-    _goToNearestPage: function(velocity) {
-        this._parent.goToPage(this._nearestPage(), velocity);
+    _goToNearestPage: function(action) {
+        this._parent.goToPage(this._nearestPage(), action);
     },
 
     _onScroll: function(actor, event) {
@@ -429,7 +433,20 @@ const PaginationScrollView = new Lang.Class({
         let adjustment = this.vscroll.adjustment;
         adjustment.value -= (dy / this.height) * adjustment.page_size;
         return false;
+    },
+    
+    _onPanEnd: function(action) {
+        let diffCurrentPage = this._diffToPage(this._currentPage);
+        if(diffCurrentPage > this.height * PAGE_SWITCH_TRESHOLD) {
+            if(action.get_velocity(0)[2] > 0 && this._currentPage > 0) {
+                this._parent.goToPage(this._currentPage - 1, action);
+            } else if(this._currentPage < this.nPages() - 1) {
+                this._parent.goToPage(this._currentPage + 1, action);
+            }
+        } else
+            this._parent.goToPage(this._currentPage, action);
     }
+    
 });
 
 const PaginationIconIndicator = new Lang.Class({
@@ -441,7 +458,7 @@ const PaginationIconIndicator = new Lang.Class({
                                      button_mask: St.ButtonMask.ONE || St.ButtonMask.TWO,
                                      toggle_mode: true,
                                      can_focus: true });
-        this._icon = new St.Icon({ icon_name: 'view-grid-symbolic',
+        this._icon = new St.Icon({ icon_name: 'process-stop-symbolic',
                                    icon_size: 32,
                                    style_class: 'show-apps-icon',
                                    track_hover: true});
@@ -453,7 +470,7 @@ const PaginationIconIndicator = new Lang.Class({
     },
 
     _createIcon: function(size) {
-        this._icon = new St.Icon({ icon_name: 'view-grid-symbolic',
+        this._icon = new St.Icon({ icon_name: 'process-stop-symbolic',
                                    icon_size: size,
                                    style_class: 'show-apps-icon',
                                    track_hover: true });
@@ -591,9 +608,9 @@ const AllView = new Lang.Class({
         this._paginationView._pages.loadGrid();
     },
     
-    goToPage: function(index, velocity) {
+    goToPage: function(index, action) {
         this._paginationIndicator.get_child_at_index(this._paginationView.currentPage()).set_checked(false);
-        this._paginationView.goToPage(index, velocity);
+        this._paginationView.goToPage(index, action);
         this._paginationIndicator.get_child_at_index(this._paginationView.currentPage()).set_checked(true);
     }
 });
