@@ -906,8 +906,7 @@ StScrollBar StButton#vhandle:active {
 }
 
 .pages-indicator {
-	padding-right: 20px;
-	spacing: 20px;
+	spacing: 30px;
 }
 
 .app-folder-icon {

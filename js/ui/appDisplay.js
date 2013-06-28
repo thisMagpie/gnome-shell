@@ -349,7 +349,10 @@ const PaginationScrollView = new Lang.Class({
             time = (diffFromPage / velocity) / 1000;
             
         } else
-            time = PAGE_SWITCH_TIME * diffFromPage / totalHeight;       
+            time = PAGE_SWITCH_TIME * diffFromPage / totalHeight;
+        // Take care when we are changing more than one page, maximum time
+        // regardless the velocity is the default one
+        time = Math.min(time, PAGE_SWITCH_TIME);
         if(pageNumber < this._pages.nPages() && pageNumber >= 0) {
             this._currentPage = pageNumber;
             let params = { value: this._pages.getPagePosition(this._currentPage)[1],
@@ -492,8 +495,8 @@ const IndicatorLayout = Lang.Class({
     Extends: Clutter.BoxLayout,
 
     vfunc_get_preferred_width: function(container, forHeight) {
-        let childWidth = container.get_children()[0].get_preferred_width(forHeight);
-        let totalWidth = childWidth + this.spacing * 2;
+        let [minWidth, natWidth] = container.get_children()[0].get_preferred_width(forHeight);
+        let totalWidth = natWidth + this.spacing * 2;
         return [totalWidth, totalWidth];
     },
 
@@ -504,7 +507,7 @@ const IndicatorLayout = Lang.Class({
         let availHeight = box.y2 - box.y1;
         let availWidth = box.x2 - box.x1;
         let [minHeight, natHeight] = children[0].get_preferred_height(availWidth);
-        let totalUsedHeight = (this._nPages - 1) * this.spacing * 2 + this._nPages * natHeight;
+        let totalUsedHeight = this._nPages  * this.spacing * 2  - this.spacing + this._nPages * natHeight;
         let heightPerChild = totalUsedHeight / this._nPages;
         let [minWidth, natWidth] = children[0].get_preferred_width(natHeight);
         let widthPerChild = natWidth + this.spacing * 2;
@@ -512,8 +515,8 @@ const IndicatorLayout = Lang.Class({
 
         for(let i = 0; i < this._nPages; i++) {
             let childBox = new Clutter.ActorBox();
-            childBox.x1 = box.x2 - widthPerChild;
-            childBox.x2 = box.x2;
+            childBox.x1 = 0;
+            childBox.x2 = availWidth;
             childBox.y1 = firstPosition[1] + i * heightPerChild;
             childBox.y2 = childBox.y1 + heightPerChild;
             children[i].allocate(childBox, flags);
@@ -540,7 +543,6 @@ const AllView = new Lang.Class({
         this._paginationIndicatorLayout = new IndicatorLayout({orientation: Clutter.Orientation.VERTICAL});
 
         this._paginationIndicator = new St.Widget({ x_align:3, y_align: 2,
-                                                    x_expand:true, y_expand:true,
                                                     style_class: 'pages-indicator' });
         this._paginationIndicator.set_layout_manager(this._paginationIndicatorLayout);
         let layout = new Clutter.BinLayout();
@@ -558,16 +560,24 @@ const AllView = new Lang.Class({
         }
         this.actor.connect('allocate', Lang.bind(this, this._allocate));
     },
-        
+
     _allocate: function(widget, box, flags) {
         let children = this.actor.get_children();
         this._paginationView.allocate(box, flags);
         
         let nPages = this._paginationView.nPages();
         this._paginationIndicatorLayout._nPages = nPages;
-        this._paginationIndicator.allocate(box, flags);
+        let availWidth = box.x2 - box.x1;
+        let availHeight = box.y2 - box.y1;
+        let childBox = new Clutter.ActorBox();
+        let [minWidth, natWidth] = this._paginationIndicator.get_preferred_width(availHeight);
+        childBox.x1 = availWidth - natWidth;
+        childBox.x2 = availWidth;
+        childBox.y1 = 0;
+        childBox.y2 = availHeight;
+        this._paginationIndicator.allocate(childBox, flags);
     },
-    
+
     _onKeyRelease: function(actor, event) {
         if (event.get_key_symbol() == Clutter.KEY_Up) {
             this._paginationView.goToNextPage();
@@ -991,6 +1001,7 @@ const AppFolderPopup = new Lang.Class({
                                                      { style_class: 'app-folder-popup-bin',
                                                        x_fill: true,
                                                        y_fill: true,
+                                                       x_expand: true,
                                                        x_align: St.Align.START });
 
         this._boxPointer.actor.style_class = 'app-folder-popup';
