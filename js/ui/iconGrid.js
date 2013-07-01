@@ -251,7 +251,7 @@ const IconGrid = new Lang.Class({
             nColumns = children.length;
             spacing = this._spacing;
         } else {
-            [nColumns, , spacing] = this._computeLayoutOld(forWidth);
+            [nColumns, , spacing] = this._computeLayoutOldOld(forWidth);
         }
 
         let nRows;
@@ -264,7 +264,9 @@ const IconGrid = new Lang.Class({
         let totalSpacing = Math.max(0, nRows - 1) * spacing;
         let height = nRows * this._vItemSize + totalSpacing;
         
-        /*if(this._usePagination) {
+        global.log("Old spacing " + spacing);
+        global.log("Old for width  " + forWidth);
+        if(this._usePagination) {
             
             this._spacePerRow = this._vItemSize + spacing;
             this._rowsPerPage = Math.floor(this._parentSize[1] / this._spacePerRow);
@@ -275,7 +277,7 @@ const IconGrid = new Lang.Class({
             alloc.min_size = this._rowsPerPage * this._spacePerRow * this._nPages + spaceBetweenPagesTotal;
             alloc.natural_size = this._rowsPerPage * this._spacePerRow * this._nPages + spaceBetweenPagesTotal;
             return;
-        }*/
+        }
         alloc.min_size = height;
         alloc.natural_size = height;
     },
@@ -291,14 +293,16 @@ const IconGrid = new Lang.Class({
         let children = this._getVisibleChildren();
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
-        let [nColumns, usedWidth, spacing] = this._computeLayoutOld(availWidth);
+        let [nColumns, usedWidth, spacing] = this._computeLayoutOldOld(availWidth);
         this._computedSpacing = spacing;
-        if(this._fixedSpacing)
-            spacing = this._fixedSpacing;
-        this._usedWidth = usedWidth;
+        global.log("new spacing " + spacing);
+        global.log("new forwidth " + availWidth);
         if(this._usePagination) {
+            let oldSpaceBetweenPages = this._spaceBetweenPages;
+            let oldNPages = this._nPages;
             //Recalculate the space between pages with the new spacing
             this._spaceBetweenPages = this._parentSize[1] - (this._rowsPerPage * (this._vItemSize + spacing));
+            
         }
 
         let leftPadding;
@@ -419,17 +423,11 @@ const IconGrid = new Lang.Class({
         let nColumns = 0;
         let usedWidth = 0;
         let spacing = this._spacing;
-        if(this._fixedSpacing) {
-            spacing = this._fixedSpacing;
-        }
         if (this._colLimit) {
             let itemWidth = this._hItemSize * this._colLimit;
             let emptyArea = forWidth - itemWidth;
             spacing = Math.max(this._spacing, emptyArea / (2 * this._colLimit));
-            if(this._fixedSpacing) {
-                spacing = this._fixedSpacing;
-            }
-            // We have to care that new spacing must not change number of rows per page.
+           // We have to care that new spacing must not change number of rows per page.
             if(this._usePagination) {
                 let spaceBetweenPages = this._parentSize[1] - (this._rowsPerPage * (this._vItemSize + spacing));
                 if(spaceBetweenPages < 0) {

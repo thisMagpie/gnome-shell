@@ -254,6 +254,7 @@ const AppPages = new Lang.Class({
         this._parent.addFolderPopup(popup);
     }
 });
+
 const PaginationScrollView = new Lang.Class({
     Name: 'PaginationScrollView',
     Extends: St.ScrollView,
@@ -411,7 +412,7 @@ const PaginationScrollView = new Lang.Class({
     },
     
     addFolderPopup: function(popup) {
-        popup.actor.set_width(1100);
+        //popup.actor.set_width(1100);
         this._stack.add_actor(popup.actor);
         popup.connect('open-state-changed', Lang.bind(this,
                 function(popup, isOpen) {
