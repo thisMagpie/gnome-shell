@@ -470,10 +470,6 @@ const PaginationIconIndicator = new Lang.Class({
 const IndicatorLayout = Lang.Class({
     Name:'IndicatorLayout',
     Extends: Clutter.BoxLayout,
-
-    vfunc_get_preferred_height: function(container, forHeight) {
-        return [300, 300];
-    },
     
     vfunc_get_preferred_width: function(container, forHeight) {
         let [minWidth, natWidth] = container.get_children()[0].get_preferred_width(forHeight);
