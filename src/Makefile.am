@@ -93,7 +93,6 @@ gnome_shell_cflags =				\
 	-DGNOME_SHELL_LIBEXECDIR=\"$(libexecdir)\"	\
 	-DGNOME_SHELL_DATADIR=\"$(pkgdatadir)\"	\
 	-DGNOME_SHELL_PKGLIBDIR=\"$(pkglibdir)\" \
-	-DJSDIR=\"$(pkgdatadir)/js\"		\
 	-DMUTTER_TYPELIB_DIR=\"$(MUTTER_TYPELIB_DIR)\"
 
 privlibdir = $(pkglibdir)
@@ -188,7 +187,10 @@ libgnome_shell_la_gir_sources = \
 	$(filter-out %-private.h $(shell_private_sources), $(shell_public_headers_h) $(libgnome_shell_la_SOURCES))
 
 gnome_shell_real_SOURCES =		\
-	main.c
+	main.c				\
+	$(top_srcdir)/js/js-resources.c	\
+	$(top_srcdir)/js/js-resources.h \
+	$(NULL)
 gnome_shell_real_CPPFLAGS = $(gnome_shell_cflags)
 gnome_shell_real_LDADD = libgnome-shell.la libgnome-shell-js.la $(libgnome_shell_la_LIBADD)
 gnome_shell_real_DEPENDENCIES = libgnome-shell.la
