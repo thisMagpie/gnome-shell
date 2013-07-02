@@ -302,6 +302,46 @@ const PaginationScrollView = new Lang.Class({
         }));
         this._eventBlocker.add_action(this._clickAction);
     },
+    
+   /* vfunc_get_preferred_height: function (forWidht) {
+        global.log(this.get_parent().allocation.y2 - this.get_parent().allocation.y1);
+        
+        let parentBox = this.get_parent().allocation;
+        let gridBox = this.get_theme_node().get_content_box(parentBox);
+        global.log("padding " + this.get_theme_node().get_length('padding'));
+        let availWidth = gridBox.x2 - gridBox.x1;
+        let availHeight = gridBox.y2 - gridBox.y1;
+        global.log("availWidth " + availWidth);
+        
+        global.log("availHeight " + availHeight);
+        
+        return [availHeight, availHeight];
+    },
+
+    /*vfunc_get_preferred_width: function(forHeight) {
+        let parentBox = this.get_parent().allocation;
+        let gridBox = this.get_theme_node().get_content_box(parentBox);
+        global.log("padding " + this.get_theme_node().get_length('padding'));
+        let availWidth = gridBox.x2 - gridBox.x1;
+        let availHeight = gridBox.y2 - gridBox.y1;
+        return [availWidth, availWidth];
+    },
+    /*
+    vfunc_allocate: function(box, flags) {
+        box = this.get_parent().allocation;
+        this.set_allocation(box, flags);        
+        let availWidth = box.x2 - box.x1;
+        let availHeight = box.y2 - box.y1;
+        let childBox = new Clutter.ActorBox();
+        // Get the boxLayout inside scrollView
+        let child = this.get_children()[2];
+        childBox.x1 = 0;
+        childBox.y1 = 0;
+        childBox.x2 = availWidth;
+        childBox.y2 = availHeight;   
+
+        child.allocate(childBox, flags);
+    },*/
 
     goToPage: function(pageNumber, action) {
         let velocity;
@@ -479,7 +519,7 @@ const IndicatorLayout = Lang.Class({
 
     vfunc_allocate: function(container, box, flags) {
         let children = container.get_children();
-        if(!this._nPages || this._nPages < 2)
+        if(children.length < 1)
             return;
         let availHeight = box.y2 - box.y1;
         let availWidth = box.x2 - box.x1;
@@ -516,25 +556,21 @@ const AllView = new Lang.Class({
     Name: 'AllView',
    
     _init: function() {
-        this._paginationView = new PaginationScrollView(this, {style_class: 'all-apps'});
+        let paginationScrollViewParams = {style_class: 'all-apps'};
+        this._paginationView = new PaginationScrollView(this, paginationScrollViewParams);
 
-        this._paginationIndicatorLayout = new IndicatorLayout({ orientation: Clutter.Orientation.VERTICAL });
+        this._paginationIndicatorLayout = new IndicatorLayout({orientation: Clutter.Orientation.VERTICAL});
         this._paginationIndicatorLayout._nPages = 0;
         
-        this._paginationIndicator = new St.Widget({ style_class: 'pages-indicator' });
+        this._paginationIndicator = new St.Widget({ x_align:3, y_align: 2,
+                                                    style_class: 'pages-indicator' });
         this._paginationIndicator.set_layout_manager(this._paginationIndicatorLayout);
         let layout = new Clutter.BinLayout();
-        this.actor = new Shell.GenericContainer({ layout_manager: layout });
+        this.actor = new Shell.GenericContainer({ layout_manager: layout, 
+                                                  x_expand:true, y_expand:true });
         layout.add(this._paginationView, 2,2);
         layout.add(this._paginationIndicator, 3,2);
 
-        for(let i = 0; i < MAX_APPS_PAGES; i++) {
-            let indicatorIcon = new PaginationIconIndicator(this, i);
-            if(i == 0) {
-                indicatorIcon.setChecked(true);
-            }
-            this._paginationIndicator.add_actor(indicatorIcon.actor);
-        }
         this.actor.connect('allocate', Lang.bind(this, this._allocate));
         this._paginationView._pages._grid.connect('n-pages-changed', Lang.bind(this, this._updatedNPages));
     },
@@ -550,13 +586,26 @@ const AllView = new Lang.Class({
         childBox.x2 = availWidth;
         childBox.y1 = 0;
         childBox.y2 = availHeight;
-        this._paginationIndicator.allocate(childBox, flags);
+
+        if(this._paginationIndicatorLayout._nPages && this._paginationIndicatorLayout._nPages > 1)
+            this._paginationIndicator.allocate(childBox, flags);
+        
     },
     
     _updatedNPages: function(iconGrid, nPages) {
         // We don't need a relayout because we already done it at iconGrid
-        // when pages are calculated (and then the signal is emitted before that
+        // when pages are calculated (and then the signal is emitted before that)
+        this._paginationIndicator.destroy_all_children();
         this._paginationIndicatorLayout._nPages = nPages;
+        if(nPages < 2)
+            return;
+        for(let i = 0; i < nPages; i++) {
+            let indicatorIcon = new PaginationIconIndicator(this, i);
+            if(i == 0) {
+                indicatorIcon.setChecked(true);
+            }
+            this._paginationIndicator.add_child(indicatorIcon.actor);
+        }
     },
     
     _onKeyRelease: function(actor, event) {
