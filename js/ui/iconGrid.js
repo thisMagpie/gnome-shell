@@ -287,7 +287,6 @@ const IconGrid = new Lang.Class({
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
         let [nColumns, usedWidth, spacing] = this._computeLayout(availWidth);
-
         if(this._usePagination && spacing != this._computedSpacing) {
             this._computedSpacing = spacing;
             // ScrollView height

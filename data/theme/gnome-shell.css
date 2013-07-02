@@ -905,11 +905,6 @@ StScrollBar StButton#vhandle:active {
     padding: 0px 88px;
 }
 
-.all-apps {
-/* horizontal padding to make sure scrollbars or dash don't overlap content */
-    padding: 0px 88px;
-}
-
 .pages-indicator {
 	spacing: 30px;
 }

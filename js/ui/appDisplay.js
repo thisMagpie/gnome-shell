@@ -303,12 +303,28 @@ const PaginationScrollView = new Lang.Class({
         this._eventBlocker.add_action(this._clickAction);
     },
     
-    vfunc_get_preferred_height: function (container, forWidht) {
-        return [0, 0];
+   /* vfunc_get_preferred_height: function (forWidht) {
+        global.log(this.get_parent().allocation.y2 - this.get_parent().allocation.y1);
+        
+        let parentBox = this.get_parent().allocation;
+        let gridBox = this.get_theme_node().get_content_box(parentBox);
+        global.log("padding " + this.get_theme_node().get_length('padding'));
+        let availWidth = gridBox.x2 - gridBox.x1;
+        let availHeight = gridBox.y2 - gridBox.y1;
+        global.log("availWidth " + availWidth);
+        
+        global.log("availHeight " + availHeight);
+        
+        return [availHeight, availHeight];
     },
 
-    vfunc_get_preferred_width: function(container, forHeight) {
-        return [0, 0];
+    /*vfunc_get_preferred_width: function(forHeight) {
+        let parentBox = this.get_parent().allocation;
+        let gridBox = this.get_theme_node().get_content_box(parentBox);
+        global.log("padding " + this.get_theme_node().get_length('padding'));
+        let availWidth = gridBox.x2 - gridBox.x1;
+        let availHeight = gridBox.y2 - gridBox.y1;
+        return [availWidth, availWidth];
     },
     /*
     vfunc_allocate: function(box, flags) {
@@ -495,6 +511,10 @@ const IndicatorLayout = Lang.Class({
     Name:'IndicatorLayout',
     Extends: Clutter.BoxLayout,
 
+    vfunc_get_preferred_height: function(container, forHeight) {
+        return [300, 300];
+    },
+    
     vfunc_get_preferred_width: function(container, forHeight) {
         let [minWidth, natWidth] = container.get_children()[0].get_preferred_width(forHeight);
         let totalWidth = natWidth + this.spacing * 2;
