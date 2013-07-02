@@ -304,26 +304,10 @@ const PaginationScrollView = new Lang.Class({
     },
     
    vfunc_get_preferred_height: function (forWidht) {
-        global.log(this.get_parent().allocation.y2 - this.get_parent().allocation.y1);
-        
-        let parentBox = this.get_parent().allocation;
-        let gridBox = this.get_theme_node().get_content_box(parentBox);
-        global.log("padding " + this.get_theme_node().get_length('padding'));
-        let availWidth = gridBox.x2 - gridBox.x1;
-        let availHeight = gridBox.y2 - gridBox.y1;
-        global.log("availWidth " + availWidth);
-        
-        global.log("availHeight " + availHeight);
-        
         return [0, 0];
     },
 
     vfunc_get_preferred_width: function(forHeight) {
-        let parentBox = this.get_parent().allocation;
-        let gridBox = this.get_theme_node().get_content_box(parentBox);
-        global.log("padding " + this.get_theme_node().get_length('padding'));
-        let availWidth = gridBox.x2 - gridBox.x1;
-        let availHeight = gridBox.y2 - gridBox.y1;
         return [0, 0];
     },
     
@@ -511,6 +495,10 @@ const IndicatorLayout = Lang.Class({
     Name:'IndicatorLayout',
     Extends: Clutter.BoxLayout,
     
+    vfunc_get_preferred_height: function(container, forHeight) {
+        return [0, 0];
+    },
+    
     vfunc_get_preferred_width: function(container, forHeight) {
         let [minWidth, natWidth] = container.get_children()[0].get_preferred_width(forHeight);
         let totalWidth = natWidth + this.spacing * 2;
@@ -563,11 +551,12 @@ const AllView = new Lang.Class({
         this._paginationIndicatorLayout._nPages = 0;
         
         this._paginationIndicator = new St.Widget({ x_align:3, y_align: 2,
-                                                    style_class: 'pages-indicator' });
+                                                    style_class: 'pages-indicator',
+                                                    y_expand:true});
         this._paginationIndicator.set_layout_manager(this._paginationIndicatorLayout);
         let layout = new Clutter.BinLayout();
-        this.actor = new Shell.GenericContainer({ layout_manager: layout, 
-                                                  x_expand:true, y_expand:true });
+        this.actor = new St.Widget({ layout_manager: layout, 
+                                     x_expand:true, y_expand:true });
         layout.add(this._paginationView, 2,2);
         layout.add(this._paginationIndicator, 3,2);
         for(let i = 0; i < MAX_APPS_PAGES; i++) {
@@ -577,24 +566,8 @@ const AllView = new Lang.Class({
             }
             this._paginationIndicator.add_child(indicatorIcon.actor);
         }
-        this.actor.connect('allocate', Lang.bind(this, this._allocate));
+
         this._paginationView._pages._grid.connect('n-pages-changed', Lang.bind(this, this._updatedNPages));
-    },
-
-    _allocate: function(widget, box, flags) {
-        this._paginationView.allocate(box, flags);
-
-        let availWidth = box.x2 - box.x1;
-        let availHeight = box.y2 - box.y1;
-        let childBox = new Clutter.ActorBox();
-        let [minWidth, natWidth] = this._paginationIndicator.get_preferred_width(availHeight);
-        childBox.x1 = availWidth - natWidth;
-        childBox.x2 = availWidth;
-        childBox.y1 = 0;
-        childBox.y2 = availHeight;
-
-        this._paginationIndicator.allocate(childBox, flags);
-        
     },
     
     _updatedNPages: function(iconGrid, nPages) {
