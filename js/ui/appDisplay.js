@@ -125,7 +125,14 @@ const FolderView = new Lang.Class({
     _init: function() {
         this._grid = new IconGrid.IconGrid({ xAlign: St.Align.MIDDLE,
             columnLimit: MAX_COLUMNS });
-        this.actor = this._grid.actor;
+        this.actor = new St.ScrollView({x_expand: true, y_expand:true, y_fill: true, x_fill:true, overlay_scrollbars: true});
+        this.actor.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC);
+        this._box = new St.BoxLayout({vertical:true});
+        this._widget = new St.Widget({x_expand: true, y_expand:true});
+
+        this._widget.add_actor(this._grid.actor);
+        this._box.add_actor(this._widget);
+        this.actor.add_actor(this._box);
         // Standard hack for ClutterBinLayout
         this._grid.actor.x_expand = true;
 
@@ -257,11 +264,14 @@ const AppPages = new Lang.Class({
 
 const PaginationScrollView = new Lang.Class({
     Name: 'PaginationScrollView',
-    Extends: St.ScrollView,
+    Extends: St.Bin,
     
     _init: function(parent, params) {
+        params['reactive'] = true;
         this.parent(params);
-        this.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.NEVER);
+        this._verticalAdjustment = new St.Adjustment();
+        this._horizontalAdjustment = new St.Adjustment();
+
         this._stack = new St.Widget({layout_manager: new Clutter.BinLayout()});        
         this._box = new St.BoxLayout({vertical: true});
         this._pages = new AppPages(this);
@@ -272,6 +282,7 @@ const PaginationScrollView = new Lang.Class({
         this._stack.add_actor(this._eventBlocker, {x_align:St.Align.MIDDLE});
         
         this._box.add_actor(this._stack);
+        this._box.set_adjustments(this._horizontalAdjustment, this._verticalAdjustment);
         this.add_actor(this._box);
 
         this._currentPage = 0;
@@ -318,13 +329,14 @@ const PaginationScrollView = new Lang.Class({
         let availHeight = box.y2 - box.y1;
         let childBox = new Clutter.ActorBox();
         // Get the boxLayout inside scrollView
-        let child = this.get_children()[2];
         childBox.x1 = 0;
         childBox.y1 = 0;
         childBox.x2 = availWidth;
         childBox.y2 = availHeight;   
-
-        child.allocate(childBox, flags);
+        this._box.allocate(childBox, flags);
+        
+        this._verticalAdjustment.page_size = availHeight;
+        this._verticalAdjustment.upper = this._stack.height;
     },
 
     goToPage: function(pageNumber, action) {
@@ -359,7 +371,7 @@ const PaginationScrollView = new Lang.Class({
                            time: time,
                            transition: 'easeOutQuad'
                           };
-            Tweener.addTween(this.vscroll.adjustment, params);
+            Tweener.addTween(this._verticalAdjustment, params);
         }
     },
 
@@ -372,7 +384,7 @@ const PaginationScrollView = new Lang.Class({
     },
 
     _diffToPage: function (pageNumber) {
-        let currentScrollPosition = this.vscroll.adjustment.value;
+        let currentScrollPosition = this._verticalAdjustment.value;
         return Math.abs(currentScrollPosition - this._pages._grid.getPagePosition(pageNumber)[1]);
     },
 
@@ -434,7 +446,7 @@ const PaginationScrollView = new Lang.Class({
     _onPan: function(action) {
         this._clickAction.release();
         let [dist, dx, dy] = action.get_motion_delta(0);
-        let adjustment = this.vscroll.adjustment;
+        let adjustment = this._verticalAdjustment;
         adjustment.value -= (dy / this.height) * adjustment.page_size;
         return false;
     },
@@ -550,8 +562,7 @@ const AllView = new Lang.Class({
         this._paginationIndicatorLayout = new IndicatorLayout({orientation: Clutter.Orientation.VERTICAL});
         this._paginationIndicatorLayout._nPages = 0;
         
-        this._paginationIndicator = new St.Widget({ x_align:3, y_align: 2,
-                                                    style_class: 'pages-indicator',
+        this._paginationIndicator = new St.Widget({ style_class: 'pages-indicator',
                                                     y_expand:true});
         this._paginationIndicator.set_layout_manager(this._paginationIndicatorLayout);
         let layout = new Clutter.BinLayout();

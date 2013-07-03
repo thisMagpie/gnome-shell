@@ -286,6 +286,7 @@ const IconGrid = new Lang.Class({
         let children = this._getVisibleChildren();
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
+        global.log("Size " + [availWidth, availHeight]);
         let [nColumns, usedWidth, spacing] = this._computeLayout(availWidth);
         if(this._usePagination && spacing != this._computedSpacing) {
             this._computedSpacing = spacing;

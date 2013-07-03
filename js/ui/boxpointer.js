@@ -220,6 +220,7 @@ const BoxPointer = new Lang.Class({
         }
         this.bin.allocate(childBox, flags);
 
+        global.log("Box pointer alloc " + [availWidth, availHeight]);
         if (this._sourceActor && this._sourceActor.mapped) {
             this._reposition();
             this._updateFlip();
