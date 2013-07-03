@@ -125,16 +125,16 @@ const FolderView = new Lang.Class({
     _init: function() {
         this._grid = new IconGrid.IconGrid({ xAlign: St.Align.MIDDLE,
             columnLimit: MAX_COLUMNS });
+        // Standard hack for ClutterBinLayout
+        this._grid.actor.x_expand = true;
         this.actor = new St.ScrollView({x_expand: true, y_expand:true, y_fill: true, x_fill:true, overlay_scrollbars: true});
         this.actor.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC);
         this._box = new St.BoxLayout({vertical:true});
         this._widget = new St.Widget({x_expand: true, y_expand:true});
-
         this._widget.add_actor(this._grid.actor);
-        this._box.add_actor(this._widget);
+        this._box.add(this._widget, { expand: true });
         this.actor.add_actor(this._box);
-        // Standard hack for ClutterBinLayout
-        this._grid.actor.x_expand = true;
+        this.actor.set_size(1200, 800);
 
         this._items = {};
         this._allItems = [];
@@ -1002,6 +1002,7 @@ const AppFolderPopup = new Lang.Class({
                                      y_expand: true,
                                      x_align: Clutter.ActorAlign.CENTER,
                                      y_align: Clutter.ActorAlign.START });
+
         this._boxPointer = new BoxPointer.BoxPointer(this._arrowSide,
                                                      { style_class: 'app-folder-popup-bin',
                                                        x_fill: true,
