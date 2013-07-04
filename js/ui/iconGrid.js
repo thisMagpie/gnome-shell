@@ -483,14 +483,11 @@ const IconGrid = new Lang.Class({
     },
     
     setSpacing: function(spacing) {
-        if(this._fixedSpacing != spacing) {
             this._fixedSpacing = spacing;
             /*Meta.later_add(Meta.LaterType.BEFORE_REDRAW, Lang.bind(this, function() {
                 this._grid.queue_relayout();
                 return false;
             }));*/
-        }
-        
     },
     
     getSpacing: function() {

@@ -812,14 +812,18 @@ const ControlsBoxLayout = Lang.Class({
 
 const AppDisplayActor = new Lang.Class({
     Name: 'AppDisplayActor',
-    Extends: St.BoxLayout,
+    Extends: Clutter.BoxLayout,
     
-    vfunc_allocate: function (box, flags) {
+    vfunc_allocate: function (actor, box, flags) {
+        global.log("####~~~~~~~~~~~~~#######");
         let availWidth = box.x2 - box.x1;
-        global.log("Signal to emit " + availWidth);
+        let availheight = box.y2 - box.y1;
+        global.log("Signal to emit " + [availWidth, availheight]);
         this.emit('allocated-width-changed', availWidth);
-        global.log("Signal emitted " + availWidth);
-        this.parent(box, flags);
+        global.log("Signal emitted " +  [availWidth, availheight]);
+        this.parent(actor, box, flags);
+        global.log("ALLOATED " +  [availWidth, availheight]);
+        global.log("####*****************#######");
     }
 });
 Signals.addSignalMethods(AppDisplayActor.prototype);
@@ -859,19 +863,22 @@ const AppDisplay = new Lang.Class({
                                  x_expand: true });
         this._views[Views.ALL] = { 'view': view, 'control': button };
 
-        this.actor = new AppDisplayActor({ style_class: 'app-display',
-                                        vertical: true,
+        this.actor = new St.Widget({ style_class: 'app-display',
                                         x_expand: true, y_expand: true });
-        this.actor.connect('allocated-width-changed', Lang.bind(this, this._updateViewsSpacing));
+        this._actorLayout = new AppDisplayActor({vertical: true});
+        this.actor.set_layout_manager(this._actorLayout);
+        this._actorLayout.connect('allocated-width-changed', Lang.bind(this, this._updateViewsSpacing));
 
         this._viewStack = new St.Widget({ layout_manager: new Clutter.BinLayout(),
                                           x_expand: true, y_expand: true });
-        this.actor.add(this._viewStack, { expand: true });
+        //FIXME
+        this.actor.add_actor(this._viewStack, { expand: true });
 
         let layout = new ControlsBoxLayout({ homogeneous: true });
         this._controls = new St.Widget({ style_class: 'app-view-controls' });
+        //FIXME
         this._controls.set_layout_manager(layout);
-        this.actor.add(new St.Bin({ child: this._controls }));
+        this.actor.add_actor(new St.Bin({ child: this._controls }));
 
 
         for (let i = 0; i < this._views.length; i++) {
@@ -893,8 +900,14 @@ const AppDisplay = new Lang.Class({
         this._focusDummy = new St.Bin({ can_focus: true });
         this._viewStack.add_actor(this._focusDummy);
 
+        /*for (let i = 0; i < this._views.length; i++) {
+            this._views[i].view.updateSpacing(1920);
+        }*/
+        
+        
         this._allAppsWorkId = Main.initializeDeferredWork(this.actor, Lang.bind(this, this._redisplayAllApps));
         this._frequentAppsWorkId = Main.initializeDeferredWork(this.actor, Lang.bind(this, this._redisplayFrequentApps));
+        
     },
 
     _showView: function(activeIndex) {
