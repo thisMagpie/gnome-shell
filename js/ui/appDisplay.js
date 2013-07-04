@@ -122,11 +122,13 @@ const AlphabeticalView = new Lang.Class({
 const FolderView = new Lang.Class({
     Name: 'FolderView',
 
-    _init: function() {
+    _init: function(parentView) {
         this._grid = new IconGrid.IconGrid({ xAlign: St.Align.MIDDLE,
             columnLimit: MAX_COLUMNS });
         // Standard hack for ClutterBinLayout
         this._grid.actor.x_expand = true;
+        this._parentView = parentView;
+
         this.actor = new St.ScrollView({x_expand: true, y_expand:true, y_fill: true, x_fill:true, overlay_scrollbars: true});
         this.actor.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC);
         this._box = new St.BoxLayout({vertical:true});
@@ -134,10 +136,25 @@ const FolderView = new Lang.Class({
         this._widget.add_actor(this._grid.actor);
         this._box.add(this._widget, { expand: true });
         this.actor.add_actor(this._box);
-        this.actor.set_size(1200, 800);
-
+        this.actor.connect('notify::allocation', Lang.bind(this, this._calculateGridSpacing));
         this._items = {};
         this._allItems = [];
+    },
+    
+    _calculateGridSpacing: function(actor, params) {
+        this._grid.setSpacing(this._parentView.getSpacing());
+        //this.actor.queue_relayout();
+        /*
+        if(this._grid.getSpacing() != spacing) {
+            this._grid.setSpacing(spacing);
+            global.log("Frequent view Diferent");
+            global.log("Frequent view spacing "  + spacing);
+            Meta.later_add(Meta.LaterType.BEFORE_REDRAW, Lang.bind(this, function() {
+                this.actor.queue_relayout();
+                return false;
+            }));
+        } else
+            global.log("Frequent view NO Diferent " + spacing);*/
     },
 
     _getItemId: function(item) {
@@ -213,6 +230,30 @@ const AppPages = new Lang.Class({
         this.parent();
         this.actor = this._grid.actor;
         this._parent = parent;
+        this.actor.connect('notify::allocation', Lang.bind(this, this._calculateGridSpacing));
+    },
+    
+    _calculateGridSpacing: function(actor, params) {
+        
+        let availWidth = actor.allocation.x2 - actor.allocation.x1;
+        global.log("All view alloc "  + availWidth);
+        let itemWidth = this._grid._hItemSize * MAX_COLUMNS;
+        let emptyArea = availWidth - itemWidth;
+        let spacing;
+        spacing = Math.max(this._grid._spacing, emptyArea / ( 2 *  MAX_COLUMNS));
+        spacing = Math.round(spacing);
+        this._grid.setSpacing(spacing);
+        /*
+        if(this._grid.getSpacing() != spacing) {
+            this._grid.setSpacing(spacing);
+            global.log("All view Diferent");
+            global.log("All view spacing "  + spacing);
+            Meta.later_add(Meta.LaterType.BEFORE_REDRAW, Lang.bind(this, function() {
+                this.actor.queue_relayout();
+                return false;
+            }));
+        } else
+            global.log("All view NO Diferent " + spacing);*/
     },
 
     _getItemId: function(item) {
@@ -240,7 +281,20 @@ const AppPages = new Lang.Class({
         let nameB = GLib.utf8_collate_key(itemB.get_name(), -1);
         return (nameA > nameB) ? 1 : (nameA < nameB ? -1 : 0);
     },
-   
+    
+    getSpacing: function() {
+        return this._grid.getSpacing()
+    },
+    
+    updateIconOpacities: function(folderOpen) {
+        for (let id in this._items) {
+            if (folderOpen && !this._items[id].actor.checked)
+                this._items[id].actor.opacity = INACTIVE_GRID_OPACITY;
+            else
+                this._items[id].actor.opacity = 255;
+        }
+    },
+    
     addItem: function(item) {
         this._addItem(item);
     },
@@ -424,23 +478,13 @@ const PaginationScrollView = new Lang.Class({
     },
     
     addFolderPopup: function(popup) {
-        //popup.actor.set_width(1100);
         this._stack.add_actor(popup.actor);
         popup.connect('open-state-changed', Lang.bind(this,
                 function(popup, isOpen) {
                     this._eventBlocker.reactive = isOpen;
                     this._currentPopup = isOpen ? popup : null;
-                    this._updateIconOpacities(isOpen);
+                    this._pages.updateIconOpacities(isOpen);
                 }));
-    },
-
-    _updateIconOpacities: function(folderOpen) {
-        for (let id in this._items) {
-            if (folderOpen && !this._items[id].actor.checked)
-                this._items[id].actor.opacity = INACTIVE_GRID_OPACITY;
-            else
-                this._items[id].actor.opacity = 255;
-        }
     },
     
     _onPan: function(action) {
@@ -642,6 +686,29 @@ const FrequentView = new Lang.Class({
         this.actor.add_actor(this._grid.actor);
 
         this._usage = Shell.AppUsage.get_default();
+        this.actor.connect('notify::allocation', Lang.bind(this, this._calculateGridSpacing));
+    },
+    
+    _calculateGridSpacing: function(actor, params) {
+        let availWidth = actor.allocation.x2 - actor.allocation.x1;
+        global.log("frequent view alloc "  + availWidth);
+        let itemWidth = this._grid._hItemSize * MAX_COLUMNS;
+        let emptyArea = availWidth - itemWidth;
+        let spacing;
+        spacing = Math.max(this._grid._spacing, emptyArea / ( 2 *  MAX_COLUMNS));
+        spacing = Math.round(spacing);
+        this._grid.setSpacing(spacing);
+        /*
+        if(this._grid.getSpacing() != spacing) {
+            this._grid.setSpacing(spacing);
+            global.log("Frequent view Diferent");
+            global.log("Frequent view spacing "  + spacing);
+            Meta.later_add(Meta.LaterType.BEFORE_REDRAW, Lang.bind(this, function() {
+                this.actor.queue_relayout();
+                return false;
+            }));
+        } else
+            global.log("Frequent view NO Diferent " + spacing);*/
     },
 
     removeAll: function() {
@@ -927,7 +994,7 @@ const FolderIcon = new Lang.Class({
         this.actor.set_child(this.icon.actor);
         this.actor.label_actor = this.icon.label;
 
-        this.view = new FolderView();
+        this.view = new FolderView(parentView);
         this.view.actor.reactive = false;
         _loadCategory(dir, this.view);
         this.view.loadGrid();
