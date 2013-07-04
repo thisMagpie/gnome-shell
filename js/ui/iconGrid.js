@@ -300,6 +300,7 @@ const IconGrid = new Lang.Class({
             if (this._rowLimit)
                 nRows = Math.min(nRows, this._rowLimit);
             let oldNPages = this._nPages;
+            global.log("NPAGES!!! " + this._nPages);
             this._calculatePaginationValues(availHeightPerPage, nColumns, nRows);
             if(oldNPages != this._nPages) {
                 global.log("Next relayout");
@@ -335,13 +336,15 @@ const IconGrid = new Lang.Class({
             let childBox = this._calculateChildrenBox(children[i], x, y);
             if(!this._usePagination) {
                 if (this._rowLimit && rowIndex >= this._rowLimit ||
-                        this._fillParent && childBox.y2 > availHeight) {
+                        this._fillParent && childBox.y2 >= availHeight) {
                     this._grid.set_skip_paint(children[i], true);
                 } else {
+                    global.log("childBox.y2 "+ [childBox.y1, childBox.y2, availHeight]);
                     children[i].allocate(childBox, flags);
                     this._grid.set_skip_paint(children[i], false);
                 }
             } else {
+                global.log("PAginatio childBox.y2 "+ [childBox.y1, childBox.y2, availHeight]);
                 children[i].allocate(childBox, flags);
                 this._grid.set_skip_paint(children[i], false);
             }
@@ -372,8 +375,18 @@ const IconGrid = new Lang.Class({
     
     _calculatePaginationValues: function (availHeightPerPage, nColumns, nRows) {
         let spacing = this._fixedSpacing ? this._fixedSpacing : this._spacing;
+        global.log("### CALCULATING PAGES ###");
+        global.log("availHeightPerPage "+ availHeightPerPage);
+        global.log("nColumns "+ nColumns);
+        global.log("nRows "+ nRows);
+        global.log("spacing "+ spacing);
         this._spacePerRow = this._vItemSize + spacing;
+        global.log("this._spacePerRow "+ this._spacePerRow);
         this._rowsPerPage = Math.floor(availHeightPerPage / this._spacePerRow);
+        // Check if deleting spacing from bottom there's enough space for another row
+        let spaceWithOneMoreRow = (this._rowsPerPage + 1) * this._spacePerRow - spacing;
+        this._rowsPerPage = spaceWithOneMoreRow <= availHeightPerPage? this._rowsPerPage + 1 : this._rowsPerPage;
+        global.log("this._rowsPerPage "+ this._rowsPerPage);
         this._nPages = Math.ceil(nRows / this._rowsPerPage);
         this._spaceBetweenPages = availHeightPerPage - (this._rowsPerPage * (this._vItemSize + spacing));
         this._spaceBetweenPagesTotal = this._spaceBetweenPages * (this._nPages);
@@ -472,10 +485,10 @@ const IconGrid = new Lang.Class({
     setSpacing: function(spacing) {
         if(this._fixedSpacing != spacing) {
             this._fixedSpacing = spacing;
-            Meta.later_add(Meta.LaterType.BEFORE_REDRAW, Lang.bind(this, function() {
+            /*Meta.later_add(Meta.LaterType.BEFORE_REDRAW, Lang.bind(this, function() {
                 this._grid.queue_relayout();
                 return false;
-            }));
+            }));*/
         }
         
     },
