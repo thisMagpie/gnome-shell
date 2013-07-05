@@ -33,6 +33,7 @@ const MENU_POPUP_TIMEOUT = 600;
 const MAX_COLUMNS = 6;
 
 const INACTIVE_GRID_OPACITY = 77;
+const INACTIVE_GRID_OPACITY_ANIMATION_TIME = 0.15;
 const FOLDER_SUBICON_FRACTION = .4;
 
 const MAX_APPS_PAGES = 20;
@@ -136,25 +137,8 @@ const FolderView = new Lang.Class({
         this._widget.add_actor(this._grid.actor);
         this._box.add(this._widget, { expand: true });
         this.actor.add_actor(this._box);
-        //this.actor.connect('notify::allocation', Lang.bind(this, this._calculateGridSpacing));
         this._items = {};
         this._allItems = [];
-    },
-    
-    _calculateGridSpacing: function(actor, params) {
-        this._grid.setSpacing(this._parentView.getSpacing());
-        //this.actor.queue_relayout();
-        /*
-        if(this._grid.getSpacing() != spacing) {
-            this._grid.setSpacing(spacing);
-            global.log("Frequent view Diferent");
-            global.log("Frequent view spacing "  + spacing);
-            Meta.later_add(Meta.LaterType.BEFORE_REDRAW, Lang.bind(this, function() {
-                this.actor.queue_relayout();
-                return false;
-            }));
-        } else
-            global.log("Frequent view NO Diferent " + spacing);*/
     },
 
     _getItemId: function(item) {
@@ -240,30 +224,6 @@ const AppPages = new Lang.Class({
         this.actor = this._grid.actor;
         this._parent = parent;
         this._folderIcons = [];
-        //this.actor.connect('notify::allocation', Lang.bind(this, this._calculateGridSpacing));
-    },
-    
-    _calculateGridSpacing: function(actor, params) {
-        
-        let availWidth = actor.allocation.x2 - actor.allocation.x1;
-        global.log("All view alloc "  + availWidth);
-        let itemWidth = this._grid._hItemSize * MAX_COLUMNS;
-        let emptyArea = availWidth - itemWidth;
-        let spacing;
-        spacing = Math.max(this._grid._spacing, emptyArea / ( 2 *  MAX_COLUMNS));
-        spacing = Math.round(spacing);
-        this._grid.setSpacing(spacing);
-        /*
-        if(this._grid.getSpacing() != spacing) {
-            this._grid.setSpacing(spacing);
-            global.log("All view Diferent");
-            global.log("All view spacing "  + spacing);
-            Meta.later_add(Meta.LaterType.BEFORE_REDRAW, Lang.bind(this, function() {
-                this.actor.queue_relayout();
-                return false;
-            }));
-        } else
-            global.log("All view NO Diferent " + spacing);*/
     },
 
     _getItemId: function(item) {
@@ -296,10 +256,20 @@ const AppPages = new Lang.Class({
     
     updateIconOpacities: function(folderOpen) {
         for (let id in this._items) {
-            if (folderOpen && !this._items[id].actor.checked)
-                this._items[id].actor.opacity = INACTIVE_GRID_OPACITY;
-            else
-                this._items[id].actor.opacity = 255;
+            if (folderOpen && !this._items[id].actor.checked) {
+                let params = { opacity: INACTIVE_GRID_OPACITY,
+                        time: INACTIVE_GRID_OPACITY_ANIMATION_TIME,
+                        transition: 'easeOutQuad'
+                       };
+                Tweener.addTween(this._items[id].actor, params);
+            }
+            else {
+                let params = { opacity: 255,
+                        time: INACTIVE_GRID_OPACITY_ANIMATION_TIME,
+                        transition: 'easeOutQuad'
+                       };
+                Tweener.addTween(this._items[id].actor, params);
+            }
         }
     },
     
@@ -336,7 +306,6 @@ const AppPages = new Lang.Class({
         spacing = Math.round(spacing);
         this._grid.setSpacing(spacing);
         for(let id in this._folderIcons) {
-            global.log("FOLDER ICON " + this._folderIcons[id]);
             this._folderIcons[id].updateFolderViewSpacing(width);
         }
     }
@@ -408,7 +377,6 @@ const PaginationScrollView = new Lang.Class({
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
         let childBox = new Clutter.ActorBox();
-        // Get the boxLayout inside scrollView
         childBox.x1 = 0;
         childBox.y1 = 0;
         childBox.x2 = availWidth;
@@ -720,29 +688,6 @@ const FrequentView = new Lang.Class({
         this.actor.add_actor(this._grid.actor);
 
         this._usage = Shell.AppUsage.get_default();
-        //this.actor.connect('notify::allocation', Lang.bind(this, this._calculateGridSpacing));
-    },
-    
-    _calculateGridSpacing: function(actor, params) {
-        let availWidth = actor.allocation.x2 - actor.allocation.x1;
-        global.log("frequent view alloc "  + availWidth);
-        let itemWidth = this._grid._hItemSize * MAX_COLUMNS;
-        let emptyArea = availWidth - itemWidth;
-        let spacing;
-        spacing = Math.max(this._grid._spacing, emptyArea / ( 2 *  MAX_COLUMNS));
-        spacing = Math.round(spacing);
-        
-        /*
-        if(this._grid.getSpacing() != spacing) {
-            this._grid.setSpacing(spacing);
-            global.log("Frequent view Diferent");
-            global.log("Frequent view spacing "  + spacing);
-            Meta.later_add(Meta.LaterType.BEFORE_REDRAW, Lang.bind(this, function() {
-                this.actor.queue_relayout();
-                return false;
-            }));
-        } else
-            global.log("Frequent view NO Diferent " + spacing);*/
     },
 
     removeAll: function() {
@@ -815,15 +760,21 @@ const AppDisplayActor = new Lang.Class({
     Extends: Clutter.BoxLayout,
     
     vfunc_allocate: function (actor, box, flags) {
-        global.log("####~~~~~~~~~~~~~#######");
         let availWidth = box.x2 - box.x1;
         let availheight = box.y2 - box.y1;
-        global.log("Signal to emit " + [availWidth, availheight]);
         this.emit('allocated-width-changed', availWidth);
-        global.log("Signal emitted " +  [availWidth, availheight]);
         this.parent(actor, box, flags);
-        global.log("ALLOATED " +  [availWidth, availheight]);
-        global.log("####*****************#######");
+    },
+    
+    vfunc_set_container: function(container) {
+        if(this._styleChangedId) {
+            this._container.disconnect(this._styleChangedId);
+            this._styleChangedId = 0;
+        }
+        if(container != null)
+            this._styleChangedId = container.connect('style-changed', Lang.bind(this,
+                    function() { this.spacing = this._container.get_theme_node().get_length('spacing'); }));
+        this._container = container;
     }
 });
 Signals.addSignalMethods(AppDisplayActor.prototype);
@@ -988,11 +939,9 @@ const AppDisplay = new Lang.Class({
     },
     
     _updateViewsSpacing: function(actor, width) {
-        global.log("AppDsplay updating..-");
         for (let i = 0; i < this._views.length; i++) {
             this._views[i].view.updateSpacing(width);
         }
-        global.log("AppDsplay End updating..-");
     }
 });
 
@@ -1088,45 +1037,87 @@ const FolderIcon = new Lang.Class({
                 if (!this.actor.mapped && this._popup)
                     this._popup.popdown();
             }));
+        //this.view.actor.connect('notify::allocation', Lang.bind(this, this._updatePopupPosition));
     },
 
     _createIcon: function(size) {
         return this.view.createFolderIcon(size, this);
     },
-
+    
+    _updatePopupPosition: function() {
+        if(this._popup) {
+            // Position the popup above or below the source icon
+            if (this._side == St.Side.BOTTOM) {
+                this._popup.actor.show();
+                let closeButtonOffset = -this._popup.closeButton.translation_y;
+                let y = this.actor.y - this._popup.actor.height;
+                let yWithButton = y - closeButtonOffset;
+                this._popup.parentOffset = yWithButton < 0 ? -yWithButton : 0;
+                this._popup.actor.y = Math.max(y, closeButtonOffset);
+                this._popup.actor.hide();
+                
+                
+            } else {
+                this._popup.actor.y = this.actor.y + this.actor.height;
+            }
+        }
+    },
+    
     _ensurePopup: function() {
-        if (this._popup)
+        if(this._popup){
             return;
-
+        }
+        let previousPopUp = this._popup;
         let spaceTop = this.actor.y;
         let spaceBottom = this._parentView.actor.height - (this.actor.y + this.actor.height);
-        let side = spaceTop > spaceBottom ? St.Side.BOTTOM : St.Side.TOP;
-
-        this._popup = new AppFolderPopup(this, side);
+        this._side = spaceTop > spaceBottom ? St.Side.BOTTOM : St.Side.TOP;
+        this._popup = new AppFolderPopup(this, this._side);
         this._parentView.addFolderPopup(this._popup);
-
-        // Position the popup above or below the source icon
-        if (side == St.Side.BOTTOM) {
-            this._popup.actor.show();
-            let closeButtonOffset = -this._popup.closeButton.translation_y;
-            let y = this.actor.y - this._popup.actor.height;
-            let yWithButton = y - closeButtonOffset;
-            this._popup.parentOffset = yWithButton < 0 ? -yWithButton : 0;
-            this._popup.actor.y = Math.max(y, closeButtonOffset);
-            this._popup.actor.hide();
-        } else {
-            this._popup.actor.y = this.actor.y + this.actor.height;
-        }
-
+        /**
+         * AppDiplay update width for the spacing for all views Allview and
+         * frequent view and folder views calcualte spacing with the items of
+         * icongrid with harcoded values
+         * 
+         * Open overview, then iconSizes changes in allview and frequent view
+         * icongrids, which is the actors who are added to the main AppDisplay.
+         * Then a relayout occurs. AppDiplay update width for the spacing for
+         * all views Allview and frequent view and folder views calcualte
+         * spacing with the items of icongrid, which allview and frequetn view
+         * has the new values, but folderview has the hardcoded values, since
+         * folderview icongrid is not still added to the main Actor, and then,
+         * they didn't emitted style changed signal with new valuesw of item
+         * sizes. Then, frequent view and all view has correct spacing and item
+         * size values, and fodler view has incorrect size and spacing values.
+         * Then, we click icon folder, a folderIcon popup is created and added
+         * to the parent actor, then the style changes, and item size changes,
+         * but spacing is the old one. Then, we calculate the position of the
+         * popup, but, the required height is with the old spacing and new item
+         * sizes, so the height is bigger, then the position is bad. Then,
+         * appDisplay allocate all views updating spacing, and set the good
+         * spacing to folder view, then allocate the folder view, but the
+         * positoon of the boxpointer is already calcualted with the old
+         * spacing, so the boxpointer is displaced.
+         * 
+         * Solution: ensure style of the grid just after we add it to the parent
+         * and before the calculation of the position.
+         */
+        this.view._grid.actor.ensure_style();
+        this.view.updateSpacing(this._parentWidth);
+        this._updatePopupPosition();
+        
         this._popup.connect('open-state-changed', Lang.bind(this,
-            function(popup, isOpen) {
-                if (!isOpen)
-                    this.actor.checked = false;
-            }));
+                function(popup, isOpen) {
+            if (!isOpen)
+                this.actor.checked = false;
+        }));
     },
     
     updateFolderViewSpacing: function(width) {
+        
         this.view.updateSpacing(width);
+        //this.view.actor.ensure_style();
+        this._parentWidth = width;
+        //this._updatePopupPosition();
     }
 });
 
@@ -1204,10 +1195,8 @@ const AppFolderPopup = new Lang.Class({
 
         this.actor.show();
         this.actor.navigate_focus(null, Gtk.DirectionType.TAB_FORWARD, false);
-
         this._boxPointer.setArrowActor(this._source.actor);
-        this._boxPointer.show(BoxPointer.PopupAnimation.FADE |
-                              BoxPointer.PopupAnimation.SLIDE);
+        this._boxPointer.show(BoxPointer.PopupAnimation.FADE);
 
         this._isOpen = true;
         this.emit('open-state-changed', true);
@@ -1217,8 +1206,7 @@ const AppFolderPopup = new Lang.Class({
         if (!this._isOpen)
             return;
 
-        this._boxPointer.hide(BoxPointer.PopupAnimation.FADE |
-                              BoxPointer.PopupAnimation.SLIDE);
+        this._boxPointer.hide(BoxPointer.PopupAnimation.FADE);
         this._isOpen = false;
         this.emit('open-state-changed', false);
     }
