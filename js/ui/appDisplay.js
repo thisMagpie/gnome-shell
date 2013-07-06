@@ -1101,13 +1101,8 @@ const FolderIcon = new Lang.Class({
          * for the widget (the pop up) height now. After allocation it is not taked into account.
          */
         let arrowHeight = this._popup._boxPointer.actor.get_theme_node().get_length('-arrow-rise');
-        let boxPointerBorder = this._popup._boxPointer.actor.get_theme_node().get_length('-arrow-border-width');
-        global.log("boxPointerBorder " + boxPointerBorder);
-        global.log("Arrow rise " + arrowHeight);
-        global.log("this._popup.actor.height " + this._popup.actor.height);
-        global.log("this._popup.actor.height " + this.view.actor.height);
-        global.log("boxHeight ");
-        global.log("maxUsedHeightt " + maxUsedHeight);
+        let popupPadding = this._popup._boxPointer.bin.get_theme_node().get_length('padding');
+
         let popupPadding = this._popup.actor.height - this.view.actor.height - arrowHeight;
         global.log("Padding " + popupPadding);
         // Try to be aligned horizontally with the main grid
