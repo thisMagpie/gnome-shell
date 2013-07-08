@@ -120,102 +120,6 @@ const AlphabeticalView = new Lang.Class({
     }
 });
 
-const FolderView = new Lang.Class({
-    Name: 'FolderView',
-
-    _init: function(parentView) {
-        this._grid = new IconGrid.IconGrid({ xAlign: St.Align.MIDDLE,
-            columnLimit: MAX_COLUMNS });
-        // Standard hack for ClutterBinLayout
-        this._grid.actor.x_expand = true;
-        this._parentView = parentView;
-
-        this.actor = new St.ScrollView({x_expand: true, y_expand:true, y_fill: true, x_fill:true, overlay_scrollbars: true});
-        this.actor.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC);
-        this._box = new St.BoxLayout({vertical:true});
-        this._widget = new St.Widget({x_expand: true, y_expand:true});
-        this._widget.add_actor(this._grid.actor);
-        this._box.add(this._widget, { expand: true });
-        this.actor.add_actor(this._box);
-        this._items = {};
-        this._allItems = [];
-    },
-
-    _getItemId: function(item) {
-        return item.get_id();
-    },
-
-    _createItemIcon: function(item) {
-        return new AppIcon(item);
-    },
-
-    _compareItems: function(a, b) {
-        return a.compare_by_name(b);
-    },
-
-    addApp: function(app) {
-        this._addItem(app);
-    },
-
-    createFolderIcon: function(size) {
-        let icon = new St.Widget({ layout_manager: new Clutter.BinLayout(),
-                                   style_class: 'app-folder-icon',
-                                   width: size, height: size });
-        let subSize = Math.floor(FOLDER_SUBICON_FRACTION * size);
-
-        let aligns = [ Clutter.ActorAlign.START, Clutter.ActorAlign.END ];
-        for (let i = 0; i < Math.min(this._allItems.length, 4); i++) {
-            let texture = this._allItems[i].create_icon_texture(subSize);
-            let bin = new St.Bin({ child: texture,
-                                   x_expand: true, y_expand: true });
-            bin.set_x_align(aligns[i % 2]);
-            bin.set_y_align(aligns[Math.floor(i / 2)]);
-            icon.add_actor(bin);
-        }
-
-        return icon;
-    },
-    
-    removeAll: function() {
-        this._grid.removeAll();
-        this._items = {};
-        this._allItems = [];
-    },
-
-    _addItem: function(item) {
-        let id = this._getItemId(item);
-        if (this._items[id] !== undefined)
-            return null;
-
-        let itemIcon = this._createItemIcon(item);
-        this._allItems.push(item);
-        this._items[id] = itemIcon;
-
-        return itemIcon;
-    },
-
-    loadGrid: function() {
-        this._allItems.sort(this._compareItems);
-
-        for (let i = 0; i < this._allItems.length; i++) {
-            let id = this._getItemId(this._allItems[i]);
-            if (!id)
-                continue;
-            this._grid.addItem(this._items[id].actor);
-        }
-    },
-    
-    onUpdatedDisplaySize: function(width, height) {
-        // Update grid dinamyc spacing based on display width
-        let itemWidth = this._grid._hItemSize * MAX_COLUMNS;
-        let emptyArea = width - itemWidth;
-        let spacing;
-        spacing = Math.max(this._grid._spacing, emptyArea / ( 2 *  MAX_COLUMNS));
-        spacing = Math.round(spacing);
-        this._grid.setSpacing(spacing);
-    }
-});
-
 const AppPages = new Lang.Class({
     Name: 'AppPages',
     Extends: AlphabeticalView,
@@ -999,6 +903,101 @@ const AppSearchProvider = new Lang.Class({
     }
 });
 
+const FolderView = new Lang.Class({
+    Name: 'FolderView',
+
+    _init: function(parentView) {
+        this._grid = new IconGrid.IconGrid({ xAlign: St.Align.MIDDLE,
+            columnLimit: MAX_COLUMNS });
+        this._parentView = parentView;
+
+        this.actor = new St.ScrollView({overlay_scrollbars: true});
+        this.actor.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC);
+        this._box = new St.BoxLayout();
+        let lay = new Clutter.BinLayout();
+        this._widget = new St.Widget({y_align: 1});
+        this._widget.add_child(this._grid.actor);
+        this._box.add_actor(this._widget);
+        this.actor.add_actor(this._box);
+        this._items = {};
+        this._allItems = [];
+    },
+
+    _getItemId: function(item) {
+        return item.get_id();
+    },
+
+    _createItemIcon: function(item) {
+        return new AppIcon(item);
+    },
+
+    _compareItems: function(a, b) {
+        return a.compare_by_name(b);
+    },
+
+    addApp: function(app) {
+        this._addItem(app);
+    },
+
+    createFolderIcon: function(size) {
+        let icon = new St.Widget({ layout_manager: new Clutter.BinLayout(),
+                                   style_class: 'app-folder-icon',
+                                   width: size, height: size });
+        let subSize = Math.floor(FOLDER_SUBICON_FRACTION * size);
+
+        let aligns = [ Clutter.ActorAlign.START, Clutter.ActorAlign.END ];
+        for (let i = 0; i < Math.min(this._allItems.length, 4); i++) {
+            let texture = this._allItems[i].create_icon_texture(subSize);
+            let bin = new St.Bin({ child: texture,
+                                   x_expand: true, y_expand: true });
+            bin.set_x_align(aligns[i % 2]);
+            bin.set_y_align(aligns[Math.floor(i / 2)]);
+            icon.add_actor(bin);
+        }
+
+        return icon;
+    },
+    
+    removeAll: function() {
+        this._grid.removeAll();
+        this._items = {};
+        this._allItems = [];
+    },
+
+    _addItem: function(item) {
+        let id = this._getItemId(item);
+        if (this._items[id] !== undefined)
+            return null;
+
+        let itemIcon = this._createItemIcon(item);
+        this._allItems.push(item);
+        this._items[id] = itemIcon;
+
+        return itemIcon;
+    },
+
+    loadGrid: function() {
+        this._allItems.sort(this._compareItems);
+
+        for (let i = 0; i < this._allItems.length; i++) {
+            let id = this._getItemId(this._allItems[i]);
+            if (!id)
+                continue;
+            this._grid.addItem(this._items[id].actor);
+        }
+    },
+    
+    onUpdatedDisplaySize: function(width, height) {
+        // Update grid dinamyc spacing based on display width
+        let itemWidth = this._grid._hItemSize * MAX_COLUMNS;
+        let emptyArea = width - itemWidth;
+        let spacing;
+        spacing = Math.max(this._grid._spacing, emptyArea / ( 2 *  MAX_COLUMNS));
+        spacing = Math.round(spacing);
+        this._grid.setSpacing(spacing);
+    }
+});
+
 const FolderIcon = new Lang.Class({
     Name: 'FolderIcon',
 
@@ -1052,10 +1051,12 @@ const FolderIcon = new Lang.Class({
                 this._popup.parentOffset = yWithButton < 0 ? -yWithButton : 0;
                 this._popup.actor.y = Math.max(y, closeButtonOffset);
                 this._popup.actor.hide();
-                
-                
+                //FIXME ST ALIGN NOR WORKING?
+                this.view._widget.y_align = 1;
             } else {
                 this._popup.actor.y = this.actor.y + this.actor.height;
+                //FIXME ST ALIGN NOR WORKING?
+                this.view._widget.y_align = 3;
             }
         }
     },
@@ -1064,9 +1065,7 @@ const FolderIcon = new Lang.Class({
         let parentBox = this._parentView.actor.allocation;
         let box = this.view.actor.get_theme_node().get_content_box(parentBox);
         let availWidth = box.x2 - box.x1;
-        let childrenInRow = this.view._grid.childrenInRow(availWidth);
-        let maxUsedWidth = childrenInRow  * (this.view._grid._hItemSize + this.view._grid.getSpacing());
-        maxUsedWidth -= this.view._grid.getSpacing();
+        let maxUsedWidth = this.view._grid.usedWidth(availWidth);
         global.log("maxUsedWidth " + maxUsedWidth);
     },
     
@@ -1078,40 +1077,40 @@ const FolderIcon = new Lang.Class({
         pageBox.y2 = this._displayHeight;
         let box = this.view.actor.get_theme_node().get_content_box(pageBox);
         let availHeightPerPage = box.y2 - box.y1;
-        
-        
-        let spacePerRow = this.view._grid._vItemSize + this.view._grid.getSpacing();
-        let rowsPerPage = Math.floor(availHeightPerPage / spacePerRow);
-        // Check if deleting spacing from bottom there's enough space for another row
-        let spaceWithOneMoreRow = (rowsPerPage + 1) * spacePerRow - this.view._grid.getSpacing();
-        rowsPerPage = spaceWithOneMoreRow <= availHeightPerPage? rowsPerPage + 1 : rowsPerPage;
-        
+        let availWidthPerPage = box.x2 - box.x1;
+        let maxRowsPerPage = this.view._grid.rowsForHeight(availHeightPerPage);
+        let usedRows = this.view._grid.nUsedRows(availWidthPerPage);
         //Then, we can only show that arrows least one.
-        rowsPerPage -= 1;
-        global.log("Rows per page " + rowsPerPage);
+        maxRowsPerPage -= 1;
+        global.log("Rows per page " + maxRowsPerPage);
+        global.log("usedRows " + usedRows);
+
         // Then calculate the real maxUsedHeight
-        let maxUsedHeight = rowsPerPage * spacePerRow;
+        let maxUsedHeight = this.view._grid.usedHeightForNRows(maxRowsPerPage);
         
         let usedHeight;
-        let gridBoxInsideBoxPointer;
-        let currentGridHeight = this.view.actor.height + this.view._grid.getSpacing();
-        this._popup.closeButton.ensure_style();
+        let currentGridHeight = this.view._grid.usedHeightForNRows(usedRows);
+        
+        global.log("maxUsedHeight " + maxUsedHeight);
+        global.log("currentGridHeight " + currentGridHeight);
         /*
-         * We have to take into account the close button hegith, since it is taked into account
-         * for the widget (the pop up) height now. After allocation it is not taked into account.
+         * To maintain the grid of the collection aligned to the main grid, we have to
+         * make the same spacing to each element of the collection as the main grid has, except
+         * for the last row which has to take less space, since the grid of collection is inside a view with padding (the popup)
+         * and, the arrow of the popup is rising some pixels the collection, we have to calculate how much real spacing
+         * we have to let under/above the last/first arrow to make let the collection grid aligned with the main grid
          */
         let arrowHeight = this._popup._boxPointer.actor.get_theme_node().get_length('-arrow-rise');
         let popupPadding = this._popup._boxPointer.bin.get_theme_node().get_length('padding');
-
-        let popupPadding = this._popup.actor.height - this.view.actor.height - arrowHeight;
         global.log("Padding " + popupPadding);
+
         // Try to be aligned horizontally with the main grid
-        if(currentGridHeight < maxUsedHeight) {
+        if(usedRows <= maxRowsPerPage) {
             // We want to separate the first row from the folder icon actor,
             // to let the folder view aligned to the main grid
-            usedHeight = this.view.actor.height - popupPadding / 2 - arrowHeight;
+            usedHeight = this.view.actor.height + this.view._grid.getSpacing() - popupPadding - arrowHeight;
         } else
-            usedHeight = maxUsedHeight - popupPadding / 2 - arrowHeight;
+            usedHeight = maxUsedHeight + this.view._grid.getSpacing() - popupPadding - arrowHeight;
         return usedHeight;
     },
     
@@ -1120,13 +1119,16 @@ const FolderIcon = new Lang.Class({
             return;
         }
         let previousPopUp = this._popup;
-        let spaceTop = this.actor.y;
-        let spaceBottom = this._parentView.actor.height - (this.actor.y + this.actor.height);
-        global.log("PArent width " + this._parentView.actor.width);
+        let absoluteActorYPosition = this.actor.get_transformed_position()[1];
+        let spaceTop = absoluteActorYPosition;
+        let spaceBottom = this.actor.get_stage().height - (absoluteActorYPosition + this.actor.height);
+        global.log("absoluteActorYPosition " + absoluteActorYPosition);
         this._side = spaceTop > spaceBottom ? St.Side.BOTTOM : St.Side.TOP;
+        global.log("this._side " + this._side);
         this._popup = new AppFolderPopup(this, this._side);
         this._parentView.addFolderPopup(this._popup);
         /**
+         * Why we need that:
          * AppDiplay update width for the spacing for all views Allview and
          * frequent view and folder views calcualte spacing with the items of
          * icongrid with harcoded values

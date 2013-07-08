@@ -412,6 +412,46 @@ const IconGrid = new Lang.Class({
         return this._rowLimit;
     },
     
+    nUsedRows: function(forWidth) {
+        let children = this._getVisibleChildren();
+        let nColumns;
+        if (forWidth < 0) {
+            nColumns = children.length;
+        } else {
+            [nColumns, ] = this._computeLayout(forWidth);
+        }
+        
+        let nRows;
+        if (nColumns > 0)
+            nRows = Math.ceil(children.length / nColumns);
+        else
+            nRows = 0;
+        if (this._rowLimit)
+            nRows = Math.min(nRows, this._rowLimit);
+        return nRows;
+    },
+    
+    rowsForHeight: function(forHeight) {
+        let spacePerRow = this._vItemSize + this.getSpacing();
+        let rowsPerPage = Math.floor(forHeight / spacePerRow);
+        // Check if deleting spacing from bottom there's enough space for another row
+        let spaceWithOneMoreRow = (rowsPerPage + 1) * spacePerRow - this.getSpacing();
+        rowsPerPage = spaceWithOneMoreRow <= forHeight? rowsPerPage + 1 : rowsPerPage;
+        return rowsPerPage;
+    },
+    
+    usedHeightForNRows: function(nRows) {
+        let spacePerRow = this._vItemSize + this.getSpacing();
+        return spacePerRow * nRows;
+    },
+    
+    usedWidth: function(forWidth) {
+        let childrenInRow = this.childrenInRow(forWidth);
+        let usedWidth = childrenInRow  * (this._hItemSize + this.getSpacing());
+        usedWidth -= this.getSpacing();
+        return usedWidth;
+    },
+    
     _computeLayout: function (forWidth) {
         let nColumns = 0;
         let usedWidth = 0;
