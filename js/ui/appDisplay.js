@@ -197,6 +197,90 @@ const AppPages = new Lang.Class({
     addFolderPopup: function(popup) {
         this._parent.addFolderPopup(popup);
     },
+    /**
+     * Pan view with items to make space for the folder view.
+     * @param folderNVisibleRowsAtOnce this parameter tell how many rows the folder view has, but,
+     * it is already constrianed to be at maximum of main grid rows least one, to ensure we have
+     * enough space to show the folder view.
+     */
+    makeSpaceForPopUp: function(iconActor, side, folderNVisibleRowsAtOnce) {
+        global.log("#### makeSpaceForPopUp ####");
+        let rowsUp = [];
+        let rowsDown = [];
+        let mainIconYPosition = iconActor.actor.y;
+        let currentPage = this._parent.currentPage();
+        let mainIconRowReached = false;
+        let isMainIconRow = false;
+        let rows = this._grid.pageRows(currentPage);
+        global.log(" ROWS " + rows);
+        for(let rowIndex in rows) {
+            isMainIconRow = mainIconYPosition == rows[rowIndex][0].y;
+            if(isMainIconRow)
+                mainIconRowReached = true;
+            if(!mainIconRowReached) {
+                rowsUp.push(rows[rowIndex]);
+            } else {
+                if(isMainIconRow) {
+                    if(side == St.Side.BOTTOM)
+                        rowsDown.push(rows[rowIndex]);
+                    else
+                        rowsUp.push(rows[rowIndex]);
+                } else
+                    rowsDown.push(rows[rowIndex]);
+            }
+        }
+        let panViewUpNRows = 0;
+        let panViewDownNRows = 0;
+        if(side == St.Side.BOTTOM) {
+            // There's not need to pan view down
+            if(rowsUp.length >= folderNVisibleRowsAtOnce)
+                panViewUpNRows = folderNVisibleRowsAtOnce;
+            else {
+                panViewUpNRows = rowsUp.length;
+                panViewDownNRows = folderNVisibleRowsAtOnce - rowsUp.length;
+            }
+        } else {
+            if(rowsDown.length >= folderNVisibleRowsAtOnce)
+                panViewDownNRows = folderNVisibleRowsAtOnce;
+            else {
+                panViewDownNRows = rowsDown.length;
+                panViewUpNRows = folderNVisibleRowsAtOnce - rowsDown.length;
+            }
+        }
+        
+        global.log("rowsUp " + rowsUp);
+        global.log("rowsDown " + rowsDown);
+        global.log("panViewUpNRows " + panViewUpNRows);
+        global.log("panViewDownNRows " + panViewDownNRows);
+        global.log("#### END makeSpaceForPopUp ####");
+        
+        this._panViewForFolderView(rowsUp, rowsDown, panViewUpNRows, panViewDownNRows);
+        iconActor.onCompleteMakeSpaceForPopUp();
+    },
+    
+    _panViewForFolderView: function(rowsUp, rowsDown, panViewUpNRows, panViewDownNRows) {
+        let rowHeight = this._grid.rowHeight();
+        if(panViewUpNRows > 0) {
+            let height = rowHeight * panViewUpNRows;
+            for(let rowId in rowsUp) {
+                for(let childrenId in rowsUp[rowId]) {
+                    global.log("children up y " + rowsUp[rowId][childrenId].y);
+                    rowsUp[rowId][childrenId].y -= height;
+                    global.log("after children up y " + rowsUp[rowId][childrenId].y);
+                }
+            }
+        }
+        if(panViewDownNRows > 0) {
+            let height = rowHeight * panViewDownNRows;
+            for(let rowId in rowsDown) {
+                for(let childrenId in rowsDown[rowId]) {
+                    global.log("children down y " + rowsDown[rowId][childrenId].y);
+                    rowsDown[rowId][childrenId].y += height;
+                    global.log("after children down y " + rowsDown[rowId][childrenId].y);
+                }
+            }
+        }
+    },
     
     removeAll: function() {
         this._folderIcons = [];
@@ -915,7 +999,7 @@ const FolderView = new Lang.Class({
         this.actor.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC);
         this._box = new St.BoxLayout({reactive: true});
         let lay = new Clutter.BinLayout();
-        this._widget = new St.Widget({y_align: 1});
+        this._widget = new St.Widget();
         this._widget.add_child(this._grid.actor);
         this._box.add_actor(this._widget);
         this.actor.add_actor(this._box);
@@ -1063,7 +1147,6 @@ const FolderIcon = new Lang.Class({
         this.actor.connect('clicked', Lang.bind(this,
             function() {
                 this._ensurePopup();
-                this._popup.toggle();
             }));
         this.actor.connect('notify::mapped', Lang.bind(this,
             function() {
@@ -1118,10 +1201,10 @@ const FolderIcon = new Lang.Class({
     },
 
     makeSpaceForPopUp: function() {
-        //this._parentView.makeSpaceForPopUp(this._side, rows);
+        this._parentView.makeSpaceForPopUp(this, this._side, this.view.nRowsDisplayedAtOnce());
     },
     
-    onCompletemakeSpaceForPopUp: function() {
+    onCompleteMakeSpaceForPopUp: function() {
         this._popup.toggle();
     },
     
@@ -1188,7 +1271,7 @@ const FolderIcon = new Lang.Class({
             this.view.actor.set_height(this._popUpHeight());
 
             this._updatePopupPosition();
-
+            this.makeSpaceForPopUp();
             this._popup.connect('open-state-changed', Lang.bind(this,
                     function(popup, isOpen) {
                 if (!isOpen)
