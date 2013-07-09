@@ -448,7 +448,7 @@ const IconGrid = new Lang.Class({
     },
     
     usedHeightForNRows: function(nRows) {
-        let spacePerRow = this._vItemSize + this.getSpacing();
+        let spacePerRow = this.rowHeight();
         return spacePerRow * nRows;
     },
     
@@ -563,6 +563,31 @@ usedHeightPerPage: function() {
         }
         return spacing;
     },
+    
+    pageRows: function(pageNumber) {
+        let pagePosition = this.getPagePosition(pageNumber);
+        let currentRowItemsYPosition = pagePosition;
+        let rows = [];
+        let currentItem = this._firstPagesItems[pageNumber];
+        let children = this._grid.get_children();
+        let index = 0;
+        // Positioning to the first element of the page
+        while(children[index] != this._firstPagesItems[pageNumber])
+            index++;
+        for( let rowIndex = 0; rowIndex < this._rowsPerPage && index < children.length; rowIndex++) {
+            rows[rowIndex] = [];
+            while(index < children.length && children[index].y == currentItem.y ) {
+                rows[rowIndex].push(children[index]);
+                index++;
+            }
+            currentItem = children[index];
+        }
+        return rows;
+    },
+    
+    rowHeight: function() {
+        return this._vItemSize + this.getSpacing();
+    }
     
 });
 Signals.addSignalMethods(IconGrid.prototype);

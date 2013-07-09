@@ -34,7 +34,7 @@ const MIN_COLUMNS = 4;
 const MIN_ROWS = 4;
 
 const INACTIVE_GRID_OPACITY = 77;
-const INACTIVE_GRID_OPACITY_ANIMATION_TIME = 0.15;
+const INACTIVE_GRID_OPACITY_ANIMATION_TIME = 0.40;
 const FOLDER_SUBICON_FRACTION = .4;
 
 const MAX_APPS_PAGES = 20;
@@ -44,7 +44,9 @@ const MAX_APPS_PAGES = 20;
 const PAGE_SWITCH_TRESHOLD = 0.2;
 const PAGE_SWITCH_TIME = 0.3;
 
-// Recursively load a GMenuTreeDirectory; we could put this in ShellAppSystem too
+const POPUP_FOLDER_VIEW_ANIMATION = 0.25;
+
+//Recursively load a GMenuTreeDirectory; we could put this in ShellAppSystem too
 function _loadCategory(dir, view) {
     let iter = dir.iter();
     let appSystem = Shell.AppSystem.get_default();
@@ -130,6 +132,7 @@ const AppPages = new Lang.Class({
         this.actor = this._grid.actor;
         this._parent = parent;
         this._folderIcons = [];
+        this._popupExpansionNeeded = true;
     },
 
     _getItemId: function(item) {
@@ -199,6 +202,119 @@ const AppPages = new Lang.Class({
         this._parent.addFolderPopup(popup);
     },
 
+    /**
+     * Pan view with items to make space for the folder view.
+     * @param folderNVisibleRowsAtOnce this parameter tell how many rows the folder view has, but,
+     * it is already constrianed to be at maximum of main grid rows least one, to ensure we have
+     * enough space to show the folder view.
+     */
+    makeSpaceForPopUp: function(iconActor, side, folderNVisibleRowsAtOnce) {
+        let rowsUp = [];
+        let rowsDown = [];
+        let mainIconYPosition = iconActor.actor.y;
+        let currentPage = this._parent.currentPage();
+        let mainIconRowReached = false;
+        let isMainIconRow = false;
+        let rows = this._grid.pageRows(currentPage);
+        this._translatedRows = rows;
+        for(let rowIndex in rows) {
+            isMainIconRow = mainIconYPosition == rows[rowIndex][0].y;
+            if(isMainIconRow)
+                mainIconRowReached = true;
+            if(!mainIconRowReached) {
+                rowsUp.push(rows[rowIndex]);
+            } else {
+                if(isMainIconRow) {
+                    if(side == St.Side.BOTTOM)
+                        rowsDown.push(rows[rowIndex]);
+                    else
+                        rowsUp.push(rows[rowIndex]);
+                } else
+                    rowsDown.push(rows[rowIndex]);
+            }
+        }
+        //The last page can have space without rows
+        let emptyRows = this._grid._rowsPerPage - rows.length ;
+        let panViewUpNRows = 0;
+        let panViewDownNRows = 0;
+        if(side == St.Side.BOTTOM) {
+            // There's not need to pan view down
+            if(rowsUp.length >= folderNVisibleRowsAtOnce)
+                panViewUpNRows = folderNVisibleRowsAtOnce;
+            else {
+                panViewUpNRows = rowsUp.length;
+                panViewDownNRows = folderNVisibleRowsAtOnce - rowsUp.length;
+            }
+        } else {
+            // There's not need to pan view up
+            if(rowsDown.length + emptyRows >= folderNVisibleRowsAtOnce){
+                panViewDownNRows = folderNVisibleRowsAtOnce;
+            }
+            else {
+                panViewDownNRows = rowsDown.length + emptyRows;
+                panViewUpNRows = folderNVisibleRowsAtOnce - rowsDown.length - emptyRows;
+            }
+        }
+        this._panViewForFolderView(rowsUp, rowsDown, panViewUpNRows, panViewDownNRows, iconActor);
+        this.updateIconOpacities(true);
+    },
+    
+    returnSpaceToOriginalPosition: function() {
+        if(this._translatedRows) {
+            for(let rowId in this._translatedRows) {
+                for(let childrenId in this._translatedRows[rowId]) {
+                    if(this._translatedRows[rowId][childrenId].translate_y){
+                        let tweenerParams = { translate_y: 0,
+                                time: POPUP_FOLDER_VIEW_ANIMATION,
+                                onUpdate: function() {this.queue_relayout();},
+                                transition: 'easeInOutQuad',
+                                onComplete: Lang.bind(this, function(){this.displayingPopup = false;}
+                                )};
+                        Tweener.addTween(this._translatedRows[rowId][childrenId], tweenerParams);
+                    }
+                }
+            }
+        }
+        this.updateIconOpacities(false);
+    },
+    
+    _panViewForFolderView: function(rowsUp, rowsDown, panViewUpNRows, panViewDownNRows, iconActor) {
+        let rowHeight = this._grid.rowHeight();
+        if(panViewUpNRows > 0) {
+            this.displayingPopup = true;
+            let height = rowHeight * panViewUpNRows;
+            for(let rowId in rowsUp) {
+                for(let childrenId in rowsUp[rowId]) {
+                    rowsUp[rowId][childrenId].translate_y = 0;
+                    let tweenerParams = { translate_y: - height,
+                                          time: POPUP_FOLDER_VIEW_ANIMATION,
+                                          onUpdate: function() {this.queue_relayout();},
+                                          transition: 'easeInOutQuad' };
+                    if((rowId == rowsUp.length - 1) && (childrenId == rowsUp[rowId].length - 1)) {
+                            tweenerParams['onComplete'] = Lang.bind(iconActor, iconActor.onCompleteMakeSpaceForPopUp);
+                    }
+                    Tweener.addTween(rowsUp[rowId][childrenId], tweenerParams);
+                }
+            }
+        }
+        if(panViewDownNRows > 0) {
+            this.displayingPopup = true;
+            let height = rowHeight * panViewDownNRows;
+            for(let rowId in rowsDown) {
+                for(let childrenId in rowsDown[rowId]) {
+                    rowsDown[rowId][childrenId].translate_y = 0;
+                    let tweenerParams = { translate_y: height,
+                                          time: POPUP_FOLDER_VIEW_ANIMATION,
+                                          onUpdate: function() {this.queue_relayout();} };
+                    if((rowId == rowsDown.length - 1) && (childrenId == rowsDown[rowId].length - 1)) {
+                        tweenerParams['onComplete'] = Lang.bind(iconActor, iconActor.onCompleteMakeSpaceForPopUp);
+                    }
+                    Tweener.addTween(rowsDown[rowId][childrenId], tweenerParams);
+                }
+            }
+        }
+    },
+
     removeAll: function() {
         this._folderIcons = [];
         this.parent();
@@ -252,6 +368,11 @@ const PaginationScrollView = new Lang.Class({
 
         this._currentPage = 0;
         this._parent = parent;
+        
+        // When the number of pages change (i.e. when changing screen resolution or during clutter false allocations)
+        // we have to tell pagination that the adjustment is not correct (since the allocated size of pagination changed)
+        // For that problem we return to the first page of pagination.
+        this.invalidatePagination = false;
         
         this.connect('scroll-event', Lang.bind(this, this._onScroll));
         let panAction = new Clutter.PanAction({ interpolate: false });
@@ -313,6 +434,11 @@ const PaginationScrollView = new Lang.Class({
     },
 
     goToPage: function(pageNumber, action) {
+        if(this._currentPage != pageNumber && this._pages.displayingPopup && this._currentPopup) {
+            this._currentPopup.popdown();
+        } else if(this._pages.displayingPopup && this._currentPopup){
+            return;
+        }
         let velocity;
         if(!action)
             velocity = 0;
@@ -331,8 +457,7 @@ const PaginationScrollView = new Lang.Class({
         if(this._currentPage != pageNumber) {
             let min_velocity = totalHeight / (PAGE_SWITCH_TIME * 1000);
             velocity = Math.max(min_velocity, velocity);
-            time = (diffFromPage / velocity) / 1000;
-            
+            time = (diffFromPage / velocity) / 1000;            
         } else
             time = PAGE_SWITCH_TIME * diffFromPage / totalHeight;
         // Take care when we are changing more than one page, maximum time
@@ -382,6 +507,8 @@ const PaginationScrollView = new Lang.Class({
     },
 
     _onScroll: function(actor, event) {
+        if(this._pages.displayingPopup)
+            return;
         let direction = event.get_scroll_direction();
         let nextPage;
         if (direction == Clutter.ScrollDirection.UP)
@@ -402,12 +529,13 @@ const PaginationScrollView = new Lang.Class({
                 function(popup, isOpen) {
                     this._eventBlocker.reactive = isOpen;
                     this._currentPopup = isOpen ? popup : null;
-                    this._pages.updateIconOpacities(isOpen);
                 }));
     },
     
     _onPan: function(action) {
         this._clickAction.release();
+        if(this._pages.displayingPopup)
+            return;
         let [dist, dx, dy] = action.get_motion_delta(0);
         let adjustment = this._verticalAdjustment;
         adjustment.value -= (dy / this.height) * adjustment.page_size;
@@ -415,6 +543,8 @@ const PaginationScrollView = new Lang.Class({
     },
     
     _onPanEnd: function(action) {
+        if(this._pages.displayingPopup)
+            return;
         let diffCurrentPage = this._diffToPage(this._currentPage);
         if(diffCurrentPage > this.height * PAGE_SWITCH_TRESHOLD) {
             if(action.get_velocity(0)[2] > 0 && this._currentPage > 0) {
@@ -543,6 +673,7 @@ const AllView = new Lang.Class({
         let layout = new Clutter.BinLayout();
         this.actor = new St.Widget({ layout_manager: layout, 
                                      x_expand:true, y_expand:true });
+        //FIXME Clutter align properties
         layout.add(this._paginationView, 2,2);
         if(Clutter.get_default_text_direction() == Clutter.TextDirection.RTL)
             layout.add(this._paginationIndicator.actor, 2,2);
@@ -711,6 +842,8 @@ const AppDisplayActor = new Lang.Class({
     vfunc_allocate: function (actor, box, flags) {
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
+        // Prepare children of all views for the upcomming allocation, calculate all
+        // the needed values in the responsive design we are trying to emulate
         this.emit('allocated-size-changed', availWidth, availHeight);
         this.parent(actor, box, flags);
     },
@@ -1115,13 +1248,16 @@ const FolderIcon = new Lang.Class({
         this.actor.connect('clicked', Lang.bind(this,
             function() {
                 this._ensurePopup();
-                this._popup.toggle();
             }));
         this.actor.connect('notify::mapped', Lang.bind(this,
             function() {
                 if (!this.actor.mapped && this._popup)
                     this._popup.popdown();
             }));
+        
+        this.actor.connect('notify::allocation', Lang.bind(this, function() {
+            Meta.later_add(Meta.LaterType.BEFORE_REDRAW, Lang.bind(this, this._updatePopupPosition));
+        }));
     },
 
     _createIcon: function(size) {
@@ -1172,11 +1308,15 @@ const FolderIcon = new Lang.Class({
     },
 
     makeSpaceForPopUp: function() {
-        //this._parentView.makeSpaceForPopUp(this._side, rows);
+        this._parentView.makeSpaceForPopUp(this, this._side, this.view.nRowsDisplayedAtOnce());
     },
     
-    onCompletemakeSpaceForPopUp: function() {
-        this._popup.toggle();
+    returnSpaceToOriginalPosition: function() {
+        this._parentView.returnSpaceToOriginalPosition();
+    },
+    
+    onCompleteMakeSpaceForPopUp: function() {
+        this._popup.popup();
     },
     
     _ensurePopup: function() {
@@ -1237,13 +1377,16 @@ const FolderIcon = new Lang.Class({
              */
             let usedHeight = this._popUpHeight();
             this.view.actor.set_height(this._popUpHeight());
+            this._popup.actor.fixed_height = this._popup.actor.height;
 
-            this._updatePopupPosition();
-
+            
+            this.makeSpaceForPopUp();
             this._popup.connect('open-state-changed', Lang.bind(this,
                     function(popup, isOpen) {
-                if (!isOpen)
+                if (!isOpen) {
                     this.actor.checked = false;
+                    this.returnSpaceToOriginalPosition();
+                }
             }));
         }
     },
