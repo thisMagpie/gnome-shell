@@ -255,7 +255,7 @@ const AppPages = new Lang.Class({
         
         
         this._panViewForFolderView(rowsUp, rowsDown, panViewUpNRows, panViewDownNRows);
-        //this._grid.actor.queue_relayout();
+        this._grid.actor.queue_relayout();
         iconActor.onCompleteMakeSpaceForPopUp();
         global.log("#### END makeSpaceForPopUp ####");
     },
