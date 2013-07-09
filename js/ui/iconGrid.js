@@ -338,6 +338,10 @@ const IconGrid = new Lang.Class({
         childBox.y1 = Math.floor(y + childYSpacing);
         childBox.x2 = childBox.x1 + width;
         childBox.y2 = childBox.y1 + height;
+        if(child._translateY) {
+            childBox.y1 += child._translateY;
+            childBox.y2 += child._translateY;
+        }
         return childBox;
     },
 
@@ -577,6 +581,26 @@ const PaginatedIconGrid = new Lang.Class({
         if (oldNPages != this._nPages || oldHeightUsedPerPage != this._availableHeightPerPageForItems()) {
             this.emit('n-pages-changed', this._nPages);
         }
+    },
+
+    rowsPerPage: function() {
+        return this._rowsPerPage;
+    },
+
+    pageRows: function(pageNumber) {
+        let rows = [];
+        let currentItem = this._getVisibleChildren()[pageNumber * this._childrenPerPage];
+        let children = this._grid.get_children();
+        let index = pageNumber * this._childrenPerPage;
+        for (let rowIndex = 0; rowIndex < this._rowsPerPage && index < children.length; rowIndex++) {
+            rows[rowIndex] = [];
+            while (index < children.length && children[index].y == currentItem.y) {
+                rows[rowIndex].push(children[index]);
+                index++;
+            }
+            currentItem = children[index];
+        }
+        return rows;
     },
 
     _availableHeightPerPageForItems: function() {

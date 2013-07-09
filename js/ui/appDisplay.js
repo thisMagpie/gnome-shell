@@ -34,7 +34,7 @@ const MIN_COLUMNS = 4;
 const MIN_ROWS = 4;
 
 const INACTIVE_GRID_OPACITY = 77;
-const INACTIVE_GRID_OPACITY_ANIMATION_TIME = 0.15;
+const INACTIVE_GRID_OPACITY_ANIMATION_TIME = 0.40;
 const FOLDER_SUBICON_FRACTION = .4;
 
 const MAX_APPS_PAGES = 20;
@@ -43,6 +43,8 @@ const MAX_APPS_PAGES = 20;
 //change page
 const PAGE_SWITCH_TRESHOLD = 0.2;
 const PAGE_SWITCH_TIME = 0.3;
+
+const POPUP_FOLDER_VIEW_ANIMATION = 0.25;
 
 // Recursively load a GMenuTreeDirectory; we could put this in ShellAppSystem too
 function _loadCategory(dir, view) {
@@ -330,6 +332,8 @@ const AllView = new Lang.Class({
         // we have to tell pagination that the adjustment is not correct (since the allocated size of pagination changed)
         // For that problem we return to the first page of pagination.
         this._paginationInvalidated = false;
+        this._popupExpansionNeeded = true;
+        this.displayingPopup = false;
 
         Main.overview.connect('hidden', Lang.bind(this, function() {this.goToPage(0, true);}));
     },
@@ -340,6 +344,10 @@ const AllView = new Lang.Class({
     },
 
     goToPage: function(pageNumber, updateIndicators) {
+        if (this._currentPage != pageNumber && this.displayingPopup && this._currentPopup)
+            this._currentPopup.popdown();
+        else if(this.displayingPopup && this._currentPopup)
+                return;
         this.viewGoToPage(pageNumber);
         if (updateIndicators)
             this.indicatorsGoToPage(pageNumber);
@@ -395,7 +403,130 @@ const AllView = new Lang.Class({
         return Math.abs(currentScrollPosition - this._grid.getPageYPosition(pageNumber));
     },
 
+    /**
+     * Pan view with items to make space for the folder view.
+     * @param folderNVisibleRowsAtOnce this parameter tell how many rows the folder view has, but,
+     * it is already constrained to be at maximum of main grid rows least one, to ensure we have
+     * enough space to show the folder view popup.
+     */
+    makeSpaceForPopUp: function(iconActor, side, folderNVisibleRowsAtOnce) {
+        let rowsUp = [];
+        let rowsDown = [];
+        let mainIconYPosition = iconActor.actor.y;
+        let mainIconRowReached = false;
+        let isMainIconRow = false;
+        let rows = this._grid.pageRows(this._currentPage);
+        this._translatedRows = rows;
+        for (let rowIndex in rows) {
+            isMainIconRow = mainIconYPosition == rows[rowIndex][0].y;
+            if (isMainIconRow)
+                mainIconRowReached = true;
+            if ( !mainIconRowReached)
+                rowsUp.push(rows[rowIndex]);
+            else {
+                if (isMainIconRow) {
+                    if (side == St.Side.BOTTOM)
+                        rowsDown.push(rows[rowIndex]);
+                    else
+                        rowsUp.push(rows[rowIndex]);
+                } else
+                    rowsDown.push(rows[rowIndex]);
+            }
+        }
+        //The last page can have space without rows
+        let emptyRows = this._grid.rowsPerPage() - rows.length ;
+        let panViewUpNRows = 0;
+        let panViewDownNRows = 0;
+        if(side == St.Side.BOTTOM) {
+            // There's not need to pan view down
+            if (rowsUp.length >= folderNVisibleRowsAtOnce)
+                panViewUpNRows = folderNVisibleRowsAtOnce;
+            else {
+                panViewUpNRows = rowsUp.length;
+                panViewDownNRows = folderNVisibleRowsAtOnce - rowsUp.length;
+            }
+        } else {
+            // There's not need to pan view up
+            if (rowsDown.length + emptyRows >= folderNVisibleRowsAtOnce)
+                panViewDownNRows = folderNVisibleRowsAtOnce;
+            else {
+                panViewDownNRows = rowsDown.length + emptyRows;
+                panViewUpNRows = folderNVisibleRowsAtOnce - rowsDown.length - emptyRows;
+            }
+        }
+        this._updateIconOpacities(true);
+        // Especial case, last page and no rows below the icon of the folder, no rows down neither rows up,
+        // we call directly the popup
+        if (panViewDownNRows > 0 && rowsDown.length == 0 && rowsUp.length == 0) {
+            this.displayingPopup = true;
+            this._popupExpansionNeeded = false;
+            iconActor.onCompleteMakeSpaceForPopUp();
+        } else {
+            this._popupExpansionNeeded = true;
+            this._panViewForFolderView(rowsUp, rowsDown, panViewUpNRows, panViewDownNRows, iconActor);
+        }
+    },
+
+    returnSpaceToOriginalPosition: function() {
+        this._updateIconOpacities(false);
+        if (!this._popupExpansionNeeded) {
+            this.displayingPopup = false;
+            return;
+        }
+        if (this._translatedRows) {
+            for (let rowId in this._translatedRows) {
+                for (let childrenId in this._translatedRows[rowId]) {
+                    if (this._translatedRows[rowId][childrenId]._translateY) {
+                        let tweenerParams = { _translateY: 0,
+                                              time: POPUP_FOLDER_VIEW_ANIMATION,
+                                              onUpdate: function() {this.queue_relayout();},
+                                              transition: 'easeInOutQuad',
+                                              onComplete: Lang.bind(this, function(){ this.displayingPopup = false; }) };
+                        Tweener.addTween(this._translatedRows[rowId][childrenId], tweenerParams);
+                    }
+                }
+            }
+        }
+    },
+
+    _panViewForFolderView: function(rowsUp, rowsDown, panViewUpNRows, panViewDownNRows, iconActor) {
+        let rowHeight = this._grid.rowHeight();
+        if (panViewUpNRows > 0) {
+            this.displayingPopup = true;
+            let height = rowHeight * panViewUpNRows;
+            for (let rowId in rowsUp) {
+                for (let childrenId in rowsUp[rowId]) {
+                    rowsUp[rowId][childrenId]._translateY = 0;
+                    let tweenerParams = { _translateY: - height,
+                                          time: POPUP_FOLDER_VIEW_ANIMATION,
+                                          onUpdate: function() { this.queue_relayout(); },
+                                          transition: 'easeInOutQuad' };
+                    if ((rowId == rowsUp.length - 1) && (childrenId == rowsUp[rowId].length - 1))
+                            tweenerParams['onComplete'] = Lang.bind(iconActor, iconActor.onCompleteMakeSpaceForPopUp);
+                    Tweener.addTween(rowsUp[rowId][childrenId], tweenerParams);
+                }
+            }
+        }
+        if (panViewDownNRows > 0) {
+            this.displayingPopup = true;
+            let height = rowHeight * panViewDownNRows;
+            for (let rowId in rowsDown) {
+                for (let childrenId in rowsDown[rowId]) {
+                    rowsDown[rowId][childrenId]._translateY = 0;
+                    let tweenerParams = { _translateY: height,
+                                          time: POPUP_FOLDER_VIEW_ANIMATION,
+                                          onUpdate: function() { this.queue_relayout(); } };
+                    if ((rowId == rowsDown.length - 1) && (childrenId == rowsDown[rowId].length - 1))
+                        tweenerParams['onComplete'] = Lang.bind(iconActor, iconActor.onCompleteMakeSpaceForPopUp);
+                    Tweener.addTween(rowsDown[rowId][childrenId], tweenerParams);
+                }
+            }
+        }
+    },
+
     _onScroll: function(actor, event) {
+         if(this.displayingPopup)
+            return;
         let direction = event.get_scroll_direction();
         let nextPage;
         if (direction == Clutter.ScrollDirection.UP) {
@@ -413,6 +544,8 @@ const AllView = new Lang.Class({
     },
 
     _onPan: function(action) {
+        if (this.displayingPopup)
+            return;
         this._panning = true;
         this._clickAction.release();
         let [dist, dx, dy] = action.get_motion_delta(0);
@@ -422,6 +555,8 @@ const AllView = new Lang.Class({
     },
 
     _onPanEnd: function(action) {
+         if (this.displayingPopup)
+            return;
         let diffCurrentPage = this._diffToPage(this._currentPage);
         if (diffCurrentPage > this._pagesView.height * PAGE_SWITCH_TRESHOLD) {
             if (action.get_velocity(0)[2] > 0 && this._currentPage > 0)
@@ -1010,7 +1145,6 @@ const FolderIcon = new Lang.Class({
         this.actor.connect('clicked', Lang.bind(this,
             function() {
                 this._ensurePopup();
-                this._popup.toggle();
                 this.view.actor.vscroll.adjustment.value = 0;
             }));
         this.actor.connect('notify::mapped', Lang.bind(this,
@@ -1018,6 +1152,9 @@ const FolderIcon = new Lang.Class({
                 if (!this.actor.mapped && this._popup)
                     this._popup.popdown();
             }));
+        this.actor.connect('notify::allocation', Lang.bind(this, function() {
+            Meta.later_add(Meta.LaterType.BEFORE_REDRAW, Lang.bind(this, this._updatePopupPosition));
+        }));
     },
 
     _createIcon: function(size) {
@@ -1037,6 +1174,18 @@ const FolderIcon = new Lang.Class({
         let usedHeight = this.view.usedHeight() + this._boxPointerOffsets['arrowHeight'] +
                          this._boxPointerOffsets['paddingTop'] + this._boxPointerOffsets['paddingBottom'];
         return usedHeight;   
+    },
+
+    makeSpaceForPopUp: function() {
+        this._parentView.makeSpaceForPopUp(this, this._boxPointerArrowside, this.view.nRowsDisplayedAtOnce());
+    },
+
+    returnSpaceToOriginalPosition: function() {
+        this._parentView.returnSpaceToOriginalPosition();
+    },
+
+    onCompleteMakeSpaceForPopUp: function() {
+        this._popup.popup();
     },
 
     _calculateBoxPointerArrowSide: function() {
@@ -1124,23 +1273,28 @@ const FolderIcon = new Lang.Class({
     },
 
     _ensurePopup: function() {
-        if (this._popup && !this._popupInvalidated)
+        if (this._popup && !this._popupInvalidated) {
+            this.makeSpaceForPopUp();
             return;
+        }
         this._boxPointerArrowside = this._calculateBoxPointerArrowSide();
         if (!this._popup) {
             this._popup = new AppFolderPopup(this, this._boxPointerArrowside);
             this._parentView.addFolderPopup(this._popup);
             this._popup.connect('open-state-changed', Lang.bind(this,
                 function(popup, isOpen) {
-                    if (!isOpen)
+                    if (!isOpen) {
                         this.actor.checked = false;
+                        this.returnSpaceToOriginalPosition();
+                    }
                 }));
         } else {
             this._popup.updateBoxPointer(this._boxPointerArrowside);
         }
         this._updatePopUpSize();
         this._updatePopupPosition();
-        this._popupInvalidated = false; 
+        this._popupInvalidated = false;
+        this.makeSpaceForPopUp();
     },
 
     adaptToSize: function(width, height) {
