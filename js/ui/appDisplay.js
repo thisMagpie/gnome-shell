@@ -252,10 +252,12 @@ const AppPages = new Lang.Class({
         global.log("rowsDown " + rowsDown);
         global.log("panViewUpNRows " + panViewUpNRows);
         global.log("panViewDownNRows " + panViewDownNRows);
-        global.log("#### END makeSpaceForPopUp ####");
+        
         
         this._panViewForFolderView(rowsUp, rowsDown, panViewUpNRows, panViewDownNRows);
+        //this._grid.actor.queue_relayout();
         iconActor.onCompleteMakeSpaceForPopUp();
+        global.log("#### END makeSpaceForPopUp ####");
     },
     
     _panViewForFolderView: function(rowsUp, rowsDown, panViewUpNRows, panViewDownNRows) {
@@ -264,9 +266,9 @@ const AppPages = new Lang.Class({
             let height = rowHeight * panViewUpNRows;
             for(let rowId in rowsUp) {
                 for(let childrenId in rowsUp[rowId]) {
-                    global.log("children up y " + rowsUp[rowId][childrenId].y);
-                    rowsUp[rowId][childrenId].y -= height;
-                    global.log("after children up y " + rowsUp[rowId][childrenId].y);
+                    global.log("children up y " + rowsUp[rowId][childrenId].translate_y);
+                    rowsUp[rowId][childrenId].translate_y = - height;
+                    global.log("after children up y " + rowsUp[rowId][childrenId].translate_y);
                 }
             }
         }
@@ -274,9 +276,9 @@ const AppPages = new Lang.Class({
             let height = rowHeight * panViewDownNRows;
             for(let rowId in rowsDown) {
                 for(let childrenId in rowsDown[rowId]) {
-                    global.log("children down y " + rowsDown[rowId][childrenId].y);
-                    rowsDown[rowId][childrenId].y += height;
-                    global.log("after children down y " + rowsDown[rowId][childrenId].y);
+                    global.log("children down y " + rowsDown[rowId][childrenId].translate_y);
+                    rowsDown[rowId][childrenId].translate_y = height;
+                    global.log("after children down y " + rowsDown[rowId][childrenId].translate_y);
                 }
             }
         }
@@ -1110,12 +1112,20 @@ const FolderView = new Lang.Class({
         let box = this._containerBox();
         let availHeightPerPage = box.y2 - box.y1;
         let availWidthPerPage = box.x2 - box.x1;
-        let maxRowsPerPage = this._grid.rowsForHeight(availHeightPerPage);
+        let maxRowsDisplayedAtOnce = this.maxRowsDisplayedAtOnce();
         let usedRows = this._grid.nUsedRows(availWidthPerPage);
+        usedRows = usedRows <= maxRowsDisplayedAtOnce ? usedRows : maxRowsDisplayedAtOnce;
+        return usedRows;
+    },
+    
+    maxRowsDisplayedAtOnce: function() {
+        let box = this._containerBox();
+        let availHeightPerPage = box.y2 - box.y1;
+        let availWidthPerPage = box.x2 - box.x1;
+        let maxRowsPerPage = this._grid.rowsForHeight(availHeightPerPage);
         //Then, we can only show that rows least one.
         maxRowsPerPage -= 1;
-        usedRows = usedRows <= maxRowsPerPage ? usedRows : maxRowsPerPage;
-        return usedRows;
+        return maxRowsPerPage;
     }
 });
 
@@ -1163,9 +1173,11 @@ const FolderIcon = new Lang.Class({
         if(this._popup) {
             // Position the popup above or below the source icon
             if (this._side == St.Side.BOTTOM) {
+                global.log("Bottom " + this.actor.y);
                 this._popup.actor.show();
                 let closeButtonOffset = -this._popup.closeButton.translation_y;
-                let y = this.actor.y - this._popup.actor.height;
+                let y = this.actor.y - this._popup.actor.fixed_height;
+                global.log("Bottom " + this._popup.actor.fixed_height);
                 let yWithButton = y - closeButtonOffset;
                 this._popup.parentOffset = yWithButton < 0 ? -yWithButton : 0;
                 this._popup.actor.y = Math.max(y, closeButtonOffset);
@@ -1174,6 +1186,7 @@ const FolderIcon = new Lang.Class({
                 this.view._widget.y_align = 1;
             } else {
                 this._popup.actor.y = this.actor.y + this.actor.height;
+                global.log("No bottom " + this.actor.y);
                 //FIXME ST ALIGN NOR WORKING?
                 this.view._widget.y_align = 3;
             }
@@ -1194,8 +1207,17 @@ const FolderIcon = new Lang.Class({
          */
         let arrowHeight = this._popup._boxPointer.actor.get_theme_node().get_length('-arrow-rise');
         let popupPadding = this._popup._boxPointer.bin.get_theme_node().get_length('padding');
+        //It will be negative value, so we have to rest it, instead of plust it.
+        let closeButtonOverlap = this._popup.closeButton.get_theme_node().get_length('-shell-close-overlap-y');
+        let closeButtonHeight = this._popup.closeButton.height;
+        global.log("BUTTON OFFSET " + closeButtonOverlap);
         let usedHeight = this.view.usedHeight();
-        usedHeight = usedHeight - popupPadding - arrowHeight;
+        // If we want it corrected aligned with the main grid the calculation will be: usedHeight - popupPadding - arrowHeight
+        // but, if we do that and the popup needs all the height, the popup will remain outside the allocation and then clipped. so:
+        if(this.view.nRowsDisplayedAtOnce() == this.view.maxRowsDisplayedAtOnce())
+            usedHeight = usedHeight - popupPadding * 2  - arrowHeight + closeButtonOverlap;
+        else
+            usedHeight =  usedHeight - popupPadding - arrowHeight;
         return usedHeight;
         
     },
@@ -1205,6 +1227,7 @@ const FolderIcon = new Lang.Class({
     },
     
     onCompleteMakeSpaceForPopUp: function() {
+        this._updatePopupPosition();
         this._popup.toggle();
     },
     
@@ -1269,8 +1292,9 @@ const FolderIcon = new Lang.Class({
             let usedHeight = this._popUpHeight();
             global.log("Used height " + usedHeight);
             this.view.actor.set_height(this._popUpHeight());
+            this._popup.actor.fixed_height = this._popup.actor.height;
 
-            this._updatePopupPosition();
+            
             this.makeSpaceForPopUp();
             this._popup.connect('open-state-changed', Lang.bind(this,
                     function(popup, isOpen) {

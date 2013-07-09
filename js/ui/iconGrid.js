@@ -331,6 +331,11 @@ const IconGrid = new Lang.Class({
         }
         for (let i = 0; i < children.length; i++) {
             let childBox = this._calculateChildrenBox(children[i], x, y);
+            if(children[i].translate_y) {
+                global.log("TRANSLATING");
+                childBox.y1 += children[i].translate_y;
+                childBox.y2 += children[i].translate_y;
+            }
             if(!this._usePagination) {
                 if (this._rowLimit && rowIndex >= this._rowLimit ||
                         this._fillParent && childBox.y2 >= availHeight) {
