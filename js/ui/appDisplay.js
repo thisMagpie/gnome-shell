@@ -42,6 +42,8 @@ const PAGE_SWITCH_TIME = 0.3;
 //change page
 const PAGE_SWITCH_TRESHOLD = 0.2;
 
+const POPUP_FOLDER_VIEW_ANIMATION = 0.3;
+
 // Recursively load a GMenuTreeDirectory; we could put this in ShellAppSystem
 // too
 function _loadCategory(dir, list) {
@@ -129,6 +131,7 @@ const AppPages = new Lang.Class({
         this.actor = this._grid.actor;
         this._parent = parent;
         this._folderIcons = [];
+        this.doingTransitions = false;
     },
 
     _getItemId: function(item) {
@@ -212,7 +215,8 @@ const AppPages = new Lang.Class({
         let mainIconRowReached = false;
         let isMainIconRow = false;
         let rows = this._grid.pageRows(currentPage);
-        global.log(" ROWS " + rows);
+        this._translatedRows = rows;
+        //global.log(" ROWS " + rows);
         for(let rowIndex in rows) {
             isMainIconRow = mainIconYPosition == rows[rowIndex][0].y;
             if(isMainIconRow)
@@ -240,6 +244,7 @@ const AppPages = new Lang.Class({
                 panViewDownNRows = folderNVisibleRowsAtOnce - rowsUp.length;
             }
         } else {
+            // There's not need to pan view up
             if(rowsDown.length >= folderNVisibleRowsAtOnce)
                 panViewDownNRows = folderNVisibleRowsAtOnce;
             else {
@@ -247,38 +252,67 @@ const AppPages = new Lang.Class({
                 panViewUpNRows = folderNVisibleRowsAtOnce - rowsDown.length;
             }
         }
-        
-        global.log("rowsUp " + rowsUp);
-        global.log("rowsDown " + rowsDown);
-        global.log("panViewUpNRows " + panViewUpNRows);
-        global.log("panViewDownNRows " + panViewDownNRows);
-        
-        
-        this._panViewForFolderView(rowsUp, rowsDown, panViewUpNRows, panViewDownNRows);
-        this._grid.actor.queue_relayout();
-        iconActor.onCompleteMakeSpaceForPopUp();
+        this._panViewForFolderView(rowsUp, rowsDown, panViewUpNRows, panViewDownNRows, iconActor);
+        this.updateIconOpacities(true);
         global.log("#### END makeSpaceForPopUp ####");
     },
     
-    _panViewForFolderView: function(rowsUp, rowsDown, panViewUpNRows, panViewDownNRows) {
+    returnSpaceToOriginalPosition: function() {
+        if(this._translatedRows) {
+            this.displayingPopup = false;
+            for(let rowId in this._translatedRows) {
+                for(let childrenId in this._translatedRows[rowId]) {
+                    let tweenerParams = { translate_y: 0,
+                            time: POPUP_FOLDER_VIEW_ANIMATION,
+                            onUpdate: function() {this.queue_relayout();},
+                            transition: 'easeInOutQuad' };
+                    Tweener.addTween(this._translatedRows[rowId][childrenId], tweenerParams);
+                }
+            }
+        }
+        this.updateIconOpacities(false);
+    },
+    
+    _panViewForFolderView: function(rowsUp, rowsDown, panViewUpNRows, panViewDownNRows, iconActor) {
         let rowHeight = this._grid.rowHeight();
         if(panViewUpNRows > 0) {
+            this.displayingPopup = true;
             let height = rowHeight * panViewUpNRows;
             for(let rowId in rowsUp) {
                 for(let childrenId in rowsUp[rowId]) {
-                    global.log("children up y " + rowsUp[rowId][childrenId].translate_y);
-                    rowsUp[rowId][childrenId].translate_y = - height;
-                    global.log("after children up y " + rowsUp[rowId][childrenId].translate_y);
+                    rowsUp[rowId][childrenId].translate_y = 0;
+                    //global.log("children up y " + rowsUp[rowId][childrenId].translate_y);
+                    let tweenerParams = { translate_y: - height,
+                                          time: POPUP_FOLDER_VIEW_ANIMATION,
+                                          onUpdate: function() {this.queue_relayout();},
+                                          transition: 'easeInOutQuad' };
+                    if((rowId == rowsUp.length - 1) && (childrenId == rowsUp[rowId].length - 1)) {
+                            tweenerParams['onComplete'] = Lang.bind(iconActor, iconActor.onCompleteMakeSpaceForPopUp);
+                    }
+                    Tweener.addTween(rowsUp[rowId][childrenId], tweenerParams);
+                    //rowsUp[rowId][childrenId].translate_y = - height;
+                    //rowsUp[rowId][childrenId].queue_relayout();
+                    //global.log("after children up y " + rowsUp[rowId][childrenId].translate_y);
                 }
             }
         }
         if(panViewDownNRows > 0) {
+            this.displayingPopup = true;
             let height = rowHeight * panViewDownNRows;
             for(let rowId in rowsDown) {
                 for(let childrenId in rowsDown[rowId]) {
-                    global.log("children down y " + rowsDown[rowId][childrenId].translate_y);
-                    rowsDown[rowId][childrenId].translate_y = height;
-                    global.log("after children down y " + rowsDown[rowId][childrenId].translate_y);
+                    //global.log("children down y " + rowsDown[rowId][childrenId].translate_y);
+                    rowsDown[rowId][childrenId].translate_y = 0;
+                    let tweenerParams = { translate_y: height,
+                                          time: POPUP_FOLDER_VIEW_ANIMATION,
+                                          onUpdate: function() {this.queue_relayout();} };
+                    if((rowId == rowsDown.length - 1) && (childrenId == rowsDown[rowId].length - 1)) {
+                        tweenerParams['onComplete'] = Lang.bind(iconActor, iconActor.onCompleteMakeSpaceForPopUp);
+                    }
+                    Tweener.addTween(rowsDown[rowId][childrenId], tweenerParams);
+                    //rowsDown[rowId][childrenId].translate_y = height;
+                    //rowsDown[rowId][childrenId].queue_relayout();
+                    //global.log("after children down y " + rowsDown[rowId][childrenId].translate_y);
                 }
             }
         }
@@ -381,6 +415,11 @@ const PaginationScrollView = new Lang.Class({
     },
 
     goToPage: function(pageNumber, action) {
+        if(this._currentPage != pageNumber && this._pages.displayingPopup) {
+            this._currentPopup.popdown();
+        } else if(this._pages.displayingPopup){
+            return;
+        }
         let velocity;
         if(!action)
             velocity = 0;
@@ -399,8 +438,7 @@ const PaginationScrollView = new Lang.Class({
         if(this._currentPage != pageNumber) {
             let min_velocity = totalHeight / (PAGE_SWITCH_TIME * 1000);
             velocity = Math.max(min_velocity, velocity);
-            time = (diffFromPage / velocity) / 1000;
-            
+            time = (diffFromPage / velocity) / 1000;            
         } else
             time = PAGE_SWITCH_TIME * diffFromPage / totalHeight;
         // Take care when we are changing more than one page, maximum time
@@ -450,6 +488,8 @@ const PaginationScrollView = new Lang.Class({
     },
 
     _onScroll: function(actor, event) {
+        if(this._pages.displayingPopup)
+            return;
         let direction = event.get_scroll_direction();
         let nextPage;
         if (direction == Clutter.ScrollDirection.UP)
@@ -470,12 +510,13 @@ const PaginationScrollView = new Lang.Class({
                 function(popup, isOpen) {
                     this._eventBlocker.reactive = isOpen;
                     this._currentPopup = isOpen ? popup : null;
-                    this._pages.updateIconOpacities(isOpen);
                 }));
     },
     
     _onPan: function(action) {
         this._clickAction.release();
+        if(this._pages.displayingPopup)
+            return;
         let [dist, dx, dy] = action.get_motion_delta(0);
         let adjustment = this._verticalAdjustment;
         adjustment.value -= (dy / this.height) * adjustment.page_size;
@@ -483,6 +524,8 @@ const PaginationScrollView = new Lang.Class({
     },
     
     _onPanEnd: function(action) {
+        if(this._pages.displayingPopup)
+            return;
         let diffCurrentPage = this._diffToPage(this._currentPage);
         if(diffCurrentPage > this.height * PAGE_SWITCH_TRESHOLD) {
             if(action.get_velocity(0)[2] > 0 && this._currentPage > 0) {
@@ -1163,6 +1206,10 @@ const FolderIcon = new Lang.Class({
                 if (!this.actor.mapped && this._popup)
                     this._popup.popdown();
             }));
+        
+        this.actor.connect('notify::allocation', Lang.bind(this, function() {
+            Meta.later_add(Meta.LaterType.BEFORE_REDRAW, Lang.bind(this, this._updatePopupPosition));
+        }));
     },
 
     _createIcon: function(size) {
@@ -1174,14 +1221,13 @@ const FolderIcon = new Lang.Class({
             // Position the popup above or below the source icon
             if (this._side == St.Side.BOTTOM) {
                 global.log("Bottom " + this.actor.y);
-                this._popup.actor.show();
                 let closeButtonOffset = -this._popup.closeButton.translation_y;
                 let y = this.actor.y - this._popup.actor.fixed_height;
                 global.log("Bottom " + this._popup.actor.fixed_height);
                 let yWithButton = y - closeButtonOffset;
                 this._popup.parentOffset = yWithButton < 0 ? -yWithButton : 0;
                 this._popup.actor.y = Math.max(y, closeButtonOffset);
-                this._popup.actor.hide();
+                global.log("Bottom " + this._popup.actor.y);
                 //FIXME ST ALIGN NOR WORKING?
                 this.view._widget.y_align = 1;
             } else {
@@ -1226,9 +1272,14 @@ const FolderIcon = new Lang.Class({
         this._parentView.makeSpaceForPopUp(this, this._side, this.view.nRowsDisplayedAtOnce());
     },
     
+    returnSpaceToOriginalPosition: function() {
+        global.log("Original position");
+        this._parentView.returnSpaceToOriginalPosition();
+    },
+    
     onCompleteMakeSpaceForPopUp: function() {
-        this._updatePopupPosition();
-        this._popup.toggle();
+        //Mainloop.timeout_add(0.1, Lang.bind(this, function() {
+        this._popup.popup();
     },
     
     _ensurePopup: function() {
@@ -1298,8 +1349,10 @@ const FolderIcon = new Lang.Class({
             this.makeSpaceForPopUp();
             this._popup.connect('open-state-changed', Lang.bind(this,
                     function(popup, isOpen) {
-                if (!isOpen)
+                if (!isOpen) {
                     this.actor.checked = false;
+                    this.returnSpaceToOriginalPosition();
+                }
             }));
         }
     },
