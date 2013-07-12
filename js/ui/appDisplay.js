@@ -1077,8 +1077,8 @@ const FolderView = new Lang.Class({
 
     addApp: function(app) {
         //FIXME
-        if(this._allItems.length > 1)
-            return;
+        /*if(this._allItems.length > 20)
+            return;*/
         this._addItem(app);
     },
 
@@ -1111,10 +1111,15 @@ const FolderView = new Lang.Class({
         let id = this._getItemId(item);
         if (this._items[id] !== undefined)
             return null;
-
+        //FIXME
+      //let itemIcon2 = this._createItemIcon(item);
+      //this._allItems.push(item);
+        //this._items[id + 1] = itemIcon2;
         let itemIcon = this._createItemIcon(item);
+        
         this._allItems.push(item);
         this._items[id] = itemIcon;
+        
 
         return itemIcon;
     },
@@ -1126,7 +1131,9 @@ const FolderView = new Lang.Class({
             let id = this._getItemId(this._allItems[i]);
             if (!id)
                 continue;
+            //FIXME
             this._grid.addItem(this._items[id].actor);
+            this._grid.addItem(this._items[id + 1].actor);
         }
     },
     
@@ -1151,7 +1158,9 @@ const FolderView = new Lang.Class({
         if(this.nRowsDisplayedAtOnce() == this.maxRowsDisplayedAtOnce())
             boxPointerTotalOffset = this._boxPointerOffsets['arrowHeight'] + this._boxPointerOffsets['padding'] * 2 + this._boxPointerOffsets['closeButtonOverlap'];
         else
-            boxPointerTotalOffset = this._boxPointerOffsets['arrowHeight'] + this._boxPointerOffsets['padding'] * 2;  
+            boxPointerTotalOffset = this._boxPointerOffsets['arrowHeight'] + this._boxPointerOffsets['padding'] * 2;
+        //FIXME
+        boxPointerTotalOffset = this._boxPointerOffsets['arrowHeight'] + this._boxPointerOffsets['padding'] * 2 + this._boxPointerOffsets['closeButtonOverlap'];
         let offsetForEachSide = Math.ceil(boxPointerTotalOffset / 2);
         this._grid.top_padding = spacing - offsetForEachSide;
         this._grid.bottom_padding = spacing - offsetForEachSide;
