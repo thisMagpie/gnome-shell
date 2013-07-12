@@ -1132,8 +1132,9 @@ const FolderView = new Lang.Class({
             if (!id)
                 continue;
             //FIXME
+            //this._grid.addItem(this._items[id + 1].actor);
             this._grid.addItem(this._items[id].actor);
-            this._grid.addItem(this._items[id + 1].actor);
+            
         }
     },
     
@@ -1141,6 +1142,7 @@ const FolderView = new Lang.Class({
         this._appDisplayWidth = width;
         this._appDisplayHeight = height;
         // Update grid dinamyc spacing based on display width
+        //FIXME
         let spacing = this._grid.maxSpacingForWidthHeight(width, 872, MIN_COLUMNS, MIN_ROWS, true);
         this._grid.setSpacing(spacing);
         global.log("ON UPDATE");
@@ -1155,10 +1157,11 @@ const FolderView = new Lang.Class({
         this._grid.left_padding = spacing;
         this._grid.right_padding = spacing;
         let boxPointerTotalOffset;
+        /*
         if(this.nRowsDisplayedAtOnce() == this.maxRowsDisplayedAtOnce())
             boxPointerTotalOffset = this._boxPointerOffsets['arrowHeight'] + this._boxPointerOffsets['padding'] * 2 + this._boxPointerOffsets['closeButtonOverlap'];
         else
-            boxPointerTotalOffset = this._boxPointerOffsets['arrowHeight'] + this._boxPointerOffsets['padding'] * 2;
+            boxPointerTotalOffset = this._boxPointerOffsets['arrowHeight'] + this._boxPointerOffsets['padding'] * 2;*/
         //FIXME
         boxPointerTotalOffset = this._boxPointerOffsets['arrowHeight'] + this._boxPointerOffsets['padding'] * 2 + this._boxPointerOffsets['closeButtonOverlap'];
         let offsetForEachSide = Math.ceil(boxPointerTotalOffset / 2);
