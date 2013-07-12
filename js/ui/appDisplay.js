@@ -209,7 +209,6 @@ const AppPages = new Lang.Class({
      * enough space to show the folder view.
      */
     makeSpaceForPopUp: function(iconActor, side, folderNVisibleRowsAtOnce) {
-        //global.log("#### makeSpaceForPopUp ####");
         let rowsUp = [];
         let rowsDown = [];
         let mainIconYPosition = iconActor.actor.y;
@@ -218,7 +217,6 @@ const AppPages = new Lang.Class({
         let isMainIconRow = false;
         let rows = this._grid.pageRows(currentPage);
         this._translatedRows = rows;
-        //global.log(" ROWS " + rows);
         for(let rowIndex in rows) {
             isMainIconRow = mainIconYPosition == rows[rowIndex][0].y;
             if(isMainIconRow)
@@ -256,7 +254,6 @@ const AppPages = new Lang.Class({
         }
         this._panViewForFolderView(rowsUp, rowsDown, panViewUpNRows, panViewDownNRows, iconActor);
         this.updateIconOpacities(true);
-        //global.log("#### END makeSpaceForPopUp ####");
     },
     
     returnSpaceToOriginalPosition: function() {
@@ -290,7 +287,6 @@ const AppPages = new Lang.Class({
                                           onUpdate: function() {this.queue_relayout();},
                                           transition: 'easeInOutQuad' };
                     if((rowId == rowsUp.length - 1) && (childrenId == rowsUp[rowId].length - 1)) {
-                        global.log(" LOOOOOOOOOOG ");
                         tweenerParams['onComplete'] = Lang.bind(iconActor, iconActor.onCompleteMakeSpaceForPopUp);
                     }
                     Tweener.addTween(rowsUp[rowId][childrenId], tweenerParams);
@@ -307,7 +303,6 @@ const AppPages = new Lang.Class({
                                           time: POPUP_FOLDER_VIEW_ANIMATION,
                                           onUpdate: function() {this.queue_relayout();} };
                     if((rowId == rowsDown.length - 1) && (childrenId == rowsDown[rowId].length - 1)) {
-                        global.log(" LOOOOOOOOOOG ");
                         tweenerParams['onComplete'] = Lang.bind(iconActor, iconActor.onCompleteMakeSpaceForPopUp);
                     }
                     Tweener.addTween(rowsDown[rowId][childrenId], tweenerParams);
@@ -323,13 +318,7 @@ const AppPages = new Lang.Class({
     
     onUpdatedDisplaySize: function(width, height) {
         // Update grid dinamyc spacing based on display width
-        let itemWidth = this._grid._hItemSize * MAX_COLUMNS;
-        let emptyArea = width - itemWidth;
-        let spacing;
-        spacing = Math.max(this._grid._spacing, emptyArea / ( 2 *  MAX_COLUMNS));
-        spacing = Math.round(spacing);
-        //FIXME
-        spacing = this._grid.maxSpacingForWidthHeight(width, 872, MIN_COLUMNS, MIN_ROWS, true);
+        spacing = this._grid.maxSpacingForWidthHeight(width, height, MIN_COLUMNS, MIN_ROWS, true);
         this._grid.top_padding = spacing;
         this._grid.bottom_padding = spacing;
         this._grid.left_padding = spacing;
@@ -748,14 +737,8 @@ const FrequentView = new Lang.Class({
     },
     
     onUpdatedDisplaySize: function(width, height) {
-        // Update grid dinamyc spacing based on display width
-        let itemWidth = this._grid._hItemSize * MAX_COLUMNS;
-        let emptyArea = width - itemWidth;
-        let spacing;
-        spacing = Math.max(this._grid._spacing, emptyArea / ( 2 *  MAX_COLUMNS));
-        spacing = Math.round(spacing);
         //FIXME
-        spacing = this._grid.maxSpacingForWidthHeight(width, 872, MIN_COLUMNS, MIN_ROWS, true);
+        spacing = this._grid.maxSpacingForWidthHeight(width, height, MIN_COLUMNS, MIN_ROWS, true);
         this._grid.top_padding = spacing;
         this._grid.bottom_padding = spacing;
         this._grid.left_padding = spacing;
@@ -807,9 +790,9 @@ const ControlsBoxLayout = Lang.Class({
 
 const AppDisplayActor = new Lang.Class({
     Name: 'AppDisplayActor',
-    Extends: Clutter.BoxLayout,
+    Extends: Clutter.BinLayout,
     
-    vfunc_allocate: function (actor, box, flags) {
+    vfunc_allocate: function (actor, box, flags) {        
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
         this.emit('allocated-size-changed', availWidth, availHeight);
@@ -866,12 +849,13 @@ const AppDisplay = new Lang.Class({
 
         this.actor = new St.Widget({ style_class: 'app-display',
                                         x_expand: true, y_expand: true });
-        this._actorLayout = new AppDisplayActor({vertical: true});
-        this.actor.set_layout_manager(this._actorLayout);
-        this._actorLayout.connect('allocated-size-changed', Lang.bind(this, this._onUpdatedDisplaySize));
+        this._viewStackLayout = new AppDisplayActor();
+        this.actor.set_layout_manager(new Clutter.BoxLayout({vertical: true}));
+        this._viewStackLayout.connect('allocated-size-changed', Lang.bind(this, this._onUpdatedDisplaySize));
 
-        this._viewStack = new St.Widget({ layout_manager: new Clutter.BinLayout(),
+        this._viewStack = new St.Widget({ 
                                           x_expand: true, y_expand: true });
+        this._viewStack.set_layout_manager(this._viewStackLayout);
         //FIXME
         this.actor.add_actor(this._viewStack, { expand: true });
 
@@ -982,7 +966,7 @@ const AppDisplay = new Lang.Class({
         }
     },
     
-    _onUpdatedDisplaySize: function(actor, width, height) {
+    _onUpdatedDisplaySize: function(actor, width, height) {        
         for (let i = 0; i < this._views.length; i++) {
             this._views[i].view.onUpdatedDisplaySize(width, height);
         }
@@ -1146,12 +1130,10 @@ const FolderView = new Lang.Class({
         this._appDisplayHeight = height;
         // Update grid dinamyc spacing based on display width
         //FIXME
-        let spacing = this._grid.maxSpacingForWidthHeight(width, 872, MIN_COLUMNS, MIN_ROWS, true);
+        let spacing = this._grid.maxSpacingForWidthHeight(width, height, MIN_COLUMNS, MIN_ROWS, true);
         this._grid.setSpacing(spacing);
-        global.log("ON UPDATE");
         if(!Object.keys(this._boxPointerOffsets).length)
             return;
-        global.log("BOX POINTERS!!! " + Object.keys(this._boxPointerOffsets));
         //WE put the normal padding as spacing as we have in the main grid to do well the calculations for used rows, used columns etc, since
         // it is the behaviour we want to emulate. After that we will put the correct padding fromcalculations of the boxpointer offsets, to ensure
         //the boxpointer will be contained in side the view
@@ -1172,7 +1154,6 @@ const FolderView = new Lang.Class({
         this._grid.bottom_padding = spacing - offsetForEachSide;
         this._grid.left_padding = spacing - offsetForEachSide;
         this._grid.right_padding = spacing - offsetForEachSide;
-        global.log("paddings " + [this._grid.top_padding]);
     },
     
     _containerBox: function() {
@@ -1201,12 +1182,8 @@ const FolderView = new Lang.Class({
         let availHeightPerPage = box.y2 - box.y1;
         let availWidthPerPage = box.x2 - box.x1;
         let maxRowsDisplayedAtOnce = this.maxRowsDisplayedAtOnce();
-        //global.log("availWidthPerPage " + availWidthPerPage);
         let usedRows = this._grid.nUsedRows(availWidthPerPage);
-        //global.log("usedRows " + usedRows);
-        //global.log("maxRowsDisplayedAtOnce " + maxRowsDisplayedAtOnce);
         usedRows = usedRows <= maxRowsDisplayedAtOnce ? usedRows : maxRowsDisplayedAtOnce;
-        global.log("usedRows after " + usedRows);
         return usedRows;
     },
     
@@ -1215,7 +1192,7 @@ const FolderView = new Lang.Class({
         let availHeightPerPage = box.y2 - box.y1;
         let availWidthPerPage = box.x2 - box.x1;
         //FIXME
-        let maxRowsPerPage = this._grid.rowsForHeight(872);
+        let maxRowsPerPage = this._grid.rowsForHeight(availHeightPerPage);
         //Then, we can only show that rows least one.
         maxRowsPerPage -= 1;
         return maxRowsPerPage;
@@ -1293,9 +1270,6 @@ const FolderIcon = new Lang.Class({
                 //FIXME ST ALIGN NOR WORKING?
                 this.view._widget.y_align = 2;
             }
-            
-            global.log("this.actor.y " + this.actor.y);
-            global.log("this._popup.actor.y " + this._popup.actor.y);
         }
     },
     
@@ -1304,25 +1278,8 @@ const FolderIcon = new Lang.Class({
     },
     
     _popUpHeight: function() {
-       
         let usedHeight = this.view.usedHeight();
-        global.log("USED HEUGHT " + usedHeight);
-        // If we want it corrected aligned with the main grid the calculation will be: usedHeight - popupPadding - arrowHeight
-        // but, if we do that and the popup needs all the height, the popup will remain outside the allocation and then clipped. so:
-        /*if(this.view.nRowsDisplayedAtOnce() == this.view.maxRowsDisplayedAtOnce()) {
-            usedHeight = usedHeight - popupPadding * 2  - arrowHeight + closeButtonOverlap;
-            global.log("top_padding " + this.view._grid.top_padding);
-            this.view._grid.top_padding -= popupPadding * 2  + arrowHeight + closeButtonOverlap;
-            this.view._grid.actor.queue_relayout();
-            global.log("top_padding " + this.view._grid.top_padding);
-        }
-        else {
-            usedHeight =  usedHeight - popupPadding - arrowHeight;
-            this.view._grid.top_padding -= - popupPadding - arrowHeight;
-            this.view._grid.actor.queue_relayout();
-        }*/
-        return usedHeight;
-        
+        return usedHeight;   
     },
 
     makeSpaceForPopUp: function() {
@@ -1334,9 +1291,6 @@ const FolderIcon = new Lang.Class({
     },
     
     onCompleteMakeSpaceForPopUp: function() {
-        global.log("ONN COMPÑLETEEEE");
-        global.log("this._popup.height " + this._popup.actor.height);
-        global.log("this._popup.y " + this._popup.actor.y);
         this._popup.popup();
     },
     
@@ -1403,7 +1357,6 @@ const FolderIcon = new Lang.Class({
              * is more, strech to the maxUsedHeight
              */
             let usedHeight = this._popUpHeight();
-            global.log("Used height " + usedHeight);
             this.view.actor.set_height(this._popUpHeight());
             this._popup.actor.fixed_height = this._popup.actor.height;
 
