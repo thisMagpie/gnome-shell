@@ -651,7 +651,10 @@ const AllView = new Lang.Class({
         this.actor = new St.Widget({ layout_manager: layout, 
                                      x_expand:true, y_expand:true });
         layout.add(this._paginationView, 2,2);
-        layout.add(this._paginationIndicator, 3,2);
+        if(Clutter.get_default_text_direction() == Clutter.TextDirection.RTL)
+            layout.add(this._paginationIndicator, 2,2);
+        else
+            layout.add(this._paginationIndicator, 3,2);
         for(let i = 0; i < MAX_APPS_PAGES; i++) {
             let indicatorIcon = new PaginationIconIndicator(this, i);
             if(i == 0) {

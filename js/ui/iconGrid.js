@@ -334,7 +334,7 @@ const IconGrid = new Lang.Class({
             this._firstPagesItems = [children[0]];
         }
         for (let i = 0; i < children.length; i++) {
-            let childBox = this._calculateChildrenBox(children[i], x, y);
+            let childBox = this._calculateChildrenBox(children[i], x, y, box);
             if(children[i].translate_y) {
                 childBox.y1 += children[i].translate_y;
                 childBox.y2 += children[i].translate_y;
@@ -391,7 +391,7 @@ const IconGrid = new Lang.Class({
         this._childrenPerPage = nColumns * this._rowsPerPage;
     },
     
-    _calculateChildrenBox: function(child, x, y) {
+    _calculateChildrenBox: function(child, x, y, box) {
         let [childMinWidth, childMinHeight, childNaturalWidth, childNaturalHeight]
         = child.get_preferred_size();
 
@@ -403,7 +403,6 @@ const IconGrid = new Lang.Class({
     
         let childBox = new Clutter.ActorBox();
         if (Clutter.get_default_text_direction() == Clutter.TextDirection.RTL) {
-          //FIXME not defined box????????
             let _x = box.x2 - (x + width);
             childBox.x1 = Math.floor(_x - childXSpacing);
         } else {
