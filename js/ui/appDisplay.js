@@ -264,11 +264,13 @@ const AppPages = new Lang.Class({
             this.displayingPopup = false;
             for(let rowId in this._translatedRows) {
                 for(let childrenId in this._translatedRows[rowId]) {
-                    let tweenerParams = { translate_y: 0,
-                            time: POPUP_FOLDER_VIEW_ANIMATION,
-                            onUpdate: function() {this.queue_relayout();},
-                            transition: 'easeInOutQuad' };
-                    Tweener.addTween(this._translatedRows[rowId][childrenId], tweenerParams);
+                    if(this._translatedRows[rowId][childrenId].translate_y){
+                        let tweenerParams = { translate_y: 0,
+                                time: POPUP_FOLDER_VIEW_ANIMATION,
+                                onUpdate: function() {this.queue_relayout();},
+                                transition: 'easeInOutQuad' };
+                        Tweener.addTween(this._translatedRows[rowId][childrenId], tweenerParams);
+                    }
                 }
             }
         }
@@ -288,7 +290,8 @@ const AppPages = new Lang.Class({
                                           onUpdate: function() {this.queue_relayout();},
                                           transition: 'easeInOutQuad' };
                     if((rowId == rowsUp.length - 1) && (childrenId == rowsUp[rowId].length - 1)) {
-                            tweenerParams['onComplete'] = Lang.bind(iconActor, iconActor.onCompleteMakeSpaceForPopUp);
+                        global.log(" LOOOOOOOOOOG ");
+                        tweenerParams['onComplete'] = Lang.bind(iconActor, iconActor.onCompleteMakeSpaceForPopUp);
                     }
                     Tweener.addTween(rowsUp[rowId][childrenId], tweenerParams);
                 }
@@ -304,6 +307,7 @@ const AppPages = new Lang.Class({
                                           time: POPUP_FOLDER_VIEW_ANIMATION,
                                           onUpdate: function() {this.queue_relayout();} };
                     if((rowId == rowsDown.length - 1) && (childrenId == rowsDown[rowId].length - 1)) {
+                        global.log(" LOOOOOOOOOOG ");
                         tweenerParams['onComplete'] = Lang.bind(iconActor, iconActor.onCompleteMakeSpaceForPopUp);
                     }
                     Tweener.addTween(rowsDown[rowId][childrenId], tweenerParams);
@@ -1041,10 +1045,9 @@ const AppSearchProvider = new Lang.Class({
 const FolderView = new Lang.Class({
     Name: 'FolderView',
 
-    _init: function(parentView) {
+    _init: function() {
         this._grid = new IconGrid.IconGrid({ xAlign: St.Align.MIDDLE,
             columnLimit: MAX_COLUMNS });
-        this._parentView = parentView;
 
         this.actor = new St.ScrollView({overlay_scrollbars: true});
         this.actor.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC);
@@ -1056,6 +1059,8 @@ const FolderView = new Lang.Class({
         this.actor.add_actor(this._box);
         this._items = {};
         this._allItems = [];
+        
+        this._boxPointerOffsets = {};
     },
 
     _getItemId: function(item) {
@@ -1071,6 +1076,9 @@ const FolderView = new Lang.Class({
     },
 
     addApp: function(app) {
+        //FIXME
+        if(this._allItems.length > 1)
+            return;
         this._addItem(app);
     },
 
@@ -1126,20 +1134,30 @@ const FolderView = new Lang.Class({
         this._appDisplayWidth = width;
         this._appDisplayHeight = height;
         // Update grid dinamyc spacing based on display width
-        let itemWidth = this._grid._hItemSize * MAX_COLUMNS;
-        let emptyArea = width - itemWidth;
-        let spacing;
-        spacing = Math.max(this._grid._spacing, emptyArea / ( 2 *  MAX_COLUMNS));
-        spacing = Math.round(spacing);
         let spacing = this._grid.maxSpacingForWidthHeight(width, 872, MIN_COLUMNS, MIN_ROWS, true);
-        global.log("ON UPDATE");
-        //FIXME
-        this._grid.top_padding = spacing - 27;
-        this._grid.bottom_padding = spacing - 27;
-        this._grid.left_padding = spacing - 27;
-        this._grid.right_padding = spacing - 27;
-        
         this._grid.setSpacing(spacing);
+        global.log("ON UPDATE");
+        if(!Object.keys(this._boxPointerOffsets).length)
+            return;
+        global.log("BOX POINTERS!!! " + Object.keys(this._boxPointerOffsets));
+        //WE put the normal padding as spacing as we have in the main grid to do well the calculations for used rows, used columns etc, since
+        // it is the behaviour we want to emulate. After that we will put the correct padding fromcalculations of the boxpointer offsets, to ensure
+        //the boxpointer will be contained in side the view
+        this._grid.top_padding = spacing;
+        this._grid.bottom_padding = spacing;
+        this._grid.left_padding = spacing;
+        this._grid.right_padding = spacing;
+        let boxPointerTotalOffset;
+        if(this.nRowsDisplayedAtOnce() == this.maxRowsDisplayedAtOnce())
+            boxPointerTotalOffset = this._boxPointerOffsets['arrowHeight'] + this._boxPointerOffsets['padding'] * 2 + this._boxPointerOffsets['closeButtonOverlap'];
+        else
+            boxPointerTotalOffset = this._boxPointerOffsets['arrowHeight'] + this._boxPointerOffsets['padding'] * 2;  
+        let offsetForEachSide = Math.ceil(boxPointerTotalOffset / 2);
+        this._grid.top_padding = spacing - offsetForEachSide;
+        this._grid.bottom_padding = spacing - offsetForEachSide;
+        this._grid.left_padding = spacing - offsetForEachSide;
+        this._grid.right_padding = spacing - offsetForEachSide;
+        global.log("paddings " + [this._grid.top_padding]);
     },
     
     _containerBox: function() {
@@ -1168,8 +1186,12 @@ const FolderView = new Lang.Class({
         let availHeightPerPage = box.y2 - box.y1;
         let availWidthPerPage = box.x2 - box.x1;
         let maxRowsDisplayedAtOnce = this.maxRowsDisplayedAtOnce();
+        //global.log("availWidthPerPage " + availWidthPerPage);
         let usedRows = this._grid.nUsedRows(availWidthPerPage);
+        //global.log("usedRows " + usedRows);
+        //global.log("maxRowsDisplayedAtOnce " + maxRowsDisplayedAtOnce);
         usedRows = usedRows <= maxRowsDisplayedAtOnce ? usedRows : maxRowsDisplayedAtOnce;
+        global.log("usedRows after " + usedRows);
         return usedRows;
     },
     
@@ -1182,6 +1204,17 @@ const FolderView = new Lang.Class({
         //Then, we can only show that rows least one.
         maxRowsPerPage -= 1;
         return maxRowsPerPage;
+    },
+    
+    updateBoxPointerOffsets: function(arrowHeight, padding, closeButtonOverlap) {
+        // We have to ensure the close button doesn't go outside the allocation, so
+        // if we are using all the possible rows, means the boxpointer goes until
+        // the boundary of allocation, and then we have to take into account the close button
+        // overlap and least it from padding
+        this._boxPointerOffsets['arrowHeight'] = arrowHeight;
+        this._boxPointerOffsets['padding'] = padding;
+        this._boxPointerOffsets['closeButtonOverlap'] = closeButtonOverlap;
+        
     }
 });
 
@@ -1245,6 +1278,9 @@ const FolderIcon = new Lang.Class({
                 //FIXME ST ALIGN NOR WORKING?
                 this.view._widget.y_align = 2;
             }
+            
+            global.log("this.actor.y " + this.actor.y);
+            global.log("this._popup.actor.y " + this._popup.actor.y);
         }
     },
     
@@ -1253,19 +1289,9 @@ const FolderIcon = new Lang.Class({
     },
     
     _popUpHeight: function() {
-        /*
-         * To maintain the grid of the collection aligned to the main grid, we have to
-         * make the same spacing to each element of the collection as the main grid has, except
-         * for the last row which has to take less space, since the grid of collection is inside a view with padding (the popup)
-         * and, the arrow of the popup is rising some pixels the collection, we have to calculate how much real spacing
-         * we have to let under/above the last/first arrow to make let the collection grid aligned with the main grid
-         */
-        let arrowHeight = this._popup._boxPointer.actor.get_theme_node().get_length('-arrow-rise');
-        let popupPadding = this._popup._boxPointer.bin.get_theme_node().get_length('padding');
-        //It will be negative value, so we have to rest it, instead of plust it.
-        let closeButtonOverlap = this._popup.closeButton.get_theme_node().get_length('-shell-close-overlap-y');
-        let closeButtonHeight = this._popup.closeButton.height;
+       
         let usedHeight = this.view.usedHeight();
+        global.log("USED HEUGHT " + usedHeight);
         // If we want it corrected aligned with the main grid the calculation will be: usedHeight - popupPadding - arrowHeight
         // but, if we do that and the popup needs all the height, the popup will remain outside the allocation and then clipped. so:
         /*if(this.view.nRowsDisplayedAtOnce() == this.view.maxRowsDisplayedAtOnce()) {
@@ -1293,6 +1319,9 @@ const FolderIcon = new Lang.Class({
     },
     
     onCompleteMakeSpaceForPopUp: function() {
+        global.log("ONN COMPÑLETEEEE");
+        global.log("this._popup.height " + this._popup.actor.height);
+        global.log("this._popup.y " + this._popup.actor.y);
         this._popup.popup();
     },
     
@@ -1336,6 +1365,12 @@ const FolderIcon = new Lang.Class({
              * and before the calculation of the position.
              */
             this.view._grid.actor.ensure_style();
+            
+            let arrowHeight = this._popup._boxPointer.actor.get_theme_node().get_length('-arrow-rise');
+            let popupPadding = this._popup._boxPointer.bin.get_theme_node().get_length('padding');
+            //It will be negative value, so we have to rest it, instead of plust it.
+            let closeButtonOverlap =  - this._popup.closeButton.get_theme_node().get_length('-shell-close-overlap-y');
+            this.view.updateBoxPointerOffsets(arrowHeight, popupPadding, closeButtonOverlap);
             this.view.onUpdatedDisplaySize(this._displayWidth, this._displayHeight);
 
             /*
@@ -1357,7 +1392,7 @@ const FolderIcon = new Lang.Class({
             this.view.actor.set_height(this._popUpHeight());
             this._popup.actor.fixed_height = this._popup.actor.height;
 
-            
+            this._updatePopupPosition();
             this.makeSpaceForPopUp();
             this._popup.connect('open-state-changed', Lang.bind(this,
                     function(popup, isOpen) {

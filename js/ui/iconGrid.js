@@ -189,7 +189,7 @@ const IconGrid = new Lang.Class({
         
         this.top_padding = 0;
         this.bottom_padding = 0;
-        this.rigth_padding = 0;
+        this.right_padding = 0;
         this.left_padding = 0;
         
         if(this._usePagination) {
@@ -265,9 +265,7 @@ const IconGrid = new Lang.Class({
         if (this._rowLimit)
             nRows = Math.min(nRows, this._rowLimit);
         let totalSpacing = Math.max(0, nRows - 1) * spacing;
-        let height = nRows * this._vItemSize + totalSpacing + this.top_padding + this.bottom_padding;
-        global.log("GRID TOP PADDING " + this.top_padding);
-        
+        let height = nRows * this._vItemSize + totalSpacing + this.top_padding + this.bottom_padding;     
         if(this._usePagination && this._nPages) {
             alloc.min_size =  this.usedHeightPerPage() * this._nPages + this._spaceBetweenPagesTotal;
             alloc.natural_size = this.usedHeightPerPage() * this._nPages + this._spaceBetweenPagesTotal;
@@ -326,7 +324,8 @@ const IconGrid = new Lang.Class({
             case St.Align.END:
                 leftPadding = availWidth - usedWidth;
         }
-
+        //global.log("GRID TOP PADDING " + this.top_padding);
+        //global.log("availWidth " + availWidth);
         let x = box.x1 + leftPadding + this.left_padding;
         let y = box.y1 + this.top_padding;
         let columnIndex = 0;
@@ -426,13 +425,14 @@ const IconGrid = new Lang.Class({
     
     nUsedRows: function(forWidth) {
         let children = this._getVisibleChildren();
+        //global.log("children " + children.length);
         let nColumns;
         if (forWidth < 0) {
             nColumns = children.length;
         } else {
             [nColumns, ] = this._computeLayout(forWidth);
         }
-        
+        //global.log("nColumns " + nColumns);
         let nRows;
         if (nColumns > 0)
             nRows = Math.ceil(children.length / nColumns);
@@ -440,6 +440,7 @@ const IconGrid = new Lang.Class({
             nRows = 0;
         if (this._rowLimit)
             nRows = Math.min(nRows, this._rowLimit);
+        //global.log("nRows " + nRows);
         return nRows;
     },
     
@@ -476,16 +477,18 @@ const IconGrid = new Lang.Class({
         let nColumns = 0;
         let usedWidth = this.left_padding + this.right_padding;
         let spacing = this.getSpacing();
-
+        //global.log("usedWith " + usedWidth);
+        ////global.log("this.right_padding " + this.right_padding);
         while ((this._colLimit == null || nColumns < this._colLimit) &&
                (usedWidth + this._hItemSize <= forWidth)) {
             usedWidth += this._hItemSize + spacing;
+            //global.log("usedWith " + usedWidth);
             nColumns += 1;
+            //global.log("nColumns " + nColumns);
         }
 
         if (nColumns > 0)
             usedWidth -= spacing;
-
         return [nColumns, usedWidth];
     },
 
