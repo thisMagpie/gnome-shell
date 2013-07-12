@@ -318,7 +318,7 @@ const AppPages = new Lang.Class({
     
     onUpdatedDisplaySize: function(width, height) {
         // Update grid dinamyc spacing based on display width
-        spacing = this._grid.maxSpacingForWidthHeight(width, height, MIN_COLUMNS, MIN_ROWS, true);
+        let spacing = this._grid.maxSpacingForWidthHeight(width, height, MIN_COLUMNS, MIN_ROWS, true);
         this._grid.top_padding = spacing;
         this._grid.bottom_padding = spacing;
         this._grid.left_padding = spacing;
@@ -738,7 +738,7 @@ const FrequentView = new Lang.Class({
     
     onUpdatedDisplaySize: function(width, height) {
         //FIXME
-        spacing = this._grid.maxSpacingForWidthHeight(width, height, MIN_COLUMNS, MIN_ROWS, true);
+        let spacing = this._grid.maxSpacingForWidthHeight(width, height, MIN_COLUMNS, MIN_ROWS, true);
         this._grid.top_padding = spacing;
         this._grid.bottom_padding = spacing;
         this._grid.left_padding = spacing;
