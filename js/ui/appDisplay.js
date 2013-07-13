@@ -218,6 +218,7 @@ const AppPages = new Lang.Class({
         let rows = this._grid.pageRows(currentPage);
         this._translatedRows = rows;
         for(let rowIndex in rows) {
+            global.log("row " + rows[rowIndex]);
             isMainIconRow = mainIconYPosition == rows[rowIndex][0].y;
             if(isMainIconRow)
                 mainIconRowReached = true;
@@ -233,6 +234,8 @@ const AppPages = new Lang.Class({
                     rowsDown.push(rows[rowIndex]);
             }
         }
+        //The last page can have space without rows
+        let emptyRows = folderNVisibleRowsAtOnce + 1 - rows.length ;
         let panViewUpNRows = 0;
         let panViewDownNRows = 0;
         if(side == St.Side.BOTTOM) {
@@ -245,11 +248,12 @@ const AppPages = new Lang.Class({
             }
         } else {
             // There's not need to pan view up
-            if(rowsDown.length >= folderNVisibleRowsAtOnce)
+            if(rowsDown.length + emptyRows >= folderNVisibleRowsAtOnce){
                 panViewDownNRows = folderNVisibleRowsAtOnce;
+            }
             else {
-                panViewDownNRows = rowsDown.length;
-                panViewUpNRows = folderNVisibleRowsAtOnce - rowsDown.length;
+                panViewDownNRows = rowsDown.length + emptyRows;
+                panViewUpNRows = folderNVisibleRowsAtOnce - rowsDown.length - emptyRows;
             }
         }
         this._panViewForFolderView(rowsUp, rowsDown, panViewUpNRows, panViewDownNRows, iconActor);

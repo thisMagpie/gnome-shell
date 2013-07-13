@@ -589,7 +589,7 @@ const IconGrid = new Lang.Class({
         // Positioning to the first element of the page
         while(children[index] != this._firstPagesItems[pageNumber])
             index++;
-        for( let rowIndex = 0; rowIndex < this._rowsPerPage; rowIndex++) {
+        for( let rowIndex = 0; rowIndex < this._rowsPerPage && index < children.length; rowIndex++) {
             rows[rowIndex] = [];
             while(index < children.length && children[index].y == currentItem.y ) {
                 rows[rowIndex].push(children[index]);
