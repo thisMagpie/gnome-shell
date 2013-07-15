@@ -277,10 +277,15 @@ const IconGrid = new Lang.Class({
 
     _allocate: function (grid, box, flags) {
         if(this._fillParent) {
+            global.log("First box " + [box.x1, box.x2]);
             // Reset the passed in box to fill the parent
+            this.actor.get_parent().ensure_style();
             let parentBox = this.actor.get_parent().allocation;
+            parentBox = this.actor.get_theme_node().get_content_box(parentBox);
+            global.log("PArentbox " + [parentBox.x1, parentBox.x2]);
             let gridBox = this.actor.get_theme_node().get_content_box(parentBox);
             box = this._grid.get_theme_node().get_content_box(gridBox);
+            global.log("final box " + [box.x1, box.x2]);
         }
 
         let children = this._getVisibleChildren();
@@ -307,10 +312,10 @@ const IconGrid = new Lang.Class({
             if(oldNPages != this._nPages) {
                 global.log("Next relayout");
                 this.emit('n-pages-changed', this._nPages);
-                /*Meta.later_add(Meta.LaterType.BEFORE_REDRAW, Lang.bind(this, function() {
+                Meta.later_add(Meta.LaterType.BEFORE_REDRAW, Lang.bind(this, function() {
                     this._grid.queue_relayout();
                     return false;
-                }));*/
+                }));
             }
         }
         let leftPadding;
