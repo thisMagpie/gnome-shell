@@ -397,6 +397,7 @@ const PaginationScrollView = new Lang.Class({
     
     vfunc_allocate: function(box, flags) {
         box = this.get_parent().allocation;
+        box = this.get_theme_node().get_content_box(box);
         this.set_allocation(box, flags);        
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
