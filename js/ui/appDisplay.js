@@ -218,7 +218,6 @@ const AppPages = new Lang.Class({
         let rows = this._grid.pageRows(currentPage);
         this._translatedRows = rows;
         for(let rowIndex in rows) {
-            global.log("row " + rows[rowIndex]);
             isMainIconRow = mainIconYPosition == rows[rowIndex][0].y;
             if(isMainIconRow)
                 mainIconRowReached = true;
@@ -321,8 +320,16 @@ const AppPages = new Lang.Class({
     },
     
     onUpdatedDisplaySize: function(width, height) {
+        let box = new Clutter.ActorBox();
+        box.x1 = 0;
+        box.x2 = width;
+        box.y1 = 0;
+        box.y2 = height;
+        box = this.actor.get_theme_node().get_content_box(box);
+        let availWidth = box.x2 - box.x1;
+        let availHeight = box.y2 - box.y1;
         // Update grid dinamyc spacing based on display width
-        let spacing = this._grid.maxSpacingForWidthHeight(width, height, MIN_COLUMNS, MIN_ROWS, true);
+        let spacing = this._grid.maxSpacingForWidthHeight(availWidth, availHeight, MIN_COLUMNS, MIN_ROWS, true);
         this._grid.top_padding = spacing;
         this._grid.bottom_padding = spacing;
         this._grid.left_padding = spacing;
@@ -536,7 +543,15 @@ const PaginationScrollView = new Lang.Class({
     },
     
     onUpdatedDisplaySize: function(width, height) {
-        this._pages.onUpdatedDisplaySize(width, height);
+        let box = new Clutter.ActorBox();
+        box.x1 = 0;
+        box.x2 = width;
+        box.y1 = 0;
+        box.y2 = height;
+        box = this.get_theme_node().get_content_box(box);
+        let availWidth = box.x2 - box.x1;
+        let availHeight = box.y2 - box.y1;
+        this._pages.onUpdatedDisplaySize(availWidth, availHeight);
     }
     
 });
@@ -709,7 +724,15 @@ const AllView = new Lang.Class({
     },
     
     onUpdatedDisplaySize: function(width, height) {
-        this._paginationView.onUpdatedDisplaySize(width, height);
+        let box = new Clutter.ActorBox();
+        box.x1 = 0;
+        box.x2 = width;
+        box.y1 = 0;
+        box.y2 = height;
+        box = this.actor.get_theme_node().get_content_box(box);
+        let availWidth = box.x2 - box.x1;
+        let availHeight = box.y2 - box.y1;
+        this._paginationView.onUpdatedDisplaySize(availWidth, availHeight);
     }
 });
 
@@ -742,8 +765,16 @@ const FrequentView = new Lang.Class({
     },
     
     onUpdatedDisplaySize: function(width, height) {
+        let box = new Clutter.ActorBox();
+        box.x1 = 0;
+        box.x2 = width;
+        box.y1 = 0;
+        box.y2 = height;
+        box = this.actor.get_theme_node().get_content_box(box);
+        let availWidth = box.x2 - box.x1;
+        let availHeight = box.y2 - box.y1;
         //FIXME
-        let spacing = this._grid.maxSpacingForWidthHeight(width, height, MIN_COLUMNS, MIN_ROWS, true);
+        let spacing = this._grid.maxSpacingForWidthHeight(availWidth, availHeight, MIN_COLUMNS, MIN_ROWS, true);
         this._grid.top_padding = spacing;
         this._grid.bottom_padding = spacing;
         this._grid.left_padding = spacing;
@@ -971,7 +1002,8 @@ const AppDisplay = new Lang.Class({
         }
     },
     
-    _onUpdatedDisplaySize: function(actor, width, height) {        
+    _onUpdatedDisplaySize: function(actor, width, height) {
+        //FIXME
         for (let i = 0; i < this._views.length; i++) {
             this._views[i].view.onUpdatedDisplaySize(width, height);
         }
@@ -1043,9 +1075,8 @@ const FolderView = new Lang.Class({
 
         this.actor = new St.ScrollView({overlay_scrollbars: true});
         this.actor.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC);
-        this._box = new St.BoxLayout({reactive: true});
-        let lay = new Clutter.BinLayout();
-        this._widget = new St.Widget();
+        this._box = new St.BoxLayout({vertical:true, reactive: true});
+        this._widget = new St.Widget({layout_manager: new Clutter.BinLayout()});
         this._widget.add_child(this._grid.actor);
         this._box.add_actor(this._widget);
         this.actor.add_actor(this._box);
@@ -1174,6 +1205,7 @@ const FolderView = new Lang.Class({
         let box = this._containerBox();
         let availWidthPerPage = box.x2 - box.x1;
         let maxUsedWidth = this._grid.usedWidth(availWidthPerPage);
+        global.log("######Max used width " + maxUsedWidth);
         return maxUsedWidth;
     },
     
@@ -1268,12 +1300,8 @@ const FolderIcon = new Lang.Class({
                 let yWithButton = y - closeButtonOffset;
                 this._popup.parentOffset = yWithButton < 0 ? -yWithButton : 0;
                 this._popup.actor.y = Math.max(y, closeButtonOffset);
-                //FIXME ST ALIGN NOR WORKING?
-                this.view._widget.y_align = 2;
             } else {
                 this._popup.actor.y = this.actor.y + this.actor.height;
-                //FIXME ST ALIGN NOR WORKING?
-                this.view._widget.y_align = 2;
             }
         }
     },
