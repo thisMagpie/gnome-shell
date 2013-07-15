@@ -900,7 +900,7 @@ StScrollBar StButton#vhandle:active {
 
 .search-display > StBoxLayout,
 .all-apps,
-.frequent-apps {
+.frequent-apps > StBoxLayout {
     /* horizontal padding to make sure scrollbars or dash don't overlap content */
     padding: 8px 88px;
 }
