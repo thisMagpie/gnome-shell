@@ -202,6 +202,11 @@ const AppPages = new Lang.Class({
     addFolderPopup: function(popup) {
         this._parent.addFolderPopup(popup);
     },
+    
+    removeFolderPopUp: function(popup) {
+        this._parent.removeFolderPopUp(popup);
+    },
+    
     /**
      * Pan view with items to make space for the folder view.
      * @param folderNVisibleRowsAtOnce this parameter tell how many rows the folder view has, but,
@@ -412,7 +417,6 @@ const PaginationScrollView = new Lang.Class({
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
         //FIXME
-        global.log("ScrollView alocatiing " + [availWidth, availHeight]);
         let childBox = new Clutter.ActorBox();
         childBox.x1 = 0;
         childBox.y1 = 0;
@@ -519,11 +523,16 @@ const PaginationScrollView = new Lang.Class({
     
     addFolderPopup: function(popup) {
         this._stack.add_actor(popup.actor);
-        popup.connect('open-state-changed', Lang.bind(this,
+        popup.openStateId = popup.connect('open-state-changed', Lang.bind(this,
                 function(popup, isOpen) {
                     this._eventBlocker.reactive = isOpen;
                     this._currentPopup = isOpen ? popup : null;
                 }));
+    },
+    
+    removeFolderPopUp: function(popup) {
+        popup.disconnect(popup.openStateId);
+        this._stack.remove_child(popup.actor);     
     },
     
     _onPan: function(action) {
@@ -560,6 +569,7 @@ const PaginationScrollView = new Lang.Class({
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
         this._pages.onUpdatedDisplaySize(availWidth, availHeight);
+        //this.invalidatePagination = true;
     }
     
 });
@@ -618,12 +628,11 @@ const IndicatorLayout = Lang.Class({
 
     vfunc_allocate: function(container, box, flags) {
         let children = container.get_children();
+
         if(children.length < 1)
             return;
         let availHeight = box.y2 - box.y1;
         let availWidth = box.x2 - box.x1;
-      //FIXME
-        global.log("Indicator alocatiing " + [availWidth, availHeight, this._nPages]);
         let [minHeight, natHeight] = children[0].get_preferred_height(availWidth);
         let totalUsedHeight = this._nPages  * this.spacing * 2  - this.spacing + this._nPages * natHeight;
         let heightPerChild = totalUsedHeight / this._nPages;
@@ -689,7 +698,6 @@ const AllView = new Lang.Class({
     _updatedNPages: function(iconGrid, nPages) {
         // We don't need a relayout because we already done it at iconGrid
         // when pages are calculated (and then the signal is emitted before that)
-        global.log("UPdate nPages " + nPages);
         this._paginationIndicatorLayout._nPages = nPages;
         this._paginationView.invalidatePagination = true;
     },
@@ -844,7 +852,6 @@ const AppDisplayActor = new Lang.Class({
     vfunc_allocate: function (actor, box, flags) {        
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
-        global.log("App display allocating " + [availWidth, availHeight]);
         this.emit('allocated-size-changed', availWidth, availHeight);
         this.parent(actor, box, flags);
     },
@@ -1219,7 +1226,6 @@ const FolderView = new Lang.Class({
         let box = this._containerBox();
         let availWidthPerPage = box.x2 - box.x1;
         let maxUsedWidth = this._grid.usedWidth(availWidthPerPage);
-        global.log("######Max used width " + maxUsedWidth);
         return maxUsedWidth;
     },
     
@@ -1276,6 +1282,9 @@ const FolderIcon = new Lang.Class({
         this.actor._delegate = this;
         this._parentView = parentView;
 
+        this.invalidatePopUp = false;
+        this._boxPointerOffsets = {};
+        
         let label = this._dir.get_name();
         this.icon = new IconGrid.BaseIcon(label,
                                           { createIcon: Lang.bind(this, this._createIcon) });
@@ -1310,22 +1319,33 @@ const FolderIcon = new Lang.Class({
             // Position the popup above or below the source icon
             if (this._side == St.Side.BOTTOM) {
                 let closeButtonOffset = -this._popup.closeButton.translation_y;
-                let y = this.actor.y - this._popup.actor.fixed_height;
+                // FLORIAN REVIEW
+                // We have to use this function, since this._popup.actor.height not always return a good value (32 px??)
+                // and then all this calculation of position fails. To solve this in this function we calculate the used height with the grid
+                // since we knoe all of the properties of grid. Then we add the padding, arrowheigth etc of boxpointer, and we have the
+                // used height of the popup
+                let y = this.actor.y - this._popUpHeight();
                 let yWithButton = y - closeButtonOffset;
                 this._popup.parentOffset = yWithButton < 0 ? -yWithButton : 0;
                 this._popup.actor.y = Math.max(y, closeButtonOffset);
+                this._popup.actor.y = y
             } else {
                 this._popup.actor.y = this.actor.y + this.actor.height;
             }
         }
     },
     
-    _popUpWidth: function() {
+    _popUpGridWidth: function() {
         return this.view.usedWidth();
     },
     
-    _popUpHeight: function() {
+    _popUpGridHeight: function() {
         let usedHeight = this.view.usedHeight();
+        return usedHeight;   
+    },
+    
+    _popUpHeight: function() {
+        let usedHeight = this.view.usedHeight() + this._boxPointerOffsets['arrowHeight'] + this._boxPointerOffsets['padding'] * 2;
         return usedHeight;   
     },
 
@@ -1342,16 +1362,27 @@ const FolderIcon = new Lang.Class({
     },
     
     _ensurePopup: function() {
-        if(this._popup){
+        if(this._popup && !this.invalidatePopUp){
             this.makeSpaceForPopUp();
             return;
         } else {
+            if(this.invalidatePopUp)
+                global.log("######## INVALIDATE ######");
+            
             let absoluteActorYPosition = this.actor.get_transformed_position()[1];
             let spaceTop = absoluteActorYPosition;
             let spaceBottom = this.actor.get_stage().height - (absoluteActorYPosition + this.actor.height);
             this._side = spaceTop > spaceBottom ? St.Side.BOTTOM : St.Side.TOP;
-            this._popup = new AppFolderPopup(this, this._side);
-            this._parentView.addFolderPopup(this._popup);
+            global.log("this._side " + this._side);
+            let firstCreationPopup = this._popup ? false : true;
+            if(!this._popup) {
+                this._popup = new AppFolderPopup(this, this._side);
+                global.log("after appfolderpopup creation0");
+                this._parentView.addFolderPopup(this._popup);
+                global.log("popup has parent?");
+            } else
+                this._popup.updateBoxPointer(this._side);
+            // FLORIAN REVIEW
             /**
              * Why we need that: AppDiplay update width for the spacing for all
              * views Allview and frequent view and folder views calcualte spacing
@@ -1380,13 +1411,14 @@ const FolderIcon = new Lang.Class({
              * Solution: ensure style of the grid just after we add it to the parent
              * and before the calculation of the position.
              */
+
             this.view._grid.actor.ensure_style();
-            
-            let arrowHeight = this._popup._boxPointer.actor.get_theme_node().get_length('-arrow-rise');
-            let popupPadding = this._popup._boxPointer.bin.get_theme_node().get_length('padding');
-            //It will be negative value, so we have to rest it, instead of plust it.
-            let closeButtonOverlap =  - this._popup.closeButton.get_theme_node().get_length('-shell-close-overlap-y');
-            this.view.updateBoxPointerOffsets(arrowHeight, popupPadding, closeButtonOverlap);
+            this._boxPointerOffsets['arrowHeight'] = this._popup._boxPointer.actor.get_theme_node().get_length('-arrow-rise');
+            this._boxPointerOffsets['padding'] = this._popup._boxPointer.bin.get_theme_node().get_length('padding');
+            //It will be negative value, so we have to substract it, instead of plust it.
+            this._boxPointerOffsets['closeButtonOverlap'] = - this._popup.closeButton.get_theme_node().get_length('-shell-close-overlap-y');
+
+            this.view.updateBoxPointerOffsets(this._boxPointerOffsets['arrowHeight'], this._boxPointerOffsets['padding'], this._boxPointerOffsets['closeButtonOverlap']);
             this.view.onUpdatedDisplaySize(this._displayWidth, this._displayHeight);
 
             /*
@@ -1395,7 +1427,7 @@ const FolderIcon = new Lang.Class({
              * icons than necesary to full the row. In that manner the popup will be
              * more eye pleasant, fulling the parent view
              */
-            this.view.actor.set_width(this._popUpWidth());
+            this.view.actor.set_width(this._popUpGridWidth());
 
             /*
              * A folder view can only be, at a maximum, one row less than the parent
@@ -1403,19 +1435,21 @@ const FolderIcon = new Lang.Class({
              * then calculate the maxUsedHeigth and the current Used height, if it
              * is more, strech to the maxUsedHeight
              */
-            let usedHeight = this._popUpHeight();
-            this.view.actor.set_height(this._popUpHeight());
-            this._popup.actor.fixed_height = this._popup.actor.height;
-
+            let usedHeight = this._popUpGridHeight();
+            this.view.actor.set_height(this._popUpGridHeight());
+            
             this._updatePopupPosition();
             this.makeSpaceForPopUp();
-            this._popup.connect('open-state-changed', Lang.bind(this,
-                    function(popup, isOpen) {
-                if (!isOpen) {
-                    this.actor.checked = false;
-                    this.returnSpaceToOriginalPosition();
-                }
-            }));
+            if(firstCreationPopup) {
+                this._popup.connect('open-state-changed', Lang.bind(this,
+                        function(popup, isOpen) {
+                    if (!isOpen) {
+                        this.actor.checked = false;
+                        this.returnSpaceToOriginalPosition();
+                    }
+                }));
+            }
+            this.invalidatePopUp = false;            
         }
     },
 
@@ -1423,6 +1457,7 @@ const FolderIcon = new Lang.Class({
         this._displayWidth = width;
         this._displayHeight = height;
         this.view.onUpdatedDisplaySize(width, height);
+        this.invalidatePopUp = true;
     },
 
 });
@@ -1515,6 +1550,11 @@ const AppFolderPopup = new Lang.Class({
         this._boxPointer.hide(BoxPointer.PopupAnimation.FADE | BoxPointer.PopupAnimation.SLIDE);
         this._isOpen = false;
         this.emit('open-state-changed', false);
+    },
+    
+    updateBoxPointer: function (side) {
+        this._arrowSide = side;
+        this._boxPointer._arrowSide = side;
     }
 });
 Signals.addSignalMethods(AppFolderPopup.prototype);

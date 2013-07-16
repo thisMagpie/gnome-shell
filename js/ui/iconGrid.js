@@ -288,7 +288,6 @@ const IconGrid = new Lang.Class({
         let [nColumns, usedWidth] = this._computeLayout(availWidth);
         if(this._usePagination) {
             // Calculate icongrid box inside the scrollView
-            global.log("Allocating iconGrid pagination " + this._nPages);
             let parentBox = this._viewForPageSize.allocation;
             let gridBox = this.actor.get_theme_node().get_content_box(parentBox);
             let customBox = this._grid.get_theme_node().get_content_box(gridBox);
