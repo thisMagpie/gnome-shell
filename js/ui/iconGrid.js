@@ -194,7 +194,8 @@ const IconGrid = new Lang.Class({
         
         if(this._usePagination) {
             this._nPages = 0;
-            //Set this variable properly before allocate function is called
+            // Set this variable properly pointing to the scrollView containing the grid
+            // before allocate function is called
             this._viewForPageSize = null;
             this._firstPagesItems = [];
         }
@@ -211,7 +212,6 @@ const IconGrid = new Lang.Class({
         this._grid.connect('get-preferred-width', Lang.bind(this, this._getPreferredWidth));
         this._grid.connect('get-preferred-height', Lang.bind(this, this._getPreferredHeight));
         this._grid.connect('allocate', Lang.bind(this, this._allocate));
-        
     },
 
     _getPreferredWidth: function (grid, forHeight, alloc) {
@@ -222,10 +222,9 @@ const IconGrid = new Lang.Class({
 
         let children = this._grid.get_children();
         let nColumns = this._colLimit ? Math.min(this._colLimit,
-                children.length)
-                : children.length;
-        let spacing = this._fixedSpacing ? this._fixedSpacing : this._spacing;
-        let totalSpacing = Math.max(0, nColumns - 1) * spacing;
+                								 children.length)
+                					  : children.length;
+        let totalSpacing = Math.max(0, nColumns - 1) * this.getSpacing();
         // Kind of a lie, but not really an issue right now.  If
         // we wanted to support some sort of hidden/overflow that would
         // need higher level design
@@ -254,8 +253,7 @@ const IconGrid = new Lang.Class({
         } else {
             [nColumns, ] = this._computeLayout(forWidth);
         }
-        
-        let spacing = this._fixedSpacing ? this._fixedSpacing : this._spacing;
+        let spacing = this.getSpacing();
         
         let nRows;
         if (nColumns > 0)
@@ -277,27 +275,22 @@ const IconGrid = new Lang.Class({
 
     _allocate: function (grid, box, flags) {
         if(this._fillParent) {
-            global.log("First box " + [box.x1, box.x2]);
             // Reset the passed in box to fill the parent
             let parentBox = this.actor.get_parent().allocation;
-            global.log("PArentbox " + [parentBox.x1, parentBox.x2]);
             let gridBox = this.actor.get_theme_node().get_content_box(parentBox);
             box = this._grid.get_theme_node().get_content_box(gridBox);
-            global.log("final box " + [box.x1, box.x2]);
         }
 
         let children = this._getVisibleChildren();
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
-        global.log("Avails " + [availWidth, availHeight]);
-        let spacing = this._fixedSpacing ? this._fixedSpacing : this._spacing;
-        let [nColumns, usedWidth] = this._computeLayout(availWidth);        
+        let spacing = this.getSpacing();
+        let [nColumns, usedWidth] = this._computeLayout(availWidth);
         if(this._usePagination) {
-            // ScrollView height
+            // Calculate icongrid box inside the scrollView
             let parentBox = this._viewForPageSize.allocation;
             let gridBox = this.actor.get_theme_node().get_content_box(parentBox);
             let customBox = this._grid.get_theme_node().get_content_box(gridBox);
-            let availWidth = customBox.x2 - customBox.x1;
             let availHeightPerPage = customBox.y2 - customBox.y1;
             let nRows;
             if (nColumns > 0)
@@ -309,7 +302,6 @@ const IconGrid = new Lang.Class({
             let oldNPages = this._nPages;
             this._calculatePaginationValues(availHeightPerPage, nColumns, nRows);
             if(oldNPages != this._nPages) {
-                global.log("Next relayout");
                 this.emit('n-pages-changed', this._nPages);
                 Meta.later_add(Meta.LaterType.BEFORE_REDRAW, Lang.bind(this, function() {
                     this._grid.queue_relayout();
@@ -328,8 +320,7 @@ const IconGrid = new Lang.Class({
             case St.Align.END:
                 leftPadding = availWidth - usedWidth;
         }
-        //global.log("GRID TOP PADDING " + this.top_padding);
-        //global.log("availWidth " + availWidth);
+        
         let x = box.x1 + leftPadding + this.left_padding;
         let y = box.y1 + this.top_padding;
         let columnIndex = 0;
@@ -383,7 +374,7 @@ const IconGrid = new Lang.Class({
     _calculatePaginationValues: function (availHeightPerPage, nColumns, nRows) {
         let spacing = this.getSpacing();
         this._spacePerRow = this._vItemSize + spacing;
-        // we want to continent the grid inside the "box" wwith padding, so the availHeihgt is less than the real one
+        // We want to contain the grid inside the parent box with padding
         availHeightPerPage -= this.top_padding + this.bottom_padding;
         this._rowsPerPage = Math.floor(availHeightPerPage / this._spacePerRow);
         // Check if deleting spacing from bottom there's enough space for another row
@@ -417,7 +408,30 @@ const IconGrid = new Lang.Class({
         childBox.y2 = childBox.y1 + height;
         return childBox;
     },
-    
+
+    _computeLayout: function (forWidth) {
+        let nColumns = 0;
+        let usedWidth = this.left_padding + this.right_padding;
+        let spacing = this.getSpacing();
+        while ((this._colLimit == null || nColumns < this._colLimit) &&
+               (usedWidth + this._hItemSize <= forWidth)) {
+            usedWidth += this._hItemSize + spacing;
+            nColumns += 1;
+        }
+
+        if (nColumns > 0)
+            usedWidth -= spacing;
+        return [nColumns, usedWidth];
+    },
+
+    _onStyleChanged: function() {
+        let themeNode = this.actor.get_theme_node();
+        this._spacing = themeNode.get_length('spacing');
+        this._hItemSize = themeNode.get_length('-shell-grid-horizontal-item-size') || ICON_SIZE;
+        this._vItemSize = themeNode.get_length('-shell-grid-vertical-item-size') || ICON_SIZE;
+        this._grid.queue_relayout();
+    },
+
     childrenInRow: function(rowWidth) {
         return this._computeLayout(rowWidth)[0];
     },
@@ -425,17 +439,15 @@ const IconGrid = new Lang.Class({
     getRowLimit: function() {
         return this._rowLimit;
     },
-    
+
     nUsedRows: function(forWidth) {
         let children = this._getVisibleChildren();
-        //global.log("children " + children.length);
         let nColumns;
         if (forWidth < 0) {
             nColumns = children.length;
         } else {
             [nColumns, ] = this._computeLayout(forWidth);
         }
-        //global.log("nColumns " + nColumns);
         let nRows;
         if (nColumns > 0)
             nRows = Math.ceil(children.length / nColumns);
@@ -443,10 +455,9 @@ const IconGrid = new Lang.Class({
             nRows = 0;
         if (this._rowLimit)
             nRows = Math.min(nRows, this._rowLimit);
-        //global.log("nRows " + nRows);
         return nRows;
     },
-    
+
     rowsForHeight: function(forHeight) {
         forHeight -= this.top_padding + this.bottom_padding;
         let spacePerRow = this._vItemSize + this.getSpacing();
@@ -456,7 +467,7 @@ const IconGrid = new Lang.Class({
         rowsPerPage = spaceWithOneMoreRow <= forHeight? rowsPerPage + 1 : rowsPerPage;
         return rowsPerPage;
     },
-    
+
     /**
      * Don't take into account paddings
      */
@@ -474,33 +485,6 @@ const IconGrid = new Lang.Class({
         let usedWidth = childrenInRow  * (this._hItemSize + this.getSpacing());
         usedWidth -= this.getSpacing();
         return usedWidth + this.left_padding + this.right_padding;
-    },
-    
-    _computeLayout: function (forWidth) {
-        let nColumns = 0;
-        let usedWidth = this.left_padding + this.right_padding;
-        let spacing = this.getSpacing();
-        //global.log("usedWith " + usedWidth);
-        ////global.log("this.right_padding " + this.right_padding);
-        while ((this._colLimit == null || nColumns < this._colLimit) &&
-               (usedWidth + this._hItemSize <= forWidth)) {
-            usedWidth += this._hItemSize + spacing;
-            //global.log("usedWith " + usedWidth);
-            nColumns += 1;
-            //global.log("nColumns " + nColumns);
-        }
-
-        if (nColumns > 0)
-            usedWidth -= spacing;
-        return [nColumns, usedWidth];
-    },
-
-    _onStyleChanged: function() {
-        let themeNode = this.actor.get_theme_node();
-        this._spacing = themeNode.get_length('spacing');
-        this._hItemSize = themeNode.get_length('-shell-grid-horizontal-item-size') || ICON_SIZE;
-        this._vItemSize = themeNode.get_length('-shell-grid-vertical-item-size') || ICON_SIZE;
-        this._grid.queue_relayout();
     },
 
     removeAll: function() {
@@ -538,10 +522,6 @@ const IconGrid = new Lang.Class({
     
     setSpacing: function(spacing) {
             this._fixedSpacing = spacing;
-            /*Meta.later_add(Meta.LaterType.BEFORE_REDRAW, Lang.bind(this, function() {
-                this._grid.queue_relayout();
-                return false;
-            }));*/
     },
     
     getSpacing: function() {
@@ -550,11 +530,11 @@ const IconGrid = new Lang.Class({
     /**
      * This functions is intended to use before iconGrid allocation, to know how much spacing can we have at the grid
      * but also to set manually the top/bottom rigth/left padding accordnly to the spacing calculated here.
-     * TO take into account the spacing also for before the first row and for after the last row mark usingSurroundingSpacing true
-     * This function doesn't take into account the dynamic padding rigth now, since, at the momment, we don't use that now.
+     * To take into account the spacing also for before the first row and for after the last row mark usingSurroundingSpacing true
+     * This function doesn't take into account the dynamic padding rigth now, since in fact we want to calculate also that.
      */
     maxSpacingForWidthHeight: function(availWidth, availHeight, minColumns, minRows, usingSurroundingSpacing) {
-        // MAx spacing will be the icon item size. It doesn't make any sense to have more spacing than items.
+        // Maximum spacing will be the icon item size. It doesn't make any sense to have more spacing than items.
         let maxSpacing = Math.floor(Math.min(this._vItemSize, this._hItemSize));
         let minEmptyVerticalArea = (availHeight - minRows * this._vItemSize);
         let minEmptyHorizontalArea = (availWidth - minColumns * this._hItemSize);
@@ -568,7 +548,7 @@ const IconGrid = new Lang.Class({
             let spacingNotTooBig = Math.min(spacingToEnsureMinimums, maxSpacing);
             spacing = Math.max(this._spacing, spacingNotTooBig);
         } else {
-            //We don't want spacing if there's only one row, it would be touching the boundary.
+            //We don't want spacing if there's only one row, it will be touching the boundary.
             if(minRows == 1) {
                 let maxSpacingForRows = 0;
                 let maxSpacingForColumns = 0;
@@ -580,7 +560,6 @@ const IconGrid = new Lang.Class({
             let spacingNotTooBig = Math.min(spacingToEnsureMinimums, maxSpacing);
             spacing = Math.max(this._spacing, spacingNotTooBig); 
         }
-        global.log("Spacing! " + spacing);
         return spacing;
     },
     
