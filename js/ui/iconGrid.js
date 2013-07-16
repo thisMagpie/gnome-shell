@@ -580,6 +580,7 @@ const IconGrid = new Lang.Class({
             let spacingNotTooBig = Math.min(spacingToEnsureMinimums, maxSpacing);
             spacing = Math.max(this._spacing, spacingNotTooBig); 
         }
+        global.log("Spacing! " + spacing);
         return spacing;
     },
     

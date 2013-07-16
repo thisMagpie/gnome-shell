@@ -1075,7 +1075,7 @@ const FolderView = new Lang.Class({
 
         this.actor = new St.ScrollView({overlay_scrollbars: true});
         this.actor.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC);
-        this._box = new St.BoxLayout({vertical:true, reactive: true});
+        this._box = new St.BoxLayout({vertical: true, reactive: true});
         this._widget = new St.Widget({layout_manager: new Clutter.BinLayout()});
         this._widget.add_child(this._grid.actor);
         this._box.add_actor(this._widget);
