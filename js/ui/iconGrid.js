@@ -288,6 +288,7 @@ const IconGrid = new Lang.Class({
         let [nColumns, usedWidth] = this._computeLayout(availWidth);
         if(this._usePagination) {
             // Calculate icongrid box inside the scrollView
+            global.log("Allocating iconGrid pagination " + this._nPages);
             let parentBox = this._viewForPageSize.allocation;
             let gridBox = this.actor.get_theme_node().get_content_box(parentBox);
             let customBox = this._grid.get_theme_node().get_content_box(gridBox);
@@ -304,6 +305,7 @@ const IconGrid = new Lang.Class({
             if(oldNPages != this._nPages) {
                 this.emit('n-pages-changed', this._nPages);
                 Meta.later_add(Meta.LaterType.BEFORE_REDRAW, Lang.bind(this, function() {
+                    global.log("Put a relayout " + this._nPages);
                     this._grid.queue_relayout();
                     return false;
                 }));

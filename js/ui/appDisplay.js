@@ -368,6 +368,8 @@ const PaginationScrollView = new Lang.Class({
         this._currentPage = 0;
         this._parent = parent;
         
+        this.invalidatePagination = false;
+        
         this.connect('scroll-event', Lang.bind(this, this._onScroll));
         
         let panAction = new Clutter.PanAction({ interpolate: false });
@@ -403,11 +405,14 @@ const PaginationScrollView = new Lang.Class({
     },
     
     vfunc_allocate: function(box, flags) {
+        
         box = this.get_parent().allocation;
         box = this.get_theme_node().get_content_box(box);
         this.set_allocation(box, flags);        
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
+        //FIXME
+        global.log("ScrollView alocatiing " + [availWidth, availHeight]);
         let childBox = new Clutter.ActorBox();
         childBox.x1 = 0;
         childBox.y1 = 0;
@@ -417,6 +422,9 @@ const PaginationScrollView = new Lang.Class({
         
         this._verticalAdjustment.page_size = availHeight;
         this._verticalAdjustment.upper = this._stack.height;
+        if(this.invalidatePagination)
+            this.goToPage(0);
+        this.invalidatePagination = false;
     },
 
     goToPage: function(pageNumber, action) {
@@ -614,6 +622,8 @@ const IndicatorLayout = Lang.Class({
             return;
         let availHeight = box.y2 - box.y1;
         let availWidth = box.x2 - box.x1;
+      //FIXME
+        global.log("Indicator alocatiing " + [availWidth, availHeight, this._nPages]);
         let [minHeight, natHeight] = children[0].get_preferred_height(availWidth);
         let totalUsedHeight = this._nPages  * this.spacing * 2  - this.spacing + this._nPages * natHeight;
         let heightPerChild = totalUsedHeight / this._nPages;
@@ -659,6 +669,7 @@ const AllView = new Lang.Class({
         let layout = new Clutter.BinLayout();
         this.actor = new St.Widget({ layout_manager: layout, 
                                      x_expand:true, y_expand:true });
+        //FIXME Clutter align proerpties
         layout.add(this._paginationView, 2,2);
         if(Clutter.get_default_text_direction() == Clutter.TextDirection.RTL)
             layout.add(this._paginationIndicator, 2,2);
@@ -678,7 +689,9 @@ const AllView = new Lang.Class({
     _updatedNPages: function(iconGrid, nPages) {
         // We don't need a relayout because we already done it at iconGrid
         // when pages are calculated (and then the signal is emitted before that)
-        this._paginationIndicatorLayout._nPages = nPages;        
+        global.log("UPdate nPages " + nPages);
+        this._paginationIndicatorLayout._nPages = nPages;
+        this._paginationView.invalidatePagination = true;
     },
     
     _onKeyRelease: function(actor, event) {
@@ -831,6 +844,7 @@ const AppDisplayActor = new Lang.Class({
     vfunc_allocate: function (actor, box, flags) {        
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
+        global.log("App display allocating " + [availWidth, availHeight]);
         this.emit('allocated-size-changed', availWidth, availHeight);
         this.parent(actor, box, flags);
     },
@@ -1488,7 +1502,7 @@ const AppFolderPopup = new Lang.Class({
         this.actor.show();
         this.actor.navigate_focus(null, Gtk.DirectionType.TAB_FORWARD, false);
         this._boxPointer.setArrowActor(this._source.actor);
-        this._boxPointer.show(BoxPointer.PopupAnimation.FADE);
+        this._boxPointer.show(BoxPointer.PopupAnimation.FADE | BoxPointer.PopupAnimation.SLIDE);
 
         this._isOpen = true;
         this.emit('open-state-changed', true);
@@ -1498,7 +1512,7 @@ const AppFolderPopup = new Lang.Class({
         if (!this._isOpen)
             return;
 
-        this._boxPointer.hide(BoxPointer.PopupAnimation.FADE);
+        this._boxPointer.hide(BoxPointer.PopupAnimation.FADE | BoxPointer.PopupAnimation.SLIDE);
         this._isOpen = false;
         this.emit('open-state-changed', false);
     }
