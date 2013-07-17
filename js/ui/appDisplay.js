@@ -621,56 +621,70 @@ const PaginationIndicatorActor = new Lang.Class({
 
 const IndicatorLayout = new Lang.Class({
     Name:'IndicatorLayout',
-    Extends: Clutter.BoxLayout,
     
-    vfunc_get_preferred_height: function(container, forWidth) {
-        let [minHeight, natHeight] = container.get_children()[0].get_preferred_height(forWidth);
+    _init: function(params) {
+        params['y_expand'] = true;
+        this.actor = new Shell.GenericContainer(params);
+        this.actor.connect('get-preferred-height', Lang.bind(this, this._getPreferredHeight));
+        this.actor.connect('get-preferred-width', Lang.bind(this, this._getPreferredWidth));
+        this.actor.connect('allocate', Lang.bind(this, this._allocate));
+        this.actor.connect('style-changed', Lang.bind(this, this._styleChanged));
+        this._spacing = 0;
+    },
+    
+    _getPreferredHeight: function(actor, forWidth, alloc) {
+        let [minHeight, natHeight] = this.actor.get_children()[0].get_preferred_height(forWidth);
         if(this._nPages) {
-            let natHeightPerChild = natHeight + this.spacing;
-            let totalUsedHeight =  this._nPages * natHeightPerChild - this.spacing;
-            let minHeightPerChild = minHeight + this.spacing;
-            minHeight = this._nPages * minHeightPerChild - this.spacing;
-            natHeight = this._nPages * natHeightPerChild - this.spacing;
+            let natHeightPerChild = natHeight + this._spacing;
+            let totalUsedHeight =  this._nPages * natHeightPerChild - this._spacing;
+            let minHeightPerChild = minHeight + this._spacing;
+            minHeight = this._nPages * minHeightPerChild - this._spacing;
+            natHeight = this._nPages * natHeightPerChild - this._spacing;
         } else
             minHeight = natHeight = 0;
-        return [minHeight, natHeight];
+        alloc.min_size = minHeight;
+        alloc.natural_size = natHeight;
     },
     
-    vfunc_get_preferred_width: function(container, forHeight) {
-        let [minWidth, natWidth] = container.get_children()[0].get_preferred_width(forHeight);
-        let totalWidth = natWidth + this.spacing;
-        return [totalWidth, totalWidth];
+    _getPreferredWidth: function(actor, forHeight, alloc) {
+        let [minWidth, natWidth] = this.actor.get_children()[0].get_preferred_width(forHeight);
+        let totalWidth = natWidth + this._spacing;
+        alloc.min_size = totalWidth;
+        alloc.natural_size = totalWidth;
     },
 
-    vfunc_allocate: function(container, box, flags) {
-        let children = container.get_children();
-
+    _allocate: function(actor, box, flags) {
+        let children = this.actor.get_children();
+        for(let i in children)
+            this.actor.set_skip_paint(children[i], true);
         if(children.length < 1)
             return;
         let availHeight = box.y2 - box.y1;
         let availWidth = box.x2 - box.x1;
         let [minHeight, natHeight] = children[0].get_preferred_height(availWidth);
-        let heightPerChild = natHeight + this.spacing;
-        let totalUsedHeight =  this._nPages * heightPerChild - this.spacing;
+        let heightPerChild = natHeight + this._spacing;
+        let totalUsedHeight =  this._nPages * heightPerChild - this._spacing;
         
         let [minWidth, natWidth] = children[0].get_preferred_width(natHeight);
-        let widthPerChild = natWidth + this.spacing * 2;
-        let firstPosition = [this.spacing, availHeight / 2 - totalUsedHeight / 2];
-        global.log("######### ALLOCATING " + this._nPages + " ############");
+        let widthPerChild = natWidth + this._spacing * 2;
+        let firstPosition = [this._spacing, availHeight / 2 - totalUsedHeight / 2];
         for(let i = 0; i < this._nPages; i++) {
             let childBox = new Clutter.ActorBox();
             childBox.x1 = 0;
             childBox.x2 = availWidth;
             childBox.y1 = firstPosition[1] + i * heightPerChild;
             childBox.y2 = childBox.y1 + heightPerChild;
-            global.log("child " + i + " y2 " + childBox.y2 + " and index " + children[i]._index);
             children[i].allocate(childBox, flags);
+            this.actor.set_skip_paint(children[i], false);
         }
     },
-    
    
+    _styleChanged: function() {
+        this._spacing = this.actor.get_theme_node().get_length('spacing');
+        this.actor.queue_relayout();
+    }
 
-    vfunc_set_container: function(container) {
+    /*vfunc_set_container: function(container) {
         if(this._styleChangedId) {
             this._container.disconnect(this._styleChangedId);
             this._styleChangedId = 0;
@@ -679,7 +693,7 @@ const IndicatorLayout = new Lang.Class({
             this._styleChangedId = container.connect('style-changed', Lang.bind(this,
                     function() { this.spacing = this._container.get_theme_node().get_length('spacing'); }));
         this._container = container;
-    }
+    }*/
 });
 
 const AllView = new Lang.Class({
@@ -689,26 +703,26 @@ const AllView = new Lang.Class({
         let paginationScrollViewParams = {style_class: 'all-apps'};
         this._paginationView = new PaginationScrollView(this, paginationScrollViewParams);
 
-        this._paginationIndicatorLayout = new IndicatorLayout({orientation: Clutter.Orientation.VERTICAL});
+        this._paginationIndicatorLayout = new IndicatorLayout({style_class: 'pages-indicator'});
         this._paginationIndicatorLayout._nPages = 0;
-        this._paginationIndicator = new PaginationIndicatorActor({ y_expand: true, style_class: 'pages-indicator'});
+        this._paginationIndicator = new IndicatorLayout({style_class: 'pages-indicator'});
         this._paginationIndicator._nPages = 0;
-        this._paginationIndicator.set_layout_manager(this._paginationIndicatorLayout);
+        //this._paginationIndicator.set_layout_manager(this._paginationIndicatorLayout);
         let layout = new Clutter.BinLayout();
         this.actor = new St.Widget({ layout_manager: layout, 
                                      x_expand:true, y_expand:true });
         //FIXME Clutter align proerpties
         layout.add(this._paginationView, 2,2);
         if(Clutter.get_default_text_direction() == Clutter.TextDirection.RTL)
-            layout.add(this._paginationIndicator, 2,2);
+            layout.add(this._paginationIndicator.actor, 2,2);
         else
-            layout.add(this._paginationIndicator, 3,2);
+            layout.add(this._paginationIndicator.actor, 3,2);
         for(let i = 0; i < MAX_APPS_PAGES; i++) {
             let indicatorIcon = new PaginationIconIndicator(this, i);
             if(i == 0) {
                 indicatorIcon.setChecked(true);
             }
-            this._paginationIndicator.add_child(indicatorIcon.actor);
+            this._paginationIndicator.actor.add_actor(indicatorIcon.actor);
         }
 
         this._paginationView._pages._grid.connect('n-pages-changed', Lang.bind(this, this._updatedNPages));
@@ -759,9 +773,9 @@ const AllView = new Lang.Class({
     },
     
     goToPage: function(index, action) {
-        this._paginationIndicator.get_child_at_index(this._paginationView.currentPage()).set_checked(false);
+        this._paginationIndicator.actor.get_child_at_index(this._paginationView.currentPage()).set_checked(false);
         this._paginationView.goToPage(index, action);
-        this._paginationIndicator.get_child_at_index(this._paginationView.currentPage()).set_checked(true);
+        this._paginationIndicator.actor.get_child_at_index(this._paginationView.currentPage()).set_checked(true);
     },
     
     onUpdatedDisplaySize: function(width, height) {
