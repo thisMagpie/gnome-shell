@@ -952,7 +952,7 @@ StScrollBar StButton#vhandle:active {
 
 .app-folder-popup {
     -arrow-border-radius: 8px;
-    -arrow-background-color: black;
+    -arrow-background-color: rgba(0,0,0,0.3);
     -arrow-base: 24px;
     -arrow-rise: 11px;
 }
@@ -968,7 +968,7 @@ StScrollBar StButton#vhandle:active {
 }
 
 .app-well-app.app-folder > .overview-icon {
-    background-color: rgba(0,0,0,0.5);
+    background-color: rgba(0,0,0,0.3);
 }
 
 .app-well-app:hover > .overview-icon,
@@ -983,7 +983,7 @@ StScrollBar StButton#vhandle:active {
 }
 
 .app-display .app-well-app > .overview-icon {
-    border-radius: 10px;
+    border-radius: 4px;
 }
 
 .list-search-result:hover .list-search-result-description {
