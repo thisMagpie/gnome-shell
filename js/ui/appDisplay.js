@@ -582,7 +582,8 @@ const PaginationIconIndicator = new Lang.Class({
         this.actor = new St.Button({ style_class: 'show-apps',
                                      button_mask: St.ButtonMask.ONE || St.ButtonMask.TWO,
                                      toggle_mode: true,
-                                     can_focus: true });
+                                     can_focus: true
+                                     });
         this._icon = new St.Icon({ icon_name: 'process-stop-symbolic',
                                    icon_size: 32,
                                    style_class: 'show-apps-icon',
@@ -612,33 +613,59 @@ const PaginationIconIndicator = new Lang.Class({
     }
 });
 
-const IndicatorLayout = Lang.Class({
-    Name:'IndicatorLayout',
-    Extends: Clutter.BoxLayout,
+const PaginationIndicator = new Lang.Class({
+    Name:'PaginationIndicator',
     
-    vfunc_get_preferred_height: function(container, forHeight) {
-        return [0, 0];
+    _init: function(params){
+        this.actor = new Shell.GenericContainer({x_expand:true, y_expand:true,  style_class: 'pages-indicator'});
+        this._layout = new Clutter.BoxLayout(params);
+        this.actor.set_layout_manager(this._layout);
+        this._spacing = 0;
+        this.actor.connect('get-preferred-height', Lang.bind(this, this._getPreferredHeight));
+        this.actor.connect('get-preferred-width', Lang.bind(this, this._getPreferredWidth));
+        //this.actor.connect('allocate', Lang.bind(this, this._allocate));
+        this.actor.connect('style-changed', Lang.bind(this, this._onStyleChanged));
     },
     
-    vfunc_get_preferred_width: function(container, forHeight) {
-        let [minWidth, natWidth] = container.get_children()[0].get_preferred_width(forHeight);
-        let totalWidth = natWidth + this.spacing * 2;
+    _getPreferredHeight: function(forWidth) {
+        let [minHeight, natHeight] = this.actor.get_children()[0].get_preferred_height(forWidth);
+        if(this._nPages) {
+            minHeight = (this._nPages - 1)  * this._spacing  - this._spacing + this._nPages * minHeight;
+            natHeight = (this._nPages - 1)  * this._spacing  - this._spacing + this._nPages * natHeight;
+        } else
+            minHeight = natHeight = 0;
+        global.log("Height " + minHeight);
+        global.log("spacing " + this._spacing);
+        return [minHeight, natHeight];
+    },
+    
+    _getPreferredWidth: function(forHeight) {
+        let [minWidth, natWidth] = this.actor.get_children()[0].get_preferred_width(forHeight);
+        let totalWidth = natWidth + this._spacing * 2;
+        global.log("Nat width " + totalWidth);
         return [totalWidth, totalWidth];
     },
 
-    vfunc_allocate: function(container, box, flags) {
-        let children = container.get_children();
-
-        if(children.length < 1)
+    /*_allocate: function(actor, box, flags) {
+        let children = this.actor.get_children();
+        
+        for(let i in children)
+            this.actor.set_skip_paint(children[i], true);
+        
+        if(this._nPages < 1)
             return;
+        
         let availHeight = box.y2 - box.y1;
         let availWidth = box.x2 - box.x1;
+        global.log("availHeight " + availHeight);
+        global.log("availWidth " + availWidth);
+        global.log("availWidth box" + [box.x2,box.x1] );
         let [minHeight, natHeight] = children[0].get_preferred_height(availWidth);
-        let totalUsedHeight = this._nPages  * this.spacing * 2  - this.spacing + this._nPages * natHeight;
+        let totalUsedHeight = this._nPages  * this._spacing * 2  - this._spacing + this._nPages * natHeight;
         let heightPerChild = totalUsedHeight / this._nPages;
         let [minWidth, natWidth] = children[0].get_preferred_width(natHeight);
-        let widthPerChild = natWidth + this.spacing * 2;
-        let firstPosition = [this.spacing, availHeight / 2 - totalUsedHeight / 2];
+        let widthPerChild = natWidth + this._spacing * 2;
+        let firstPosition = [this._spacing, availHeight / 2 - totalUsedHeight / 2];
 
         for(let i = 0; i < this._nPages; i++) {
             let childBox = new Clutter.ActorBox();
@@ -646,11 +673,23 @@ const IndicatorLayout = Lang.Class({
             childBox.x2 = availWidth;
             childBox.y1 = firstPosition[1] + i * heightPerChild;
             childBox.y2 = childBox.y1 + heightPerChild;
+            global.log("Child " + [children[i], i]);
             children[i].allocate(childBox, flags);
+            this.actor.set_skip_paint(children[i], false);
         }
+    },*/
+    
+    _onStyleChanged: function() {
+        let themeNode = this.actor.get_theme_node();
+        this._spacing = themeNode.get_length('spacing');
+        this.actor.queue_relayout();
     },
+    
+    addItem: function(item) {
+        this.actor.add_child(item);
+    }
 
-    vfunc_set_container: function(container) {
+    /*vfunc_set_container: function(container) {
         if(this._styleChangedId) {
             this._container.disconnect(this._styleChangedId);
             this._styleChangedId = 0;
@@ -659,7 +698,7 @@ const IndicatorLayout = Lang.Class({
             this._styleChangedId = container.connect('style-changed', Lang.bind(this,
                     function() { this.spacing = this._container.get_theme_node().get_length('spacing'); }));
         this._container = container;
-    }
+    }*/
 });
 
 const AllView = new Lang.Class({
@@ -669,27 +708,24 @@ const AllView = new Lang.Class({
         let paginationScrollViewParams = {style_class: 'all-apps'};
         this._paginationView = new PaginationScrollView(this, paginationScrollViewParams);
 
-        this._paginationIndicatorLayout = new IndicatorLayout({orientation: Clutter.Orientation.VERTICAL});
-        this._paginationIndicatorLayout._nPages = 0;
-        
-        this._paginationIndicator = new St.Widget({ style_class: 'pages-indicator',
-                                                    y_expand:true});
-        this._paginationIndicator.set_layout_manager(this._paginationIndicatorLayout);
+        this._paginationIndicator = new PaginationIndicator({
+                                                               vertical: true});
+        this._paginationIndicator._nPages = 0;
         let layout = new Clutter.BinLayout();
         this.actor = new St.Widget({ layout_manager: layout, 
                                      x_expand:true, y_expand:true });
         //FIXME Clutter align proerpties
         layout.add(this._paginationView, 2,2);
         if(Clutter.get_default_text_direction() == Clutter.TextDirection.RTL)
-            layout.add(this._paginationIndicator, 2,2);
+            layout.add(this._paginationIndicator.actor, 3,3);
         else
-            layout.add(this._paginationIndicator, 3,2);
+            layout.add(this._paginationIndicator.actor, 3,3);
         for(let i = 0; i < MAX_APPS_PAGES; i++) {
             let indicatorIcon = new PaginationIconIndicator(this, i);
             if(i == 0) {
                 indicatorIcon.setChecked(true);
             }
-            this._paginationIndicator.add_child(indicatorIcon.actor);
+            this._paginationIndicator.addItem(indicatorIcon.actor);
         }
 
         this._paginationView._pages._grid.connect('n-pages-changed', Lang.bind(this, this._updatedNPages));
@@ -698,7 +734,16 @@ const AllView = new Lang.Class({
     _updatedNPages: function(iconGrid, nPages) {
         // We don't need a relayout because we already done it at iconGrid
         // when pages are calculated (and then the signal is emitted before that)
-        this._paginationIndicatorLayout._nPages = nPages;
+        let indicators = this._paginationIndicator.actor.get_children();
+        for(let i in indicators) {
+            this._paginationIndicator.actor.set_skip_paint(indicators[i], true);
+        }
+        this._paginationIndicator._nPages = nPages;
+        if(nPages > 1) {
+            for(let i = 0; i < nPages; i++) {
+                this._paginationIndicator.actor.set_skip_paint(indicators[i], false);
+            }
+        }
         this._paginationView.invalidatePagination = true;
     },
     
@@ -739,9 +784,9 @@ const AllView = new Lang.Class({
     },
     
     goToPage: function(index, action) {
-        this._paginationIndicator.get_child_at_index(this._paginationView.currentPage()).set_checked(false);
+        this._paginationIndicator.actor.get_child_at_index(this._paginationView.currentPage()).set_checked(false);
         this._paginationView.goToPage(index, action);
-        this._paginationIndicator.get_child_at_index(this._paginationView.currentPage()).set_checked(true);
+        this._paginationIndicator.actor.get_child_at_index(this._paginationView.currentPage()).set_checked(true);
     },
     
     onUpdatedDisplaySize: function(width, height) {
@@ -791,9 +836,15 @@ const FrequentView = new Lang.Class({
         box.x2 = width;
         box.y1 = 0;
         box.y2 = height;
+        global.log("Width " + width);
+        global.log("HEight " + height);
         box = this.actor.get_theme_node().get_content_box(box);
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
+        global.log("availWidth " + availWidth);
+        global.log("availHeight " + availHeight);
+        let padding = this.actor.get_theme_node().get_length('padding');
+        global.log("Padding " + padding);
         //FIXME
         let spacing = this._grid.maxSpacingForWidthHeight(availWidth, availHeight, MIN_COLUMNS, MIN_ROWS, true);
         this._grid.top_padding = spacing;
@@ -1024,9 +1075,16 @@ const AppDisplay = new Lang.Class({
     },
     
     _onUpdatedDisplaySize: function(actor, width, height) {
-        //FIXME
+        let box = new Clutter.ActorBox();
+        box.x1 = 0;
+        box.x2 = width;
+        box.y1 = 0;
+        box.y2 = height;
+        box = this._viewStack.get_theme_node().get_content_box(box);
+        let availWidth = box.x2 - box.x1;
+        let availHeight = box.y2 - box.y1;
         for (let i = 0; i < this._views.length; i++) {
-            this._views[i].view.onUpdatedDisplaySize(width, height);
+            this._views[i].view.onUpdatedDisplaySize(availWidth, availHeight);
         }
     }
 });
