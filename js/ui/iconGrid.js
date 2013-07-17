@@ -18,9 +18,12 @@ const BaseIcon = new Lang.Class({
         params = Params.parse(params, { createIcon: null,
                                         setSizeManually: false,
                                         showLabel: true });
-        this.actor = new St.Bin({ style_class: 'overview-icon',
-                                  x_fill: true,
-                                  y_fill: true });
+        let binParams = { style_class: 'overview-icon',
+                          x_fill: true,
+                          y_fill: true };
+        if (params['showLabel'])
+            binParams['style_class'] = 'overview-icon-with-label';
+        this.actor = new St.Bin(binParams);
         this.actor._delegate = this;
         this.actor.connect('style-changed',
                            Lang.bind(this, this._onStyleChanged));
