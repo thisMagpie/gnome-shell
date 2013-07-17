@@ -19,9 +19,12 @@ const BaseIcon = new Lang.Class({
         params = Params.parse(params, { createIcon: null,
                                         setSizeManually: false,
                                         showLabel: true });
-        this.actor = new St.Bin({ style_class: 'overview-icon',
-                                  x_fill: true,
-                                  y_fill: true });
+        let binParams = { style_class: 'overview-icon',
+                x_fill: true,
+                y_fill: true };
+        if(params['showLabel'])
+            binParams['style_class'] = 'overview-icon-with-label';
+        this.actor = new St.Bin(binParams);
         this.actor._delegate = this;
         this.actor.connect('style-changed',
                            Lang.bind(this, this._onStyleChanged));
@@ -64,15 +67,12 @@ const BaseIcon = new Lang.Class({
     _allocate: function(actor, box, flags) {
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
-
         let iconSize = availHeight;
-
         let [iconMinHeight, iconNatHeight] = this._iconBin.get_preferred_height(-1);
         let [iconMinWidth, iconNatWidth] = this._iconBin.get_preferred_width(-1);
         let preferredHeight = iconNatHeight;
 
         let childBox = new Clutter.ActorBox();
-
         if (this.label) {
             let [labelMinHeight, labelNatHeight] = this.label.get_preferred_height(-1);
             preferredHeight += this._spacing + labelNatHeight;
@@ -80,7 +80,6 @@ const BaseIcon = new Lang.Class({
             let labelHeight = availHeight >= preferredHeight ? labelNatHeight
                                                              : labelMinHeight;
             iconSize -= this._spacing + labelHeight;
-
             childBox.x1 = 0;
             childBox.x2 = availWidth;
             childBox.y1 = iconSize + this._spacing;
@@ -96,7 +95,18 @@ const BaseIcon = new Lang.Class({
     },
 
     _getPreferredWidth: function(actor, forHeight, alloc) {
-        this._getPreferredHeight(actor, -1, alloc);
+        this._getPreferredHeight(null, forHeight, alloc);
+        /*let minLabelWidth = 0;
+        let natLabelWidth = 0;
+        if(this.label)
+            [minLabelWidth, natLabelWidth] = this.label.get_preferred_width(forHeight);
+
+        let [minIconWidth, natIconWidth] = this._iconBin.get_preferred_width(forHeight);
+        // We want square containers, so take the largest
+        let simAlloc = new Object();
+        this._getPreferredHeight(null, forHeight, simAlloc);
+        alloc.min_size = Math.max(simAlloc.min_size, Math.max(minLabelWidth, minIconWidth));
+        alloc.natural_size = Math.max(simAlloc.natural_size, Math.max(natLabelWidth, natIconWidth));*/
     },
 
     _getPreferredHeight: function(actor, forWidth, alloc) {
