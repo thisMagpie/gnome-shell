@@ -612,15 +612,8 @@ const PaginationIconIndicator = new Lang.Class({
     }
 });
 
-const PaginationIndicatorActor = new Lang.Class({
-    Name: 'PaginationIndicatorActor',
-    Extends: St.Widget,
-
-    
-});
-
-const IndicatorLayout = new Lang.Class({
-    Name:'IndicatorLayout',
+const PaginationIndicator = new Lang.Class({
+    Name:'PaginationIndicator',
     
     _init: function(params) {
         params['y_expand'] = true;
@@ -703,11 +696,8 @@ const AllView = new Lang.Class({
         let paginationScrollViewParams = {style_class: 'all-apps'};
         this._paginationView = new PaginationScrollView(this, paginationScrollViewParams);
 
-        this._paginationIndicatorLayout = new IndicatorLayout({style_class: 'pages-indicator'});
-        this._paginationIndicatorLayout._nPages = 0;
-        this._paginationIndicator = new IndicatorLayout({style_class: 'pages-indicator'});
+        this._paginationIndicator = new PaginationIndicator({style_class: 'pages-indicator'});
         this._paginationIndicator._nPages = 0;
-        //this._paginationIndicator.set_layout_manager(this._paginationIndicatorLayout);
         let layout = new Clutter.BinLayout();
         this.actor = new St.Widget({ layout_manager: layout, 
                                      x_expand:true, y_expand:true });
@@ -731,7 +721,6 @@ const AllView = new Lang.Class({
     _updatedNPages: function(iconGrid, nPages) {
         // We don't need a relayout because we already done it at iconGrid
         // when pages are calculated (and then the signal is emitted before that)");
-        this._paginationIndicatorLayout._nPages = nPages;
         this._paginationIndicator._nPages = nPages;
         this._paginationView.invalidatePagination = true;
     },
@@ -826,9 +815,9 @@ const FrequentView = new Lang.Class({
         box.y1 = 0;
         box.y2 = height;
         box = this.actor.get_theme_node().get_content_box(box);
+        box = this._grid.actor.get_theme_node().get_content_box(box);
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
-        //FIXME
         let spacing = this._grid.maxSpacingForWidthHeight(availWidth, availHeight, MIN_COLUMNS, MIN_ROWS, true);
         this._grid.top_padding = spacing;
         this._grid.bottom_padding = spacing;
