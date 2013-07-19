@@ -1301,7 +1301,10 @@ const FolderIcon = new Lang.Class({
                                      y_fill: true });
         this.actor._delegate = this;
         this._parentView = parentView;
-
+        // when changing screen resolution or during clutter false allocations
+        // we have to tell folder view that the calculated values of boxpointer arrow side, position, etc 
+        // are not correct (since the allocated size of pagination changed)
+        // For that problem we calculate everything again and apply it maintaining current popup.
         this.invalidatePopUp = false;
         this._boxPointerOffsets = {};
         
@@ -1337,7 +1340,7 @@ const FolderIcon = new Lang.Class({
     _updatePopupPosition: function() {
         if(this._popup) {
             // Position the popup above or below the source icon
-            if (this._side == St.Side.BOTTOM) {
+            if (this._boxPointerArrowside == St.Side.BOTTOM) {
                 let closeButtonOffset = -this._popup.closeButton.translation_y;
                 // FLORIAN REVIEW
                 // We have to use this function, since this._popup.actor.height not always return a good value (32 px??)
@@ -1370,7 +1373,7 @@ const FolderIcon = new Lang.Class({
     },
 
     makeSpaceForPopUp: function() {
-        this._parentView.makeSpaceForPopUp(this, this._side, this.view.nRowsDisplayedAtOnce());
+        this._parentView.makeSpaceForPopUp(this, this._boxPointerArrowside, this.view.nRowsDisplayedAtOnce());
     },
     
     returnSpaceToOriginalPosition: function() {
@@ -1381,27 +1384,26 @@ const FolderIcon = new Lang.Class({
         this._popup.popup();
     },
     
+    _calculateBoxPointerArrowSide: function() {
+        let absoluteActorYPosition = this.actor.get_transformed_position()[1];
+        let spaceTop = absoluteActorYPosition;
+        let spaceBottom = this.actor.get_stage().height - (absoluteActorYPosition + this.actor.height);
+        return spaceTop > spaceBottom ? St.Side.BOTTOM : St.Side.TOP;
+    },
+    
     _ensurePopup: function() {
         if(this._popup && !this.invalidatePopUp){
             this.makeSpaceForPopUp();
             return;
         } else {
-            if(this.invalidatePopUp)
-                global.log("######## INVALIDATE ######");
             
-            let absoluteActorYPosition = this.actor.get_transformed_position()[1];
-            let spaceTop = absoluteActorYPosition;
-            let spaceBottom = this.actor.get_stage().height - (absoluteActorYPosition + this.actor.height);
-            this._side = spaceTop > spaceBottom ? St.Side.BOTTOM : St.Side.TOP;
-            global.log("this._side " + this._side);
+            this._boxPointerArrowside = this._calculateBoxPointerArrowSide();
             let firstCreationPopup = this._popup ? false : true;
             if(!this._popup) {
-                this._popup = new AppFolderPopup(this, this._side);
-                global.log("after appfolderpopup creation0");
+                this._popup = new AppFolderPopup(this, this._boxPointerArrowside);
                 this._parentView.addFolderPopup(this._popup);
-                global.log("popup has parent?");
             } else
-                this._popup.updateBoxPointer(this._side);
+                this._popup.updateBoxPointer(this._boxPointerArrowside);
             // FLORIAN REVIEW
             /**
              * Why we need that: AppDiplay update width for the spacing for all
