@@ -266,14 +266,15 @@ const AppPages = new Lang.Class({
     
     returnSpaceToOriginalPosition: function() {
         if(this._translatedRows) {
-            this.displayingPopup = false;
             for(let rowId in this._translatedRows) {
                 for(let childrenId in this._translatedRows[rowId]) {
                     if(this._translatedRows[rowId][childrenId].translate_y){
                         let tweenerParams = { translate_y: 0,
                                 time: POPUP_FOLDER_VIEW_ANIMATION,
                                 onUpdate: function() {this.queue_relayout();},
-                                transition: 'easeInOutQuad' };
+                                transition: 'easeInOutQuad',
+                                onComplete: Lang.bind(this, function(){this.displayingPopup = false;}
+                                )};
                         Tweener.addTween(this._translatedRows[rowId][childrenId], tweenerParams);
                     }
                 }
@@ -373,6 +374,9 @@ const PaginationScrollView = new Lang.Class({
         this._currentPage = 0;
         this._parent = parent;
         
+        // When the number of pages change (i.e. when changing screen resolution or during clutter false allocations)
+        // we have to tell pagination that the adjustment is not correct (since the allocated size of pagination changed)
+        // For that problem we return to the first page of pagination.
         this.invalidatePagination = false;
         
         this.connect('scroll-event', Lang.bind(this, this._onScroll));
@@ -410,13 +414,12 @@ const PaginationScrollView = new Lang.Class({
     },
     
     vfunc_allocate: function(box, flags) {
-        
         box = this.get_parent().allocation;
         box = this.get_theme_node().get_content_box(box);
         this.set_allocation(box, flags);        
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
-        //FIXME
+
         let childBox = new Clutter.ActorBox();
         childBox.x1 = 0;
         childBox.y1 = 0;
@@ -426,6 +429,7 @@ const PaginationScrollView = new Lang.Class({
         
         this._verticalAdjustment.page_size = availHeight;
         this._verticalAdjustment.upper = this._stack.height;
+        
         if(this.invalidatePagination)
             this.goToPage(0);
         this.invalidatePagination = false;
@@ -569,7 +573,6 @@ const PaginationScrollView = new Lang.Class({
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
         this._pages.onUpdatedDisplaySize(availWidth, availHeight);
-        //this.invalidatePagination = true;
     }
     
 });
@@ -676,17 +679,6 @@ const PaginationIndicator = new Lang.Class({
         this._spacing = this.actor.get_theme_node().get_length('spacing');
         this.actor.queue_relayout();
     }
-
-    /*vfunc_set_container: function(container) {
-        if(this._styleChangedId) {
-            this._container.disconnect(this._styleChangedId);
-            this._styleChangedId = 0;
-        }        
-        if(container != null)
-            this._styleChangedId = container.connect('style-changed', Lang.bind(this,
-                    function() { this.spacing = this._container.get_theme_node().get_length('spacing'); }));
-        this._container = container;
-    }*/
 });
 
 const AllView = new Lang.Class({
@@ -701,7 +693,7 @@ const AllView = new Lang.Class({
         let layout = new Clutter.BinLayout();
         this.actor = new St.Widget({ layout_manager: layout, 
                                      x_expand:true, y_expand:true });
-        //FIXME Clutter align proerpties
+        //FIXME Clutter align properties
         layout.add(this._paginationView, 2,2);
         if(Clutter.get_default_text_direction() == Clutter.TextDirection.RTL)
             layout.add(this._paginationIndicator.actor, 2,2);
@@ -875,6 +867,8 @@ const AppDisplayActor = new Lang.Class({
     vfunc_allocate: function (actor, box, flags) {        
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
+        // Prepare children of all views for the upcomming allocation, calculate all
+        // the needed values in the responsive design we are trying to emulate
         this.emit('allocated-size-changed', availWidth, availHeight);
         this.parent(actor, box, flags);
     },
