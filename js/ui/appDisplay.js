@@ -936,15 +936,11 @@ const AppDisplay = new Lang.Class({
         this._viewStack = new St.Widget({ 
                                           x_expand: true, y_expand: true });
         this._viewStack.set_layout_manager(this._viewStackLayout);
-        //FIXME
         this.actor.add_actor(this._viewStack, { expand: true });
-
         let layout = new ControlsBoxLayout({ homogeneous: true });
         this._controls = new St.Widget({ style_class: 'app-view-controls' });
-        //FIXME
         this._controls.set_layout_manager(layout);
         this.actor.add_actor(new St.Bin({ child: this._controls }));
-
 
         for (let i = 0; i < this._views.length; i++) {
             this._viewStack.add_actor(this._views[i].view.actor);
@@ -1047,9 +1043,16 @@ const AppDisplay = new Lang.Class({
     },
     
     _onUpdatedDisplaySize: function(actor, width, height) {
-        //FIXME
+        let box = new Clutter.ActorBox();
+        box.x1 = 0;
+        box.x2 = width;
+        box.y1 = 0;
+        box.y2 = height;
+        box = this.actor.get_theme_node().get_content_box(box);
+        let availWidth = box.x2 - box.x1;
+        let availHeight = box.y2 - box.y1;
         for (let i = 0; i < this._views.length; i++) {
-            this._views[i].view.onUpdatedDisplaySize(width, height);
+            this._views[i].view.onUpdatedDisplaySize(availWidth, availHeight);
         }
     }
 });
