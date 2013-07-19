@@ -1113,7 +1113,10 @@ const FolderView = new Lang.Class({
     _init: function() {
         this._grid = new IconGrid.IconGrid({ xAlign: St.Align.MIDDLE,
             columnLimit: MAX_COLUMNS });
-
+        // If it not expand, the parent doesn't take into account its preferred_width when allocating
+        // the second time it allocates
+        this._grid.actor.x_expand = true;
+        
         this.actor = new St.ScrollView({overlay_scrollbars: true});
         this.actor.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC);
         this._box = new St.BoxLayout({vertical: true, reactive: true});
@@ -1245,7 +1248,9 @@ const FolderView = new Lang.Class({
     usedWidth: function() {
         let box = this._containerBox();
         let availWidthPerPage = box.x2 - box.x1;
+        global.log("CALCULATING USED WIDTH " + availWidthPerPage);
         let maxUsedWidth = this._grid.usedWidth(availWidthPerPage);
+        global.log("CALCULATED USED WIDTH " + maxUsedWidth);
         return maxUsedWidth;
     },
     
@@ -1457,7 +1462,6 @@ const FolderIcon = new Lang.Class({
              * then calculate the maxUsedHeigth and the current Used height, if it
              * is more, strech to the maxUsedHeight
              */
-            let usedHeight = this._popUpGridHeight();
             this.view.actor.set_height(this._popUpGridHeight());
             
             this._updatePopupPosition();
