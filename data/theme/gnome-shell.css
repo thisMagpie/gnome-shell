@@ -909,7 +909,7 @@ StScrollBar StButton#vhandle:active {
 }
 
 .pages-indicator {
-	spacing: 30px;
+	spacing: 50px;
 }
 
 .app-folder-icon {

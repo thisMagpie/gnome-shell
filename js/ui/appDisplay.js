@@ -1249,6 +1249,7 @@ const FolderView = new Lang.Class({
     usedWidth: function() {
         let box = this._containerBox();
         let availWidthPerPage = box.x2 - box.x1;
+        availWidthPerPage -= this._boxPointerOffsets['padding'] * 2 + this._boxPointerOffsets['closeButtonOverlap'];
         let maxUsedWidth = this._grid.usedWidth(availWidthPerPage);
         return maxUsedWidth;
     },
