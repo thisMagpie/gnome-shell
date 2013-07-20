@@ -134,6 +134,7 @@ const AppPages = new Lang.Class({
         this._parent = parent;
         this._folderIcons = [];
         this.doingTransitions = false;
+        this._popupExpansionNeeded = true;
     },
 
     _getItemId: function(item) {
@@ -260,11 +261,26 @@ const AppPages = new Lang.Class({
                 panViewUpNRows = folderNVisibleRowsAtOnce - rowsDown.length - emptyRows;
             }
         }
-        this._panViewForFolderView(rowsUp, rowsDown, panViewUpNRows, panViewDownNRows, iconActor);
+        // Especial case, last page and only one row, no rows down neither rows up, we call directly the
+        // popup
         this.updateIconOpacities(true);
+        if(panViewDownNRows > 0 && rowsDown.length == 0) {
+            this.displayingPopup = true;
+            this._popupExpansionNeeded = false;
+            iconActor.onCompleteMakeSpaceForPopUp();            
+        } else {
+            this._popupExpansionNeeded = true;
+            this._panViewForFolderView(rowsUp, rowsDown, panViewUpNRows, panViewDownNRows, iconActor);
+        }    
     },
     
     returnSpaceToOriginalPosition: function() {
+        this.updateIconOpacities(false);
+        if(!this._popupExpansionNeeded) {
+            this.displayingPopup = false;
+            return;
+        }
+        
         if(this._translatedRows) {
             for(let rowId in this._translatedRows) {
                 for(let childrenId in this._translatedRows[rowId]) {
@@ -280,7 +296,6 @@ const AppPages = new Lang.Class({
                 }
             }
         }
-        this.updateIconOpacities(false);
     },
     
     _panViewForFolderView: function(rowsUp, rowsDown, panViewUpNRows, panViewDownNRows, iconActor) {
