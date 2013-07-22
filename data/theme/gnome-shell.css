@@ -879,7 +879,7 @@ StScrollBar StButton#vhandle:active {
 /* Application Launchers, Grid and List results */
 
 .icon-grid {
-    spacing: 36px;
+    spacing: 30px;
     -shell-grid-horizontal-item-size: 136px;
     -shell-grid-vertical-item-size: 136px;
 }
@@ -947,11 +947,11 @@ StScrollBar StButton#vhandle:active {
 .grid-search-result .overview-icon-with-label {
     border-radius: 4px;
     /* visually, since the label control its own espacing inside, seems more visual consistent to have diferent padding for top and bottom */
-    padding: 12px 9px 6px 9px;
+    padding: 10px 8px 5px 8px;
     border: 1px rgba(0,0,0,0);
     transition-duration: 100ms;
     text-align: center;
-    spacing: 5px;
+    spacing: 4px;
 }
 
 .app-well-app > .overview-icon,

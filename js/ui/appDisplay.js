@@ -1223,6 +1223,7 @@ const FolderView = new Lang.Class({
         //We put the normal padding as spacing as we have in the main grid to do well the calculations for used rows, used columns etc, since
         // it is the behaviour we want to emulate. After that we will put the correct padding fromcalculations of the boxpointer offsets, to ensure
         //the boxpointer will be contained inside the view
+        this._parentSpacing = spacing;
         this._grid.top_padding = spacing;
         this._grid.bottom_padding = spacing;
         this._grid.left_padding = spacing;
@@ -1230,7 +1231,7 @@ const FolderView = new Lang.Class({
         
         let boxPointerTotalOffset = this._boxPointerOffsets['arrowHeight'] + this._boxPointerOffsets['padding'] * 2 + this._boxPointerOffsets['closeButtonOverlap'];
         let offsetForEachSide = Math.ceil(boxPointerTotalOffset / 2);
-        
+        this._offsetForEachSide = offsetForEachSide;
         this._grid.top_padding = spacing - offsetForEachSide;
         this._grid.bottom_padding = spacing - offsetForEachSide;
         this._grid.left_padding = spacing - offsetForEachSide;
@@ -1249,8 +1250,17 @@ const FolderView = new Lang.Class({
     usedWidth: function() {
         let box = this._containerBox();
         let availWidthPerPage = box.x2 - box.x1;
-        availWidthPerPage -= this._boxPointerOffsets['padding'] * 2 + this._boxPointerOffsets['closeButtonOverlap'];
+        global.log("~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ");
+        global.log("AvailWidth " + availWidthPerPage);
+        // Since we want to do the calculation of the real width of the grid
+        // taking into account the parent behaviour, we have to substract from the
+        // avail width the padding we subsctratc before to the folder view
+        // in its surrounding spacings
+        availWidthPerPage -= 2 * this._offsetForEachSide;
+        global.log("AvailWidth after " + availWidthPerPage);
         let maxUsedWidth = this._grid.usedWidth(availWidthPerPage);
+        global.log("maxUsedWidth " + maxUsedWidth);
+        global.log("~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ");
         return maxUsedWidth;
     },
     
