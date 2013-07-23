@@ -434,7 +434,9 @@ const PaginationScrollView = new Lang.Class({
         this.set_allocation(box, flags);        
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
-
+        global.log("&&&&&&&&&&&&&&&&&&");
+        global.log("Allocation height " + availHeight);
+        global.log("&&&&&&&&&&&&&&&&&&");
         let childBox = new Clutter.ActorBox();
         childBox.x1 = 0;
         childBox.y1 = 0;
@@ -679,12 +681,15 @@ const PaginationIndicator = new Lang.Class({
         let [minWidth, natWidth] = children[0].get_preferred_width(natHeight);
         let widthPerChild = natWidth + this._spacing * 2;
         let firstPosition = [this._spacing, availHeight / 2 - totalUsedHeight / 2];
+        global.log(" AVAVAVAAAIL HEIGHT " + availHeight);
         for(let i = 0; i < this._nPages; i++) {
             let childBox = new Clutter.ActorBox();
             childBox.x1 = 0;
             childBox.x2 = availWidth;
             childBox.y1 = firstPosition[1] + i * heightPerChild;
             childBox.y2 = childBox.y1 + heightPerChild;
+            if(childBox.y2 > availHeight)
+                return;
             children[i].allocate(childBox, flags);
             this.actor.set_skip_paint(children[i], false);
         }
@@ -1221,13 +1226,9 @@ const FolderView = new Lang.Class({
         if(!Object.keys(this._boxPointerOffsets).length)
             return;
         //We put the normal padding as spacing as we have in the main grid to do well the calculations for used rows, used columns etc, since
-        // it is the behaviour we want to emulate. After that we will put the correct padding fromcalculations of the boxpointer offsets, to ensure
+        // it is the behaviour we want to emulate. After that we will put the correct padding from calculations of the boxpointer offsets, to ensure
         //the boxpointer will be contained inside the view
         this._parentSpacing = spacing;
-        this._grid.top_padding = spacing;
-        this._grid.bottom_padding = spacing;
-        this._grid.left_padding = spacing;
-        this._grid.right_padding = spacing;
         
         let boxPointerTotalOffset = this._boxPointerOffsets['arrowHeight'] + this._boxPointerOffsets['padding'] * 2 + this._boxPointerOffsets['closeButtonOverlap'];
         let offsetForEachSide = Math.ceil(boxPointerTotalOffset / 2);
@@ -1273,6 +1274,19 @@ const FolderView = new Lang.Class({
         let box = this._containerBox();
         let availHeightPerPage = box.y2 - box.y1;
         let availWidthPerPage = box.x2 - box.x1;
+        global.log("///////////////////////////");
+        //FIXME: if we do that, we really not showing the maximum of rows we can show on collection view
+        // Since we want to do the calculation of the real width of the grid
+        // taking into account the parent behaviour, we have to substract from the
+        // avail width the padding we subsctratc before to the folder view
+        // in its surrounding spacings
+        global.log("Avail height BEF" + availHeightPerPage);
+        availWidthPerPage -= 2 * this._offsetForEachSide;
+        availHeightPerPage -= 2 * this._offsetForEachSide;
+        
+        global.log("Avail height " + availHeightPerPage);
+        global.log("///////////////////////////");
+
         let maxRowsDisplayedAtOnce = this.maxRowsDisplayedAtOnce();
         let usedRows = this._grid.nUsedRows(availWidthPerPage);
         usedRows = usedRows <= maxRowsDisplayedAtOnce ? usedRows : maxRowsDisplayedAtOnce;
@@ -1282,6 +1296,13 @@ const FolderView = new Lang.Class({
     maxRowsDisplayedAtOnce: function() {
         let box = this._containerBox();
         let availHeightPerPage = box.y2 - box.y1;
+      //FIXME: if we do that, we really not showing the maximum of rows we can show on collection view
+        // Since we want to do the calculation of the real width of the grid
+        // taking into account the parent behaviour, we have to substract from the
+        // avail width the padding we subsctratc before to the folder view
+        // in its surrounding spacings
+        global.log("Avail height BEF" + availHeightPerPage);
+        availHeightPerPage -= 2 * this._offsetForEachSide;
         let maxRowsPerPage = this._grid.rowsForHeight(availHeightPerPage);
         //Then, we can only show that rows least one.
         maxRowsPerPage -= 1;
