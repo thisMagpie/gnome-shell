@@ -1171,8 +1171,8 @@ const FolderView = new Lang.Class({
 
     addApp: function(app) {
         //FIXME
-        /*if(this._allItems.length > 20)
-            return;*/
+        if(this._allItems.length > 0)
+            return;
         this._addItem(app);
     },
 
@@ -1404,6 +1404,9 @@ const FolderIcon = new Lang.Class({
     _calculateBoxPointerArrowSide: function() {
         let absoluteActorYPosition = this.actor.get_transformed_position()[1];
         let spaceTop = absoluteActorYPosition;
+        // Be careful, but doesn't matter, we don0t take into account the top panel height etc,
+        // So maybe we put an arrow side "wrong", but anyway, the expanding of colelction view will
+        // do the required space
         let spaceBottom = this.actor.get_stage().height - (absoluteActorYPosition + this.actor.height);
         return spaceTop > spaceBottom ? St.Side.BOTTOM : St.Side.TOP;
     },
@@ -1492,6 +1495,7 @@ const FolderIcon = new Lang.Class({
         } else {
             
             this._boxPointerArrowside = this._calculateBoxPointerArrowSide();
+            global.log("arrow side " + this._boxPointerArrowside);
             if(!this._popup) {
                 this._popup = new AppFolderPopup(this, this._boxPointerArrowside);
                 this._parentView.addFolderPopup(this._popup);
@@ -1613,6 +1617,7 @@ const AppFolderPopup = new Lang.Class({
     updateBoxPointer: function (side) {
         this._arrowSide = side;
         this._boxPointer._arrowSide = side;
+        this._boxPointer._border.queue_repaint();
     }
 });
 Signals.addSignalMethods(AppFolderPopup.prototype);
