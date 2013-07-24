@@ -240,7 +240,7 @@ const AppPages = new Lang.Class({
             }
         }
         //The last page can have space without rows
-        let emptyRows = folderNVisibleRowsAtOnce + 1 - rows.length ;
+        let emptyRows = this._grid._rowsPerPage - rows.length ;
         let panViewUpNRows = 0;
         let panViewDownNRows = 0;
         if(side == St.Side.BOTTOM) {
