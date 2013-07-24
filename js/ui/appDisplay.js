@@ -443,9 +443,14 @@ const PaginationScrollView = new Lang.Class({
         
         this._verticalAdjustment.page_size = availHeight;
         this._verticalAdjustment.upper = this._stack.height;
-        
-        if(this.invalidatePagination)
-            this.goToPage(0);
+        if(this.invalidatePagination) {
+            // we can modify our adjustment, so we do that to show the first page, but we can't modify the indicators,
+            // so we modify it before redraw (we won't see too much flickering at all)
+            if(this._pages.nPages() > 1) {
+                this.goToPage(0);
+                Meta.later_add(Meta.LaterType.BEFORE_REDRAW, Lang.bind(this, function() {this._parent.goToPage(0);}));
+            }
+        }
         this.invalidatePagination = false;
     },
 
@@ -678,7 +683,6 @@ const PaginationIndicator = new Lang.Class({
         let [minWidth, natWidth] = children[0].get_preferred_width(natHeight);
         let widthPerChild = natWidth + this._spacing * 2;
         let firstPosition = [this._spacing, availHeight / 2 - totalUsedHeight / 2];
-        global.log(" Indicator availL HEIGHT " + availHeight);
         for(let i = 0; i < this._nPages; i++) {
             let childBox = new Clutter.ActorBox();
             childBox.x1 = 0;
@@ -703,10 +707,10 @@ const AllView = new Lang.Class({
    
     _init: function() {
         let paginationScrollViewParams = {style_class: 'all-apps'};
-        this._paginationView = new PaginationScrollView(this, paginationScrollViewParams);
-
         this._paginationIndicator = new PaginationIndicator({style_class: 'pages-indicator'});
         this._paginationIndicator._nPages = 0;
+        this._paginationView = new PaginationScrollView(this, paginationScrollViewParams);
+
         let layout = new Clutter.BinLayout();
         this.actor = new St.Widget({ layout_manager: layout, 
                                      x_expand:true, y_expand:true });
@@ -725,12 +729,13 @@ const AllView = new Lang.Class({
         }
 
         this._paginationView._pages._grid.connect('n-pages-changed', Lang.bind(this, this._updatedNPages));
+        // Always start at page 0 when we enter and wuit overview
+        Main.overview.connect('shown', Lang.bind(this, function() {this.goToPage(0);}));
     },
     
     _updatedNPages: function(iconGrid, nPages) {
         // We don't need a relayout because we already done it at iconGrid
         // when pages are calculated (and then the signal is emitted before that)");
-        global.log("Update n pages " + nPages);
         this._paginationIndicator._nPages = nPages;
         this._paginationView.invalidatePagination = true;
     },
@@ -764,10 +769,12 @@ const AllView = new Lang.Class({
     },
     
     goToPage: function(index, action) {
+        if(!this._paginationView.nPages())
+            return;
         // Since it can happens after a relayout, we have to ensure that all is unchecked
         let indicators = this._paginationIndicator.actor.get_children();
-        for(let index in indicators)
-            indicators[index].set_checked(false);
+        for(let i in indicators)
+            indicators[i].set_checked(false);
         this._paginationView.goToPage(index, action);
         this._paginationIndicator.actor.get_child_at_index(this._paginationView.currentPage()).set_checked(true);
     },

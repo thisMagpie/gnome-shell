@@ -309,9 +309,13 @@ const IconGrid = new Lang.Class({
                 nRows = 0;
             if (this._rowLimit)
                 nRows = Math.min(nRows, this._rowLimit);
+            let oldHeightUsedPerPage = this.usedHeightPerPage();
             let oldNPages = this._nPages;
             this._calculatePaginationValues(availHeightPerPage, nColumns, nRows);
-            if(oldNPages != this._nPages) {
+            // Take into account when the number of pages changed (then the height of the entire grid changed for sure)
+            // and also when the spacing is changed, sure the hegiht per page changed and the entire grid height changes, althougt
+            // maybe the number of pages doesn't change
+            if(oldNPages != this._nPages || oldHeightUsedPerPage != this.usedHeightPerPage()) {
                 this.emit('n-pages-changed', this._nPages);
                 Meta.later_add(Meta.LaterType.BEFORE_REDRAW, Lang.bind(this, function() {
                     global.log("Put a relayout " + this._nPages);
