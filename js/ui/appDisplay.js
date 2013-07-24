@@ -392,6 +392,9 @@ const PaginationScrollView = new Lang.Class({
         // When the number of pages change (i.e. when changing screen resolution or during clutter false allocations)
         // we have to tell pagination that the adjustment is not correct (since the allocated size of pagination changed)
         // For that problem we return to the first page of pagination.
+        // In fact it is not necesary with the current state of the gnome-shell since we can only change the resolution outside the overview,
+        // so sicne we always start at page 0 of pagination when entering overview,we always already did that adjustment. BUT, who knows,
+        // since it is a diferent case from the other, better to take it into account for future changes.
         this.invalidatePagination = false;
         
         this.connect('scroll-event', Lang.bind(this, this._onScroll));
@@ -444,6 +447,7 @@ const PaginationScrollView = new Lang.Class({
         this._verticalAdjustment.page_size = availHeight;
         this._verticalAdjustment.upper = this._stack.height;
         if(this.invalidatePagination) {
+            //FLORIAN REVIEW
             // we can modify our adjustment, so we do that to show the first page, but we can't modify the indicators,
             // so we modify it before redraw (we won't see too much flickering at all)
             if(this._pages.nPages() > 1) {
@@ -729,7 +733,7 @@ const AllView = new Lang.Class({
         }
 
         this._paginationView._pages._grid.connect('n-pages-changed', Lang.bind(this, this._updatedNPages));
-        // Always start at page 0 when we enter and wuit overview
+        // Always start at page 0 when we enter and quit overview
         Main.overview.connect('shown', Lang.bind(this, function() {this.goToPage(0);}));
     },
     
@@ -769,6 +773,9 @@ const AllView = new Lang.Class({
     },
     
     goToPage: function(index, action) {
+        // Since we call this function also from shown signal of the overview, we can't assure the pagination is already calculated
+        // so we first ask pagination if it has some page, if not, we return and that's it. (nevermind, because when creating for first time
+        // pagination, that is when it can happens, paginations starts at page 0 already, so no problem here)
         if(!this._paginationView.nPages())
             return;
         // Since it can happens after a relayout, we have to ensure that all is unchecked
