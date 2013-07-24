@@ -605,27 +605,15 @@ const PaginationIconIndicator = new Lang.Class({
 
     _init: function(parent, index) {
 
-        this.actor = new St.Button({ style_class: 'show-apps',
+        this.actor = new St.Button({ style_class: 'pages-icon-indicator',
                                      button_mask: St.ButtonMask.ONE || St.ButtonMask.TWO,
                                      toggle_mode: true,
                                      can_focus: true });
-        this._icon = new St.Icon({ icon_name: 'process-stop-symbolic',
-                                   icon_size: 32,
-                                   style_class: 'show-apps-icon',
-                                   track_hover: true});
         this.actor.connect('clicked', Lang.bind(this, this._onClicked));
-        this.actor.set_child(this._icon);
         this.actor._delegate = this;
+        this.actor.set_size(24, 24);
         this._parent = parent;
         this.actor._index = index;
-    },
-
-    _createIcon: function(size) {
-        this._icon = new St.Icon({ icon_name: 'process-stop-symbolic',
-                                   icon_size: size,
-                                   style_class: 'show-apps-icon',
-                                   track_hover: true });
-        return this._icon;
     },
 
     _onClicked: function(actor, button) {        
