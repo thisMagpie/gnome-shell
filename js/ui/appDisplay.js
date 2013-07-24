@@ -1171,8 +1171,8 @@ const FolderView = new Lang.Class({
 
     addApp: function(app) {
         //FIXME
-        if(this._allItems.length > 0)
-            return;
+        /*if(this._allItems.length > 0)
+            return;*/
         this._addItem(app);
     },
 
@@ -1322,6 +1322,10 @@ const FolderView = new Lang.Class({
         this._boxPointerOffsets['padding'] = padding;
         this._boxPointerOffsets['closeButtonOverlap'] = closeButtonOverlap;
         
+    },
+    
+    setScrollToStart: function() {
+        this.actor.vscroll.adjustment.value = 0;
     }
 });
 
@@ -1359,6 +1363,7 @@ const FolderIcon = new Lang.Class({
         this.actor.connect('clicked', Lang.bind(this,
             function() {
                 this._ensurePopup();
+                this.view.setScrollToStart();
             }));
         this.actor.connect('notify::mapped', Lang.bind(this,
             function() {
@@ -1495,7 +1500,6 @@ const FolderIcon = new Lang.Class({
         } else {
             
             this._boxPointerArrowside = this._calculateBoxPointerArrowSide();
-            global.log("arrow side " + this._boxPointerArrowside);
             if(!this._popup) {
                 this._popup = new AppFolderPopup(this, this._boxPointerArrowside);
                 this._parentView.addFolderPopup(this._popup);
