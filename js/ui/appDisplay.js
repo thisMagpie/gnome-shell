@@ -434,9 +434,6 @@ const PaginationScrollView = new Lang.Class({
         this.set_allocation(box, flags);        
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
-        global.log("&&&&&&&&&&&&&&&&&&");
-        global.log("Allocation height " + availHeight);
-        global.log("&&&&&&&&&&&&&&&&&&");
         let childBox = new Clutter.ActorBox();
         childBox.x1 = 0;
         childBox.y1 = 0;
@@ -655,7 +652,7 @@ const PaginationIndicator = new Lang.Class({
             natHeight = this._nPages * natHeightPerChild - this._spacing;
         } else
             minHeight = natHeight = 0;
-        alloc.min_size = minHeight;
+        alloc.min_size = 0;
         alloc.natural_size = natHeight;
     },
     
@@ -681,7 +678,7 @@ const PaginationIndicator = new Lang.Class({
         let [minWidth, natWidth] = children[0].get_preferred_width(natHeight);
         let widthPerChild = natWidth + this._spacing * 2;
         let firstPosition = [this._spacing, availHeight / 2 - totalUsedHeight / 2];
-        global.log(" AVAVAVAAAIL HEIGHT " + availHeight);
+        global.log(" Indicator availL HEIGHT " + availHeight);
         for(let i = 0; i < this._nPages; i++) {
             let childBox = new Clutter.ActorBox();
             childBox.x1 = 0;
@@ -689,7 +686,7 @@ const PaginationIndicator = new Lang.Class({
             childBox.y1 = firstPosition[1] + i * heightPerChild;
             childBox.y2 = childBox.y1 + heightPerChild;
             if(childBox.y2 > availHeight)
-                return;
+                break;
             children[i].allocate(childBox, flags);
             this.actor.set_skip_paint(children[i], false);
         }
@@ -733,6 +730,7 @@ const AllView = new Lang.Class({
     _updatedNPages: function(iconGrid, nPages) {
         // We don't need a relayout because we already done it at iconGrid
         // when pages are calculated (and then the signal is emitted before that)");
+        global.log("Update n pages " + nPages);
         this._paginationIndicator._nPages = nPages;
         this._paginationView.invalidatePagination = true;
     },
@@ -766,7 +764,10 @@ const AllView = new Lang.Class({
     },
     
     goToPage: function(index, action) {
-        this._paginationIndicator.actor.get_child_at_index(this._paginationView.currentPage()).set_checked(false);
+        // Since it can happens after a relayout, we have to ensure that all is unchecked
+        let indicators = this._paginationIndicator.actor.get_children();
+        for(let index in indicators)
+            indicators[index].set_checked(false);
         this._paginationView.goToPage(index, action);
         this._paginationIndicator.actor.get_child_at_index(this._paginationView.currentPage()).set_checked(true);
     },
@@ -1251,17 +1252,12 @@ const FolderView = new Lang.Class({
     usedWidth: function() {
         let box = this._containerBox();
         let availWidthPerPage = box.x2 - box.x1;
-        global.log("~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ");
-        global.log("AvailWidth " + availWidthPerPage);
         // Since we want to do the calculation of the real width of the grid
         // taking into account the parent behaviour, we have to substract from the
         // avail width the padding we subsctratc before to the folder view
         // in its surrounding spacings
         availWidthPerPage -= 2 * this._offsetForEachSide;
-        global.log("AvailWidth after " + availWidthPerPage);
         let maxUsedWidth = this._grid.usedWidth(availWidthPerPage);
-        global.log("maxUsedWidth " + maxUsedWidth);
-        global.log("~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ");
         return maxUsedWidth;
     },
     
@@ -1274,19 +1270,14 @@ const FolderView = new Lang.Class({
         let box = this._containerBox();
         let availHeightPerPage = box.y2 - box.y1;
         let availWidthPerPage = box.x2 - box.x1;
-        global.log("///////////////////////////");
         //FIXME: if we do that, we really not showing the maximum of rows we can show on collection view
         // Since we want to do the calculation of the real width of the grid
         // taking into account the parent behaviour, we have to substract from the
         // avail width the padding we subsctratc before to the folder view
         // in its surrounding spacings
-        global.log("Avail height BEF" + availHeightPerPage);
         availWidthPerPage -= 2 * this._offsetForEachSide;
         availHeightPerPage -= 2 * this._offsetForEachSide;
         
-        global.log("Avail height " + availHeightPerPage);
-        global.log("///////////////////////////");
-
         let maxRowsDisplayedAtOnce = this.maxRowsDisplayedAtOnce();
         let usedRows = this._grid.nUsedRows(availWidthPerPage);
         usedRows = usedRows <= maxRowsDisplayedAtOnce ? usedRows : maxRowsDisplayedAtOnce;
@@ -1301,7 +1292,6 @@ const FolderView = new Lang.Class({
         // taking into account the parent behaviour, we have to substract from the
         // avail width the padding we subsctratc before to the folder view
         // in its surrounding spacings
-        global.log("Avail height BEF" + availHeightPerPage);
         availHeightPerPage -= 2 * this._offsetForEachSide;
         let maxRowsPerPage = this._grid.rowsForHeight(availHeightPerPage);
         //Then, we can only show that rows least one.

@@ -382,29 +382,18 @@ const IconGrid = new Lang.Class({
     },
     
     _calculatePaginationValues: function (availHeightPerPage, nColumns, nRows) {
-        global.log("########## START PAGINATION ########");
         let spacing = this.getSpacing();
-        global.log("availHeightPerPage " + availHeightPerPage);
-        global.log("nColumns " + nColumns);
-        global.log("nRows " + nRows);
-        global.log("spacing " + spacing);
         this._spacePerRow = this._vItemSize + spacing;
         // We want to contain the grid inside the parent box with padding
         availHeightPerPage -= this.top_padding + this.bottom_padding;
-        global.log("availHeightPerPage no padding " + availHeightPerPage);
-        global.log("this._spacePerRow " + this._spacePerRow); 
         this._rowsPerPage = Math.floor(availHeightPerPage / this._spacePerRow);
-        global.log("Rows per page " + this._rowsPerPage);
         // Check if deleting spacing from bottom there's enough space for another row
         let spaceWithOneMoreRow = (this._rowsPerPage + 1) * this._spacePerRow - spacing;
         this._rowsPerPage = spaceWithOneMoreRow <= availHeightPerPage? this._rowsPerPage + 1 : this._rowsPerPage;
-        global.log("this._rowsPerPage " + this._rowsPerPage);
         this._nPages = Math.ceil(nRows / this._rowsPerPage);
-        global.log("this._nPages "  + this._nPages);
         this._spaceBetweenPages = availHeightPerPage - (this._rowsPerPage * (this._vItemSize + spacing) - spacing);
         this._spaceBetweenPagesTotal = this._spaceBetweenPages * (this._nPages);
         this._childrenPerPage = nColumns * this._rowsPerPage;
-        global.log("########## END PAGINATION ########");
     },
     
     _calculateChildrenBox: function(child, x, y, box) {
