@@ -73,7 +73,10 @@ const AlphabeticalView = new Lang.Class({
     _init: function() {
         this._grid = new IconGrid.IconGrid({ xAlign: St.Align.MIDDLE,
                                              usePagination: true,
-                                             columnLimit: MAX_COLUMNS });
+                                             columnLimit: MAX_COLUMNS,
+                                             minRows: MIN_ROWS,
+                                             minColumns: MIN_COLUMNS,
+                                             useSurroundingSpacing: true});
 
         // Standard hack for ClutterBinLayout
         this._grid.actor.x_expand = true;
@@ -119,7 +122,7 @@ const AlphabeticalView = new Lang.Class({
             let id = this._getItemId(this._allItems[i]);
             if (!id)
                 continue;
-            this._grid.addItem(this._items[id].actor);
+            this._grid.addItem(this._items[id]);
         }
     }
 });
@@ -350,12 +353,7 @@ const AppPages = new Lang.Class({
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
         // Update grid dinamyc spacing based on display width
-        let spacing = this._grid.maxSpacingForWidthHeight(availWidth, availHeight, MIN_COLUMNS, MIN_ROWS, true);
-        this._grid.top_padding = spacing;
-        this._grid.bottom_padding = spacing;
-        this._grid.left_padding = spacing;
-        this._grid.right_padding = spacing;
-        this._grid.setSpacing(spacing);
+        this._grid.calculateResponsiveGrid(availWidth, availHeight);
         // Update folder views
         for(let id in this._folderIcons) {
             this._folderIcons[id].onUpdatedDisplaySize(width, height);
@@ -611,7 +609,8 @@ const PaginationIconIndicator = new Lang.Class({
                                      can_focus: true });
         this.actor.connect('clicked', Lang.bind(this, this._onClicked));
         this.actor._delegate = this;
-        this.actor.set_size(24, 24);
+        //Background image is 18x18 but it is a svg, so we have to put a size
+        this.actor.set_size(18, 18);
         this._parent = parent;
         this.actor._index = index;
     },
@@ -793,7 +792,10 @@ const FrequentView = new Lang.Class({
     _init: function() {
         this._grid = new IconGrid.IconGrid({ xAlign: St.Align.MIDDLE,
                                              fillParent: true,
-                                             columnLimit: MAX_COLUMNS });
+                                             columnLimit: MAX_COLUMNS,
+                                             minRows: MIN_ROWS,
+                                             minColumns: MIN_COLUMNS,
+                                             useSurroundingSpacing: true });
         this.actor = new St.Widget({ style_class: 'frequent-apps',
                                      x_expand: true, y_expand: true });
         this.actor.add_actor(this._grid.actor);
@@ -811,7 +813,7 @@ const FrequentView = new Lang.Class({
             if (!mostUsed[i].get_app_info().should_show())
                 continue;
             let appIcon = new AppIcon(mostUsed[i]);
-            this._grid.addItem(appIcon.actor, -1);
+            this._grid.addItem(appIcon, -1);
         }
     },
     
@@ -825,12 +827,7 @@ const FrequentView = new Lang.Class({
         box = this._grid.actor.get_theme_node().get_content_box(box);
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
-        let spacing = this._grid.maxSpacingForWidthHeight(availWidth, availHeight, MIN_COLUMNS, MIN_ROWS, true);
-        this._grid.top_padding = spacing;
-        this._grid.bottom_padding = spacing;
-        this._grid.left_padding = spacing;
-        this._grid.right_padding = spacing;
-        this._grid.setSpacing(spacing);
+        this._grid.calculateResponsiveGrid(availWidth, availHeight);
     }
 });
 
@@ -1127,7 +1124,10 @@ const FolderView = new Lang.Class({
 
     _init: function() {
         this._grid = new IconGrid.IconGrid({ xAlign: St.Align.MIDDLE,
-            columnLimit: MAX_COLUMNS });
+                                             columnLimit: MAX_COLUMNS,
+                                             minRows: MIN_ROWS,
+                                             minColumns: MIN_COLUMNS,
+                                             useSurroundingSpacing: true});
         // If it not expand, the parent doesn't take into account its preferred_width when allocating
         // the second time it allocates, so we apply the "Standard hack for ClutterBinLayout"
         this._grid.actor.x_expand = true;
@@ -1215,7 +1215,7 @@ const FolderView = new Lang.Class({
                 continue;
             //FIXME
             //this._grid.addItem(this._items[id + 1].actor);
-            this._grid.addItem(this._items[id].actor);
+            this._grid.addItem(this._items[id]);
             
         }
     },
@@ -1224,14 +1224,14 @@ const FolderView = new Lang.Class({
         this._appDisplayWidth = width;
         this._appDisplayHeight = height;
         // Update grid dinamyc spacing based on display width
-        let spacing = this._grid.maxSpacingForWidthHeight(width, height, MIN_COLUMNS, MIN_ROWS, true);
-        this._grid.setSpacing(spacing);
+        this._grid.calculateResponsiveGrid(width, height);
+        
         if(!Object.keys(this._boxPointerOffsets).length)
             return;
         //We put the normal padding as spacing as we have in the main grid to do well the calculations for used rows, used columns etc, since
         // it is the behaviour we want to emulate. After that we will put the correct padding from calculations of the boxpointer offsets, to ensure
         //the boxpointer will be contained inside the view
-        this._parentSpacing = spacing;
+        let spacing = this._grid.getSpacing();
         
         let boxPointerTotalOffset = this._boxPointerOffsets['arrowHeight'] + this._boxPointerOffsets['padding'] * 2 + this._boxPointerOffsets['closeButtonOverlap'];
         let offsetForEachSide = Math.ceil(boxPointerTotalOffset / 2);
@@ -1265,7 +1265,7 @@ const FolderView = new Lang.Class({
     
     usedHeight: function() {
         // Then calculate the real maxUsedHeight
-        return this._grid.usedHeightForNRows(this.nRowsDisplayedAtOnce()) + this._grid.top_padding + this._grid.bottom_padding;
+        return this._grid.usedHeightForNRows(this.nRowsDisplayedAtOnce());
     },   
     
     nRowsDisplayedAtOnce: function() {
@@ -1340,7 +1340,7 @@ const FolderIcon = new Lang.Class({
         
         let label = this._dir.get_name();
         this.icon = new IconGrid.BaseIcon(label,
-                                          { createIcon: Lang.bind(this, this._createIcon) });
+                                          { createIcon: Lang.bind(this, this._createIcon), setSizeManually: true });
         this.actor.set_child(this.icon.actor);
         this.actor.label_actor = this.icon.label;
 
@@ -1364,8 +1364,16 @@ const FolderIcon = new Lang.Class({
         }));
     },
 
-    _createIcon: function(size) {
-        return this.view.createFolderIcon(size, this);
+    _createIcon: function(iconSize) {
+        return this.view.createFolderIcon(iconSize, this);
+    },
+    
+    getIconSize: function() {
+        return this.icon.iconSize;
+    },
+    
+    setIconSize: function(size) {
+        this.icon.setIconSize(size);
     },
     
     _popUpGridWidth: function() {
@@ -1443,6 +1451,7 @@ const FolderIcon = new Lang.Class({
 
         this.view.updateBoxPointerOffsets(this._boxPointerOffsets['arrowHeight'], this._boxPointerOffsets['padding'], this._boxPointerOffsets['closeButtonOverlap']);
         this.view.onUpdatedDisplaySize(this._displayWidth, this._displayHeight);
+        
         /*
          * Always make the grid (and therefore the boxpointer) to be the max
          * width it can be if it use full icon rows, althougth there's less
@@ -1631,6 +1640,7 @@ const AppIcon = new Lang.Class({
             iconParams = {};
 
         iconParams['createIcon'] = Lang.bind(this, this._createIcon);
+        iconParams['setSizeManually'] = true;
         this.icon = new IconGrid.BaseIcon(app.get_name(), iconParams);
         this.actor.set_child(this.icon.actor);
 
@@ -1676,6 +1686,14 @@ const AppIcon = new Lang.Class({
 
     _createIcon: function(iconSize) {
         return this.app.create_icon_texture(iconSize);
+    },
+    
+    getIconSize: function() {
+        return this.icon.iconSize;
+    },
+    
+    setIconSize: function(size) {
+        this.icon.setIconSize(size);
     },
 
     _removeMenuTimeout: function() {

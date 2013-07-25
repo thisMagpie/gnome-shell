@@ -886,7 +886,7 @@ StScrollBar StButton#vhandle:active {
 
 .icon-grid .overview-icon-with-label,
 .icon-grid .overview-icon {
-    icon-size: 96px;
+    icon-size: 76px;
 }
 
 .app-display {
@@ -918,8 +918,8 @@ StScrollBar StButton#vhandle:active {
 }
 
 .pages-indicator {
-	spacing: 40px;
-	padding: 0px, 25px 0px, 0px;
+	spacing: 35px;
+	padding: 0px, 20px 0px, 0px;
 }
 
 .app-folder-icon {
