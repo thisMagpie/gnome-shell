@@ -264,10 +264,10 @@ const AppPages = new Lang.Class({
                 panViewUpNRows = folderNVisibleRowsAtOnce - rowsDown.length - emptyRows;
             }
         }
-        // Especial case, last page and only one row, no rows down neither rows up, we call directly the
-        // popup
+        // Especial case, last page and no rows below the icon of the folder, no rows down neither rows up,
+        // we call directly the popup
         this.updateIconOpacities(true);
-        if(panViewDownNRows > 0 && rowsDown.length == 0) {
+        if(panViewDownNRows > 0 && rowsDown.length == 0 && rowsUp.length == 0) {
             this.displayingPopup = true;
             this._popupExpansionNeeded = false;
             iconActor.onCompleteMakeSpaceForPopUp();            
