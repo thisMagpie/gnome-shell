@@ -214,7 +214,7 @@ const AppPages = new Lang.Class({
     /**
      * Pan view with items to make space for the folder view.
      * @param folderNVisibleRowsAtOnce this parameter tell how many rows the folder view has, but,
-     * it is already constrianed to be at maximum of main grid rows least one, to ensure we have
+     * it is already constrained to be at maximum of main grid rows least one, to ensure we have
      * enough space to show the folder view.
      */
     makeSpaceForPopUp: function(iconActor, side, folderNVisibleRowsAtOnce) {
@@ -721,7 +721,7 @@ const AllView = new Lang.Class({
 
         this._paginationView._pages._grid.connect('n-pages-changed', Lang.bind(this, this._updatedNPages));
         // Always start at page 0 when we enter and quit overview
-        Main.overview.connect('shown', Lang.bind(this, function() {this.goToPage(0);}));
+        Main.overview.connect('hidden', Lang.bind(this, function() {this.goToPage(0);}));
     },
     
     _updatedNPages: function(iconGrid, nPages) {
