@@ -133,6 +133,7 @@ const AppPages = new Lang.Class({
     _init: function(parent) {
         this.parent({ usePagination: true,
                                  useSurroundingSpacing: true });
+
         this.actor = this._grid.actor;
         this._parent = parent;
         this._folderIcons = [];
@@ -196,10 +197,6 @@ const AppPages = new Lang.Class({
     
     getPagePosition: function(pageNumber) {
         return this._grid.getPagePosition(pageNumber);
-    },
-    
-    setViewForPageSize: function(view) {
-        this._grid._viewForPageSize= view;
     },
     
     addFolderPopup: function(popup) {
@@ -373,7 +370,6 @@ const PaginationScrollView = new Lang.Class({
         this._stack = new St.Widget({ layout_manager: new Clutter.BinLayout() });        
         this._box = new St.BoxLayout({ vertical: true });
         this._pages = new AppPages(this);
-        this._pages.setViewForPageSize(this);
         
         this._stack.add_actor(this._pages.actor);
         this._eventBlocker = new St.Widget({ x_expand: true, y_expand: true });
@@ -1122,9 +1118,6 @@ const FolderView = new Lang.Class({
         this._widget.add_child(this._grid.actor);
         this._box.add_actor(this._widget);
         this.actor.add_actor(this._box);
-        this._items = {};
-        this._allItems = [];
-        
         this._boxPointerOffsets = {};
     },
 
