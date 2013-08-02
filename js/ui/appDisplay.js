@@ -70,13 +70,14 @@ const AlphabeticalView = new Lang.Class({
     Name: 'AlphabeticalView',
     Abstract: true,
 
-    _init: function() {
-        this._grid = new IconGrid.IconGrid({ xAlign: St.Align.MIDDLE,
-                                             usePagination: true,
-                                             columnLimit: MAX_COLUMNS,
-                                             minRows: MIN_ROWS,
-                                             minColumns: MIN_COLUMNS,
-                                             useSurroundingSpacing: true});
+    _init: function(gridParams) {
+        gridParams = Params.parse(gridParams,  {xAlign: St.Align.MIDDLE,
+                                                columnLimit: MAX_COLUMNS,
+                                                minRows: MIN_ROWS,
+                                                minColumns: MIN_COLUMNS,
+                                                usePagination: false,
+                                                useSurroundingSpacing: false});
+        this._grid = new IconGrid.IconGrid(gridParams);
 
         // Standard hack for ClutterBinLayout
         this._grid.actor.x_expand = true;
@@ -132,7 +133,8 @@ const AppPages = new Lang.Class({
     Extends: AlphabeticalView,
    
     _init: function(parent) {
-        this.parent();
+        this.parent({ usePagination: true,
+                      useSurroundingSpacing: true });
         this.actor = this._grid.actor;
         this._parent = parent;
         this._folderIcons = [];
@@ -1121,13 +1123,16 @@ const AppSearchProvider = new Lang.Class({
 
 const FolderView = new Lang.Class({
     Name: 'FolderView',
+    Extends: AlphabeticalView,
 
     _init: function() {
-        this._grid = new IconGrid.IconGrid({ xAlign: St.Align.MIDDLE,
+        this.parent({ useSurroundingSpacing: true });
+
+        /*this._grid = new IconGrid.IconGrid({ xAlign: St.Align.MIDDLE,
                                              columnLimit: MAX_COLUMNS,
                                              minRows: MIN_ROWS,
                                              minColumns: MIN_COLUMNS,
-                                             useSurroundingSpacing: true});
+                                             useSurroundingSpacing: true});*/
         // If it not expand, the parent doesn't take into account its preferred_width when allocating
         // the second time it allocates, so we apply the "Standard hack for ClutterBinLayout"
         this._grid.actor.x_expand = true;
@@ -1182,44 +1187,7 @@ const FolderView = new Lang.Class({
 
         return icon;
     },
-    
-    removeAll: function() {
-        this._grid.removeAll();
-        this._items = {};
-        this._allItems = [];
-    },
 
-    _addItem: function(item) {
-        let id = this._getItemId(item);
-        if (this._items[id] !== undefined)
-            return null;
-        //FIXME
-      //let itemIcon2 = this._createItemIcon(item);
-      //this._allItems.push(item);
-        //this._items[id + 1] = itemIcon2;
-        let itemIcon = this._createItemIcon(item);
-        
-        this._allItems.push(item);
-        this._items[id] = itemIcon;
-        
-
-        return itemIcon;
-    },
-
-    loadGrid: function() {
-        this._allItems.sort(this._compareItems);
-
-        for (let i = 0; i < this._allItems.length; i++) {
-            let id = this._getItemId(this._allItems[i]);
-            if (!id)
-                continue;
-            //FIXME
-            //this._grid.addItem(this._items[id + 1].actor);
-            this._grid.addItem(this._items[id]);
-            
-        }
-    },
-    
     onUpdatedDisplaySize: function(width, height) {
         this._appDisplayWidth = width;
         this._appDisplayHeight = height;
