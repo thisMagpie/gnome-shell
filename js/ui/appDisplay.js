@@ -1127,15 +1127,6 @@ const FolderView = new Lang.Class({
 
     _init: function() {
         this.parent({ useSurroundingSpacing: true });
-
-        /*this._grid = new IconGrid.IconGrid({ xAlign: St.Align.MIDDLE,
-                                             columnLimit: MAX_COLUMNS,
-                                             minRows: MIN_ROWS,
-                                             minColumns: MIN_COLUMNS,
-                                             useSurroundingSpacing: true});*/
-        // If it not expand, the parent doesn't take into account its preferred_width when allocating
-        // the second time it allocates, so we apply the "Standard hack for ClutterBinLayout"
-        this._grid.actor.x_expand = true;
         
         this.actor = new St.ScrollView({overlay_scrollbars: true});
         this.actor.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC);
@@ -1144,9 +1135,6 @@ const FolderView = new Lang.Class({
         this._widget.add_child(this._grid.actor);
         this._box.add_actor(this._widget);
         this.actor.add_actor(this._box);
-        this._items = {};
-        this._allItems = [];
-        
         this._boxPointerOffsets = {};
     },
 

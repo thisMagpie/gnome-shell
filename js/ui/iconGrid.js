@@ -302,7 +302,7 @@ const IconGrid = new Lang.Class({
         let availHeight = box.y2 - box.y1;
         let spacing = this.getSpacing();
         let [nColumns, usedWidth] = this._computeLayout(availWidth);
-        if(this._usePagination) {
+        /*if(this._usePagination) {
             // Calculate icongrid box inside the scrollView
             let parentBox = this._viewForPageSize.allocation;
             let gridBox = this.actor.get_theme_node().get_content_box(parentBox);
@@ -328,7 +328,7 @@ const IconGrid = new Lang.Class({
                     return false;
                 }));
             }
-        }
+        }*/
         let leftPadding;
         switch(this._xAlign) {
             case St.Align.START:
@@ -387,10 +387,22 @@ const IconGrid = new Lang.Class({
             } else {
                 x += this.getHItemSize() + spacing;
             }
-        }       
+        }
     },
     
-    _calculatePaginationValues: function (availHeightPerPage, nColumns, nRows) {
+    _calculatePaginationValues: function (availWidthPerPage, availHeightPerPage) {
+        let [nColumns, usedWidth] = this._computeLayout(availWidthPerPage);
+        let nRows;
+        let children = this._getVisibleChildren();
+        if (nColumns > 0)
+            nRows = Math.ceil(children.length / nColumns);
+        else
+            nRows = 0;
+        if (this._rowLimit)
+            nRows = Math.min(nRows, this._rowLimit);
+        let oldHeightUsedPerPage = this.usedHeightPerPage();
+        let oldNPages = this._nPages;
+        
         let spacing = this.getSpacing();
         this._spacePerRow = this.getVItemSize() + spacing;
         // We want to contain the grid inside the parent box with padding
@@ -403,6 +415,19 @@ const IconGrid = new Lang.Class({
         this._spaceBetweenPages = availHeightPerPage - (this._rowsPerPage * (this.getVItemSize() + spacing) - spacing);
         this._spaceBetweenPagesTotal = this._spaceBetweenPages * (this._nPages);
         this._childrenPerPage = nColumns * this._rowsPerPage;
+        
+        global.log("nPages "  + this._nPages);
+        global.log("availHeightPerPage, availWidthPerPage")
+        // Take into account when the number of pages changed (then the height of the entire grid changed for sure)
+        // and also when the spacing is changed, sure the hegiht per page changed and the entire grid height changes, althougt
+        // maybe the number of pages doesn't change
+        if(oldNPages != this._nPages || oldHeightUsedPerPage != this.usedHeightPerPage()) {
+            this.emit('n-pages-changed', this._nPages);
+            /*Meta.later_add(Meta.LaterType.BEFORE_REDRAW, Lang.bind(this, function() {
+                this._grid.queue_relayout();
+                return false;
+            }));*/
+        }
     },
     
     _calculateChildrenBox: function(child, x, y, box) {
@@ -450,7 +475,7 @@ const IconGrid = new Lang.Class({
         this._vItemSize = themeNode.get_length('-shell-grid-vertical-item-size') || ICON_SIZE;
         this._grid.queue_relayout();
     },
-
+    
     columnsForWidth: function(rowWidth) {
         return this._computeLayout(rowWidth)[0];
     },
@@ -599,6 +624,7 @@ const IconGrid = new Lang.Class({
     calculateResponsiveGrid: function(availWidth, availHeight) {
         this._fixedHItemSize = this._hItemSize;
         this._fixedVItemSize = this._vItemSize;
+
         let spacing = this.maxSpacingForWidthHeight(availWidth, availHeight);
         this.setSpacing(spacing);
         if(this._useSurroundingSpacing)
@@ -640,6 +666,8 @@ const IconGrid = new Lang.Class({
         
         let scale = Math.min(this._fixedHItemSize, this._fixedVItemSize) / Math.max(this._hItemSize, this._vItemSize);
         this.updateChildrenScale(scale);
+        if(this._usePagination)
+            this._calculatePaginationValues(availWidth, availHeight);
     },
     /**
      * FLORIAN REVIEW
