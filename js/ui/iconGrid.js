@@ -302,46 +302,19 @@ const IconGrid = new Lang.Class({
         let availHeight = box.y2 - box.y1;
         let spacing = this.getSpacing();
         let [nColumns, usedWidth] = this._computeLayout(availWidth);
-        /*if(this._usePagination) {
-            // Calculate icongrid box inside the scrollView
-            let parentBox = this._viewForPageSize.allocation;
-            let gridBox = this.actor.get_theme_node().get_content_box(parentBox);
-            let customBox = this._grid.get_theme_node().get_content_box(gridBox);
-            let availHeightPerPage = customBox.y2 - customBox.y1;
-            let nRows;
-            if (nColumns > 0)
-                nRows = Math.ceil(children.length / nColumns);
-            else
-                nRows = 0;
-            if (this._rowLimit)
-                nRows = Math.min(nRows, this._rowLimit);
-            let oldHeightUsedPerPage = this.usedHeightPerPage();
-            let oldNPages = this._nPages;
-            this._calculatePaginationValues(availHeightPerPage, nColumns, nRows);
-            // Take into account when the number of pages changed (then the height of the entire grid changed for sure)
-            // and also when the spacing is changed, sure the hegiht per page changed and the entire grid height changes, althougt
-            // maybe the number of pages doesn't change
-            if(oldNPages != this._nPages || oldHeightUsedPerPage != this.usedHeightPerPage()) {
-                this.emit('n-pages-changed', this._nPages);
-                Meta.later_add(Meta.LaterType.BEFORE_REDRAW, Lang.bind(this, function() {
-                    this._grid.queue_relayout();
-                    return false;
-                }));
-            }
-        }*/
-        let leftPadding;
+        let leftEmptySpace;
         switch(this._xAlign) {
             case St.Align.START:
-                leftPadding = 0;
+                leftEmptySpace = 0;
                 break;
             case St.Align.MIDDLE:
-                leftPadding = Math.floor((availWidth - usedWidth) / 2);
+                leftEmptySpace = Math.floor((availWidth - usedWidth) / 2);
                 break;
             case St.Align.END:
-                leftPadding = availWidth - usedWidth;
+                leftEmptySpace = availWidth - usedWidth;
         }
         
-        let x = box.x1 + leftPadding + this.left_padding;
+        let x = box.x1 + leftEmptySpace + this.left_padding;
         let y = box.y1 + this.top_padding;
         let columnIndex = 0;
         let rowIndex = 0;
