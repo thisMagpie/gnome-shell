@@ -368,13 +368,13 @@ const PaginationScrollView = new Lang.Class({
         this._verticalAdjustment = new St.Adjustment();
         this._horizontalAdjustment = new St.Adjustment();
 
-        this._stack = new St.Widget({layout_manager: new Clutter.BinLayout()});        
-        this._box = new St.BoxLayout({vertical: true});
+        this._stack = new St.Widget({ layout_manager: new Clutter.BinLayout() });        
+        this._box = new St.BoxLayout({ vertical: true });
         this._pages = new AppPages(this);
         
         this._stack.add_actor(this._pages.actor);
         this._eventBlocker = new St.Widget({ x_expand: true, y_expand: true });
-        this._stack.add_actor(this._eventBlocker, {x_align:St.Align.MIDDLE});
+        this._stack.add_actor(this._eventBlocker, { x_align:St.Align.MIDDLE });
         
         this._box.add_actor(this._stack);
         this._box.set_adjustments(this._horizontalAdjustment, this._verticalAdjustment);

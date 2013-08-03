@@ -245,14 +245,6 @@ const IconGrid = new Lang.Class({
         alloc.natural_size = nColumns * this.getHItemSize() + totalSpacing + this.left_padding + this.right_padding;
     },
 
-    _getVisibleChildren: function() {
-        let children = this._grid.get_children();
-        children = children.filter(function(actor) {
-            return actor.visible;
-        });
-        return children;
-    },
-
     _getPreferredHeight: function (grid, forWidth, alloc) {
         if (this._fillParent)
             // Ignore all size requests of children and request a size of 0;
@@ -284,6 +276,14 @@ const IconGrid = new Lang.Class({
         }
         alloc.min_size = height;
         alloc.natural_size = height;
+    },
+    
+    _getVisibleChildren: function() {
+        let children = this._grid.get_children();
+        children = children.filter(function(actor) {
+            return actor.visible;
+        });
+        return children;
     },
 
     _allocate: function (grid, box, flags) {
