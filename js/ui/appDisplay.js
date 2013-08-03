@@ -200,10 +200,6 @@ const AppPages = new Lang.Class({
         return this._grid.getPagePosition(pageNumber);
     },
     
-    setViewForPageSize: function(view) {
-        this._grid._viewForPageSize= view;
-    },
-    
     addFolderPopup: function(popup) {
         this._parent.addFolderPopup(popup);
     },
@@ -375,7 +371,6 @@ const PaginationScrollView = new Lang.Class({
         this._stack = new St.Widget({layout_manager: new Clutter.BinLayout()});        
         this._box = new St.BoxLayout({vertical: true});
         this._pages = new AppPages(this);
-        this._pages.setViewForPageSize(this);
         
         this._stack.add_actor(this._pages.actor);
         this._eventBlocker = new St.Widget({ x_expand: true, y_expand: true });

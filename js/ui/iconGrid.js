@@ -209,9 +209,6 @@ const IconGrid = new Lang.Class({
         
         if(this._usePagination) {
             this._nPages = 0;
-            // Set this variable properly pointing to the scrollView containing the grid
-            // before allocate function is called
-            this._viewForPageSize = null;
             this._firstPagesItems = [];
         }
         this.actor = new St.BoxLayout({ style_class: 'icon-grid',
