@@ -71,12 +71,12 @@ const AlphabeticalView = new Lang.Class({
     Abstract: true,
 
     _init: function(gridParams) {
-        gridParams = Params.parse(gridParams,  {xAlign: St.Align.MIDDLE,
-                                                columnLimit: MAX_COLUMNS,
-                                                minRows: MIN_ROWS,
-                                                minColumns: MIN_COLUMNS,
-                                                usePagination: false,
-                                                useSurroundingSpacing: false});
+        gridParams = Params.parse(gridParams,  { xAlign: St.Align.MIDDLE,
+                                                 columnLimit: MAX_COLUMNS,
+                                                 minRows: MIN_ROWS,
+                                                 minColumns: MIN_COLUMNS,
+                                                 usePagination: false,
+                                                 useSurroundingSpacing: false });
         this._grid = new IconGrid.IconGrid(gridParams);
 
         // Standard hack for ClutterBinLayout
@@ -138,7 +138,6 @@ const AppPages = new Lang.Class({
         this.actor = this._grid.actor;
         this._parent = parent;
         this._folderIcons = [];
-        this.doingTransitions = false;
         this._popupExpansionNeeded = true;
     },
 

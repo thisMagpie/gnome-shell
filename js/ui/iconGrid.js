@@ -356,7 +356,7 @@ const IconGrid = new Lang.Class({
                         }
                     }
                 }
-                x = box.x1 + leftPadding + this.left_padding;
+                x = box.x1 + leftEmptySpace + this.left_padding;
             } else {
                 x += this.getHItemSize() + spacing;
             }
@@ -388,9 +388,7 @@ const IconGrid = new Lang.Class({
         this._spaceBetweenPages = availHeightPerPage - (this._rowsPerPage * (this.getVItemSize() + spacing) - spacing);
         this._spaceBetweenPagesTotal = this._spaceBetweenPages * (this._nPages);
         this._childrenPerPage = nColumns * this._rowsPerPage;
-        
-        global.log("nPages "  + this._nPages);
-        global.log("availHeightPerPage, availWidthPerPage")
+
         // Take into account when the number of pages changed (then the height of the entire grid changed for sure)
         // and also when the spacing is changed, sure the hegiht per page changed and the entire grid height changes, althougt
         // maybe the number of pages doesn't change
