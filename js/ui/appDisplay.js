@@ -37,6 +37,8 @@ const INACTIVE_GRID_OPACITY = 77;
 const INACTIVE_GRID_OPACITY_ANIMATION_TIME = 0.15;
 const FOLDER_SUBICON_FRACTION = .4;
 
+const MAX_APPS_PAGES = 20;
+
 const PAGE_SWITCH_TIME = 0.3;
 
 // Recursively load a GMenuTreeDirectory; we could put this in ShellAppSystem too
@@ -159,6 +161,98 @@ const PagesView = new Lang.Class({
     }
 });
 
+const PaginationIconIndicator = new Lang.Class({
+    Name: 'PaginationIconIndicator',
+    
+    _init: function(parent, index) {
+
+        this.actor = new St.Button({ style_class: 'pages-icon-indicator',
+                                     button_mask: St.ButtonMask.ONE || St.ButtonMask.TWO,
+                                     toggle_mode: true,
+                                     can_focus: true });
+        this.actor.connect('clicked', Lang.bind(this, this._onClicked));
+        this.actor._delegate = this;
+        this._parent = parent;
+        this.actor._index = index;
+    },
+
+    _onClicked: function(actor, button) {
+        this._parent.goToPage(this.actor._index, true);
+        return false;
+    },
+
+    setChecked: function (checked) {
+        this.actor.set_checked(checked);
+    }
+});
+
+const PaginationIndicator = new Lang.Class({
+    Name:'PaginationIndicator',
+
+    _init: function(params) {
+        params['y_expand'] = true;
+        params['x_expand'] = true;
+        this.actor = new Shell.GenericContainer(params);
+        this.actor.connect('get-preferred-height', Lang.bind(this, this._getPreferredHeight));
+        this.actor.connect('get-preferred-width', Lang.bind(this, this._getPreferredWidth));
+        this.actor.connect('allocate', Lang.bind(this, this._allocate));
+        this.actor.connect('style-changed', Lang.bind(this, this._styleChanged));
+        this._spacing = 0;
+    },
+
+    _getPreferredHeight: function(actor, forWidth, alloc) {
+        let [minHeight, natHeight] = this.actor.get_children()[0].get_preferred_height(forWidth);
+        if (this._nPages) {
+            let natHeightPerChild = natHeight + this._spacing;
+            let minHeightPerChild = minHeight + this._spacing;
+            minHeight = this._nPages * minHeightPerChild;
+            natHeight = this._nPages * natHeightPerChild;
+        } else
+            minHeight = natHeight = 0;
+        alloc.min_size = 0;
+        alloc.natural_size = natHeight;
+    },
+
+    _getPreferredWidth: function(actor, forHeight, alloc) {
+        let [minWidth, natWidth] = this.actor.get_children()[0].get_preferred_width(forHeight);
+        let totalWidth = natWidth + this._spacing;
+        alloc.min_size = totalWidth;
+        alloc.natural_size = totalWidth;
+    },
+
+    _allocate: function(actor, box, flags) {
+        let children = this.actor.get_children();
+        for (let i in children)
+            this.actor.set_skip_paint(children[i], true);
+        if (children.length < 1)
+            return;
+        let availHeight = box.y2 - box.y1;
+        let availWidth = box.x2 - box.x1;
+        let [minHeight, natHeight] = children[0].get_preferred_height(availWidth);
+        let heightPerChild = natHeight + this._spacing;
+        let [minWidth, natWidth] = children[0].get_preferred_width(natHeight);
+        let widthPerChild = natWidth + this._spacing * 2;
+        let firstPosition = [this._spacing, 0];
+        for (let i = 0; i < this._nPages; i++) {
+            let childBox = new Clutter.ActorBox();
+            childBox.x1 =  0;
+            childBox.x2 = availWidth;
+            childBox.y1 = firstPosition[1] + i * heightPerChild;
+            childBox.y2 = childBox.y1 + heightPerChild;
+            // We currently threat the overflow not painting more indicators
+            if (childBox.y2 > availHeight)
+                break;
+            children[i].allocate(childBox, flags);
+            this.actor.set_skip_paint(children[i], false);
+        }
+    },
+
+    _styleChanged: function() {
+        this._spacing = this.actor.get_theme_node().get_length('spacing');
+        this.actor.queue_relayout();
+    }
+});
+
 const AllView = new Lang.Class({
     Name: 'AllView',
     Extends: AlphabeticalView,
@@ -171,6 +265,22 @@ const AllView = new Lang.Class({
         this.actor = new St.Widget({ layout_manager: new Clutter.BinLayout(), 
                                      x_expand:true, y_expand:true });
         this.actor.add_actor(this._pagesView);
+        if (Clutter.get_default_text_direction() == Clutter.TextDirection.RTL)
+            this._paginationIndicator = new PaginationIndicator({ style_class: 'pages-indicator',
+                                                                  x_align: Clutter.ActorAlign.START,
+                                                                  y_align: Clutter.ActorAlign.CENTER });
+        else
+            this._paginationIndicator = new PaginationIndicator({ style_class: 'pages-indicator',
+                                                                  x_align: Clutter.ActorAlign.END,
+                                                                  y_align: Clutter.ActorAlign.CENTER });
+        this.actor.add_actor(this._paginationIndicator.actor);
+        for (let i = 0; i < MAX_APPS_PAGES; i++) {
+            let indicatorIcon = new PaginationIconIndicator(this, i);
+            if (i == 0)
+                indicatorIcon.setChecked(true);
+            this._paginationIndicator.actor.add_actor(indicatorIcon.actor);
+        }
+
         this._grid.connect('n-pages-changed', Lang.bind(this, this._onNPagesChanged));
 
         this._stack = new St.Widget({ layout_manager: new Clutter.BinLayout() });
@@ -206,10 +316,27 @@ const AllView = new Lang.Class({
     },
 
     _onNPagesChanged: function(iconGrid, nPages) {
+        this._paginationIndicator._nPages = nPages;
         this._paginationInvalidated = true;
     },
 
-    goToPage: function(pageNumber) {
+    goToPage: function(pageNumber, updateIndicators) {
+        this.viewGoToPage(pageNumber);
+        if (updateIndicators)
+            this.indicatorsGoToPage(pageNumber);
+    },
+
+    indicatorsGoToPage: function(pageNumber) {
+        // Since it can happens after a relayout, we have to ensure that all is unchecked
+        let indicators = this._paginationIndicator.actor.get_children();
+        if (this._grid.nPages() > 1) {
+            for (let index in indicators)
+                indicators[index].set_checked(false);
+            this._paginationIndicator.actor.get_child_at_index(this._currentPage).set_checked(true);
+        }
+    },
+
+    viewGoToPage: function(pageNumber) {
         this._currentPage = pageNumber;
         let params = { value: this._grid.getPageYPosition(this._currentPage),
                        time: PAGE_SWITCH_TIME,
@@ -223,13 +350,13 @@ const AllView = new Lang.Class({
         if (direction == Clutter.ScrollDirection.UP) {
             if (this._currentPage > 0) {
                 nextPage = this._currentPage - 1;
-                this.goToPage(nextPage);
+                this.goToPage(nextPage, true);
             }
         }
         if (direction == Clutter.ScrollDirection.DOWN) {
             if (this._currentPage < (this._grid.nPages() - 1)) {
                 nextPage = this._currentPage + 1;
-                this.goToPage(nextPage);
+                this.goToPage(nextPage, true);
             }
         }
     },
@@ -281,8 +408,15 @@ const AllView = new Lang.Class({
     updateAdjustment: function(availHeight) {
         this._verticalAdjustment.page_size = availHeight;
         this._verticalAdjustment.upper = this._stack.height;
-        if (this._paginationInvalidated)
-            this.goToPage(0);
+        if (this._paginationInvalidated) {
+            // We can modify the adjustment, so we do that to show the first page,
+            // but we can't modify the indicators, since we are inside an allocation
+            // process, so we modify them before redraw (we won't see much flickering at all)
+            if (this._grid.nPages() > 1) {
+                this.goToPage(0, false);
+                Meta.later_add(Meta.LaterType.BEFORE_REDRAW, Lang.bind(this, function() { this.goToPage(0, true); }));
+            }
+        }
         this._paginationInvalidated = false;
     },
 
