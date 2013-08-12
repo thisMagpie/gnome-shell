@@ -900,9 +900,23 @@ StScrollBar StButton#vhandle:active {
 
 .search-display > StBoxLayout,
 .all-apps,
-.frequent-apps > StBoxLayout {
+.frequent-apps > StBoxLayout{
     /* horizontal padding to make sure scrollbars or dash don't overlap content */
-    padding: 8px 88px;
+    padding: 10px 88px;
+}
+
+.pages-icon-indicator {
+	background-image: url(page-indicator-inactive.svg);
+}
+
+.pages-icon-indicator:hover,
+.pages-icon-indicator:checked{
+	background-image: url(page-indicator-active.svg);
+}
+
+.pages-indicator {
+	spacing: 40px;
+	padding: 0px, 25px 0px, 0px;
 }
 
 .app-folder-icon {

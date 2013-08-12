@@ -245,7 +245,7 @@ const IconGrid = new Lang.Class({
             nColumns = children.length;
             spacing = this._spacing;
         } else {
-            [nColumns, , spacing] = this._computeLayoutOld(forWidth);
+            [nColumns, , spacing] = this._computeLayout(forWidth);
         }
 
         let nRows;
@@ -285,7 +285,7 @@ const IconGrid = new Lang.Class({
         let children = this._getVisibleChildren();
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
-        let [nColumns, usedWidth, spacing] = this._computeLayoutOld(availWidth);
+        let [nColumns, usedWidth, spacing] = this._computeLayout(availWidth);
         if(this._usePagination) {
             //Recalculate the space between pages with the new spacing
             this._spaceBetweenPages = this._parentSize[1] - (this._rowsPerPage * (this._vItemSize + spacing));
@@ -380,32 +380,8 @@ const IconGrid = new Lang.Class({
     getRowLimit: function() {
         return this._rowLimit;
     },
-    
-    _computeLayoutOldOld: function (forWidth) {
-        let nColumns = 0;
-        let usedWidth = 0;
-        let spacing = this._spacing;
 
-        if (this._colLimit) {
-            let itemWidth = this._hItemSize * this._colLimit;
-            let emptyArea = forWidth - itemWidth;
-            spacing = Math.max(this._spacing, emptyArea / (2 * this._colLimit));
-            spacing = Math.round(spacing);
-        }
-
-        while ((this._colLimit == null || nColumns < this._colLimit) &&
-               (usedWidth + this._hItemSize <= forWidth)) {
-            usedWidth += this._hItemSize + spacing;
-            nColumns += 1;
-        }
-
-        if (nColumns > 0)
-            usedWidth -= spacing;
-
-        return [nColumns, usedWidth, spacing];
-    },
-    
-    _computeLayoutOld: function (forWidth, forHeight) {
+    _computeLayout: function (forWidth, forHeight) {
         let nColumns = 0;
         let usedWidth = 0;
         let spacing = this._spacing;
