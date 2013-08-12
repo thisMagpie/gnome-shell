@@ -408,7 +408,7 @@ const AppDisplay = new Lang.Class({
         this._controls = new St.Widget({ style_class: 'app-view-controls',
                                          layout_manager: layout });
         layout.hookup_style(this._controls);
-        this.actor.add(new St.Bin({ child: this._controls }));
+        this.actor.add_actor(new St.Bin({ child: this._controls }));
 
 
         for (let i = 0; i < this._views.length; i++) {
