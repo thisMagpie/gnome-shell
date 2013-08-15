@@ -127,7 +127,7 @@ const AlphabeticalView = new Lang.Class({
             let id = this._getItemId(this._allItems[i]);
             if (!id)
                 continue;
-            this._grid.addItem(this._items[id].actor);
+            this._grid.addItem(this._items[id]);
         }
     }
 });
@@ -662,10 +662,7 @@ const AllView = new Lang.Class({
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
 
-        // Update grid dinamyc spacing based on display width
-        this._grid.updateSpacingForSize(availWidth, availHeight);
-        // Calculate pagination values
-        this._grid.computePages(availWidth, availHeight);
+        this._grid.calculateResponsiveGrid(availWidth, availHeight);
         // Update folder views
         for (let id in this._folderIcons) {
             this._folderIcons[id].adaptToSize(availWidth, availHeight);
@@ -692,7 +689,7 @@ const FrequentView = new Lang.Class({
             if (!mostUsed[i].get_app_info().should_show())
                 continue;
             let appIcon = new AppIcon(mostUsed[i]);
-            this._grid.addItem(appIcon.actor, -1);
+            this._grid.addItem(appIcon, -1);
         }
     },
 
@@ -706,7 +703,7 @@ const FrequentView = new Lang.Class({
         box = this._grid.actor.get_theme_node().get_content_box(box);
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
-        this._grid.updateSpacingForSize(availWidth, availHeight);
+        this._grid.calculateResponsiveGrid(availWidth, availHeight);
     }
 });
 
@@ -1037,7 +1034,7 @@ const FolderView = new Lang.Class({
         this._parentAvailableWidth = width;
         this._parentAvailableHeight = height;
         // Update grid dinamyc spacing based on display width
-        this._grid.updateSpacingForSize(width, height);
+        this._grid.calculateResponsiveGrid(width, height);
         if (!Object.keys(this._boxPointerOffsets).length)
             return;
 
@@ -1134,7 +1131,7 @@ const FolderIcon = new Lang.Class({
 
         let label = this._dir.get_name();
         this.icon = new IconGrid.BaseIcon(label,
-                                          { createIcon: Lang.bind(this, this._createIcon) });
+                                          { createIcon: Lang.bind(this, this._createIcon), setSizeManually: true });
         this.actor.set_child(this.icon.actor);
         this.actor.label_actor = this.icon.label;
 
@@ -1157,8 +1154,16 @@ const FolderIcon = new Lang.Class({
         }));
     },
 
-    _createIcon: function(size) {
-        return this.view.createFolderIcon(size, this);
+    _createIcon: function(iconSize) {
+        return this.view.createFolderIcon(iconSize, this);
+    },
+
+    getIconSize: function() {
+        return this.icon.iconSize;
+    },
+
+    setIconSize: function(size) {
+        this.icon.setIconSize(size);
     },
 
     _popUpGridWidth: function() {
@@ -1436,6 +1441,7 @@ const AppIcon = new Lang.Class({
             iconParams = {};
 
         iconParams['createIcon'] = Lang.bind(this, this._createIcon);
+        iconParams['setSizeManually'] = true;
         this.icon = new IconGrid.BaseIcon(app.get_name(), iconParams);
         this.actor.set_child(this.icon.actor);
 
@@ -1481,6 +1487,14 @@ const AppIcon = new Lang.Class({
 
     _createIcon: function(iconSize) {
         return this.app.create_icon_texture(iconSize);
+    },
+
+    getIconSize: function() {
+        return this.icon.iconSize;
+    },
+
+    setIconSize: function(size) {
+        this.icon.setIconSize(size);
     },
 
     _removeMenuTimeout: function() {

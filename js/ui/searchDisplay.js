@@ -327,7 +327,7 @@ const GridSearchResults = new Lang.Class({
         for (let i = 0; i < metas.length; i++) {
             let display = new GridSearchResult(this.provider, metas[i], this._terms);
             display.actor.connect('key-focus-in', Lang.bind(this, this._keyFocusIn));
-            this._grid.addItem(display.actor);
+            this._grid.addItem(display);
         }
     },
 
