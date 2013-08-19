@@ -330,6 +330,8 @@ const AllView = new Lang.Class({
         // we have to tell pagination that the adjustment is not correct (since the allocated size of pagination changed)
         // For that problem we return to the first page of pagination.
         this._paginationInvalidated = false;
+
+        Main.overview.connect('hidden', Lang.bind(this, function() {this.goToPage(0, true);}));
     },
 
     _onNPagesChanged: function(iconGrid, nPages) {
