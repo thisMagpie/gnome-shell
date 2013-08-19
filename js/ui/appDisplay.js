@@ -1009,6 +1009,7 @@ const FolderIcon = new Lang.Class({
             function() {
                 this._ensurePopup();
                 this._popup.toggle();
+                this.view.actor.vscroll.adjustment.value = 0;
             }));
         this.actor.connect('notify::mapped', Lang.bind(this,
             function() {
