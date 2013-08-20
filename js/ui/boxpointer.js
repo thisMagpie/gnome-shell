@@ -639,5 +639,13 @@ const BoxPointer = new Lang.Class({
 
     get opacity() {
         return this.actor.opacity;
+    },
+
+    getPadding: function(side) {
+        return this.bin.get_theme_node().get_padding(side);
+    },
+    
+    getArrowHeight: function() {
+        return this.actor.get_theme_node().get_length('-arrow-rise');
     }
 });
