@@ -4,6 +4,7 @@ const Clutter = imports.gi.Clutter;
 const Shell = imports.gi.Shell;
 const St = imports.gi.St;
 
+const Signals = imports.signals;
 const Lang = imports.lang;
 const Params = imports.misc.params;
 
@@ -176,10 +177,14 @@ const IconGrid = new Lang.Class({
     _init: function(params) {
         params = Params.parse(params, { rowLimit: null,
                                         columnLimit: null,
+                                        minRows: 1,
+                                        minColumns: 1,
                                         fillParent: false,
                                         xAlign: St.Align.MIDDLE });
         this._rowLimit = params.rowLimit;
         this._colLimit = params.columnLimit;
+        this._minRows = params.minRows;
+        this._minColumns = params.minColumns;
         this._xAlign = params.xAlign;
         this._fillParent = params.fillParent;
 
@@ -368,6 +373,10 @@ const IconGrid = new Lang.Class({
         this._grid.queue_relayout();
     },
 
+    rowHeight: function() {
+        return this._vItemSize + this._getSpacing();
+    },
+
     removeAll: function() {
         this._grid.destroy_all_children();
     },
@@ -419,5 +428,122 @@ const IconGrid = new Lang.Class({
         let spacingToEnsureMinimums = Math.min(maxSpacingForRows, maxSpacingForColumns);
         let spacingNotTooBig = Math.min(spacingToEnsureMinimums, maxSpacing);
         this.setSpacing(Math.max(this._spacing, spacingNotTooBig));
+    },
+});
+
+const PaginatedIconGrid = new Lang.Class({
+    Name: 'PaginatedIconGrid',
+    Extends: IconGrid,
+
+    _init: function(params) {
+        this.parent(params);
+        this._nPages = 0;
+    },
+
+    _getPreferredHeight: function (grid, forWidth, alloc) {
+        if(!this._nPages) {
+            alloc.min_size = 0;
+            alloc.natural_size = 0;
+            return;
+        }
+        alloc.min_size = this._availableHeightPerPageForItems() * this._nPages + this._spaceBetweenPages * this._nPages;
+        alloc.natural_size = this._availableHeightPerPageForItems() * this._nPages + this._spaceBetweenPages * this._nPages;
+    },
+
+    _allocate: function (grid, box, flags) {
+        if (this._fillParent) {
+            // Reset the passed in box to fill the parent
+            let parentBox = this.actor.get_parent().allocation;
+            let gridBox = this.actor.get_theme_node().get_content_box(parentBox);
+            box = this._grid.get_theme_node().get_content_box(gridBox);
+        }
+        let children = this._getVisibleChildren();
+        let availWidth = box.x2 - box.x1;
+        let availHeight = box.y2 - box.y1;
+        let spacing = this._getSpacing();
+        let [nColumns, usedWidth] = this._computeLayout(availWidth);
+
+        let leftPadding;
+        switch(this._xAlign) {
+            case St.Align.START:
+                leftPadding = 0;
+                break;
+            case St.Align.MIDDLE:
+                leftPadding = Math.floor((availWidth - usedWidth) / 2);
+                break;
+            case St.Align.END:
+                leftPadding = availWidth - usedWidth;
+        }
+
+        let x = box.x1 + leftPadding;
+        let y = box.y1;
+        let columnIndex = 0;
+        let rowIndex = 0;
+
+        for (let i = 0; i < children.length; i++) {
+            let childBox = this._calculateChildBox(children[i], x, y, box);
+            children[i].allocate(childBox, flags);
+            this._grid.set_skip_paint(children[i], false);
+
+            columnIndex++;
+            if (columnIndex == nColumns) {
+                columnIndex = 0;
+                rowIndex++;
+            }
+            if (columnIndex == 0) {
+                y += this._vItemSize + spacing;
+                if((i + 1) % this._childrenPerPage == 0)
+                    y += this._spaceBetweenPages - spacing;
+                x = box.x1 + leftPadding;
+            } else
+                x += this._hItemSize + spacing;
+        }
+    },
+    /**
+    * Compute the pagination values. This functions is intended to be called
+    * before allocation of the grid.
+    */
+    computePages: function (availWidthPerPage, availHeightPerPage) {
+        let [nColumns, usedWidth] = this._computeLayout(availWidthPerPage);
+        let nRows;
+        let children = this._getVisibleChildren();
+        if (nColumns > 0)
+            nRows = Math.ceil(children.length / nColumns);
+        else
+            nRows = 0;
+        if (this._rowLimit)
+            nRows = Math.min(nRows, this._rowLimit);
+        let oldHeightUsedPerPage = this._availableHeightPerPageForItems();
+        let oldNPages = this._nPages;
+
+        let spacing = this._getSpacing();
+        this._rowsPerPage = Math.floor((availHeightPerPage + spacing) / (this._vItemSize + spacing));
+        this._nPages = Math.ceil(nRows / this._rowsPerPage);
+        this._spaceBetweenPages = availHeightPerPage - (this._rowsPerPage * (this._vItemSize + spacing) - spacing);
+        this._childrenPerPage = nColumns * this._rowsPerPage;
+
+        // Take into account when the number of pages changed (then the height of the entire grid changed for sure)
+        // and also when the spacing is changed, sure the hegiht per page changed and the entire grid height changes, althougt
+        // maybe the number of pages doesn't change
+        if (oldNPages != this._nPages || oldHeightUsedPerPage != this._availableHeightPerPageForItems()) {
+            this.emit('n-pages-changed', this._nPages);
+        }
+    },
+
+    _availableHeightPerPageForItems: function() {
+        return this._rowsPerPage * this.rowHeight() - this._getSpacing();
+    },
+
+    nPages: function() {
+        return this._nPages;
+    },
+
+    getPageYPosition: function(pageNumber) {
+        if (!this._nPages)
+            return 0;
+        let firstPageItem = pageNumber * this._childrenPerPage
+        let childBox = this._getVisibleChildren()[firstPageItem].get_allocation_box();
+        return childBox.y1;
     }
 });
+Signals.addSignalMethods(PaginatedIconGrid.prototype);
