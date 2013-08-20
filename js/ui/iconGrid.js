@@ -347,12 +347,6 @@ const IconGrid = new Lang.Class({
         let usedWidth = 0;
         let spacing = this._getSpacing();
 
-        if (this._colLimit) {
-            let itemWidth = this._hItemSize * this._colLimit;
-            let emptyArea = forWidth - itemWidth;
-            spacing = Math.max(spacing, emptyArea / (2 * this._colLimit));
-        }
-
         while ((this._colLimit == null || nColumns < this._colLimit) &&
                (usedWidth + this._hItemSize <= forWidth)) {
             usedWidth += this._hItemSize + spacing;
