@@ -208,7 +208,7 @@ const IconGrid = new Lang.Class({
         let nColumns = this._colLimit ? Math.min(this._colLimit,
                                                  nChildren)
                                       : nChildren;
-        let totalSpacing = Math.max(0, nColumns - 1) * this._spacing;
+        let totalSpacing = Math.max(0, nColumns - 1) * this._getSpacing();
         // Kind of a lie, but not really an issue right now.  If
         // we wanted to support some sort of hidden/overflow that would
         // need higher level design
@@ -231,13 +231,11 @@ const IconGrid = new Lang.Class({
             return;
 
         let children = this._getVisibleChildren();
-        let nColumns, spacing;
-        if (forWidth < 0) {
+        let nColumns;
+        if (forWidth < 0)
             nColumns = children.length;
-            spacing = this._spacing;
-        } else {
-            [nColumns, , spacing] = this._computeLayout(forWidth);
-        }
+        else
+            [nColumns, ] = this._computeLayout(forWidth);
 
         let nRows;
         if (nColumns > 0)
@@ -246,7 +244,7 @@ const IconGrid = new Lang.Class({
             nRows = 0;
         if (this._rowLimit)
             nRows = Math.min(nRows, this._rowLimit);
-        let totalSpacing = Math.max(0, nRows - 1) * spacing;
+        let totalSpacing = Math.max(0, nRows - 1) * this._getSpacing();
         let height = nRows * this._vItemSize + totalSpacing;
         alloc.min_size = height;
         alloc.natural_size = height;
@@ -263,8 +261,8 @@ const IconGrid = new Lang.Class({
         let children = this._getVisibleChildren();
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
-
-        let [nColumns, usedWidth, spacing] = this._computeLayout(availWidth);
+        let spacing = this._getSpacing();
+        let [nColumns, usedWidth] = this._computeLayout(availWidth);
 
         let leftPadding;
         switch(this._xAlign) {
@@ -342,13 +340,12 @@ const IconGrid = new Lang.Class({
     _computeLayout: function (forWidth) {
         let nColumns = 0;
         let usedWidth = 0;
-        let spacing = this._spacing;
+        let spacing = this._getSpacing();
 
         if (this._colLimit) {
             let itemWidth = this._hItemSize * this._colLimit;
             let emptyArea = forWidth - itemWidth;
-            spacing = Math.max(this._spacing, emptyArea / (2 * this._colLimit));
-            spacing = Math.round(spacing);
+            spacing = Math.max(spacing, emptyArea / (2 * this._colLimit));
         }
 
         while ((this._colLimit == null || nColumns < this._colLimit) &&
@@ -360,7 +357,7 @@ const IconGrid = new Lang.Class({
         if (nColumns > 0)
             usedWidth -= spacing;
 
-        return [nColumns, usedWidth, spacing];
+        return [nColumns, usedWidth];
     },
 
     _onStyleChanged: function() {
@@ -388,5 +385,39 @@ const IconGrid = new Lang.Class({
 
     visibleItemsCount: function() {
         return this._grid.get_n_children() - this._grid.get_n_skip_paint();
+    },
+
+    setSpacing: function(spacing) {
+        this._fixedSpacing = spacing;
+    },
+
+    _getSpacing: function() {
+        return this._fixedSpacing ? this._fixedSpacing : this._spacing;
+    },
+
+    /**
+     * This function is intended to use it before iconGrid allocation,
+      to know how much spacing can we have at the grid
+     */
+    updateSpacingForSize: function(availWidth, availHeight) {
+        // Maximum spacing will be the icon item size. It doesn't make any sense to have more spacing than items.
+        let maxSpacing = Math.floor(Math.min(this._vItemSize, this._hItemSize));
+        let minEmptyVerticalArea = availHeight - this._minRows * this._vItemSize;
+        let minEmptyHorizontalArea = availWidth - this._minColumns * this._hItemSize;
+        let spacing;
+        let maxSpacingForRows, maxSpacingForColumns;
+        if (this._minRows == 1)
+            maxSpacingForRows = Math.floor(minEmptyVerticalArea / this._minRows);
+        else
+            maxSpacingForRows = Math.floor(minEmptyVerticalArea / (this._minRows - 1));
+
+        if (this._minColumns == 1)
+            maxSpacingForColumns = Math.floor(minEmptyHorizontalArea / this._minColumns);
+        else
+            maxSpacingForColumns = Math.floor(minEmptyHorizontalArea / (this._minColumns - 1));
+        
+        let spacingToEnsureMinimums = Math.min(maxSpacingForRows, maxSpacingForColumns);
+        let spacingNotTooBig = Math.min(spacingToEnsureMinimums, maxSpacing);
+        this.setSpacing(Math.max(this._spacing, spacingNotTooBig));
     }
 });
