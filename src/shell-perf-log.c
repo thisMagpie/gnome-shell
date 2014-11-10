@@ -126,11 +126,7 @@ G_DEFINE_TYPE(ShellPerfLog, shell_perf_log, G_TYPE_OBJECT);
 static gint64
 get_time (void)
 {
-  GTimeVal timeval;
-
-  g_get_current_time (&timeval);
-
-  return timeval.tv_sec * G_GINT64_CONSTANT(1000000) + timeval.tv_usec;
+  return g_get_monotonic_time ();
 }
 
 static void
@@ -223,6 +219,7 @@ shell_perf_log_set_enabled (ShellPerfLog *perf_log,
           perf_log->statistics_timeout_id = g_timeout_add (STATISTIC_COLLECTION_INTERVAL_MS,
                                                            statistics_timeout,
                                                            perf_log);
+          g_source_set_name_by_id (perf_log->statistics_timeout_id, "[gnome-shell] statistics_timeout");
         }
       else
         {

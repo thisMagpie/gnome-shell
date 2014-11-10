@@ -13,28 +13,36 @@
     </key>
     <key name="enabled-extensions" type="as">
       <default>[]</default>
-      <_summary>Uuids of extensions to enable</_summary>
+      <_summary>UUIDs of extensions to enable</_summary>
       <_description>
-        GNOME Shell extensions have a uuid property; this key lists extensions
+        GNOME Shell extensions have a UUID property; this key lists extensions
         which should be loaded. Any extension that wants to be loaded needs
         to be in this list. You can also manipulate this list with the
-        EnableExtension and DisableExtension DBus methods on org.gnome.Shell.
+        EnableExtension and DisableExtension D-Bus methods on org.gnome.Shell.
+      </_description>
+    </key>
+    <key name="disable-extension-version-validation" type="b">
+      <default>false</default>
+      <_summary>Disables the validation of extension version compatibility</_summary>
+      <_description>
+        GNOME Shell will only load extensions that claim to support the current
+        running version. Enabling this option will disable this check and try to
+        load all extensions regardless of the versions they claim to support.
       </_description>
     </key>
     <key name="favorite-apps" type="as">
-      <default>[ 'epiphany.desktop', 'evolution.desktop', 'empathy.desktop', 'rhythmbox.desktop', 'shotwell.desktop', 'libreoffice-writer.desktop', 'nautilus.desktop', 'gnome-documents.desktop' ]</default>
+      <default>[ 'epiphany.desktop', 'evolution.desktop', 'rhythmbox.desktop', 'shotwell.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Software.desktop' ]</default>
       <_summary>List of desktop file IDs for favorite applications</_summary>
       <_description>
         The applications corresponding to these identifiers
         will be displayed in the favorites area.
       </_description>
     </key>
-    <key name="app-folder-categories" type="as">
-      <default>[ 'Utilities', 'Sundry' ]</default>
-      <_summary>List of categories that should be displayed as folders</_summary>
+    <key name="app-picker-view" type="u">
+      <default>0</default>
+      <_summary>App Picker View</_summary>
       <_description>
-        Each category name in this list will be represented as folder in the
-        application view, rather than being displayed inline in the main view.
+        Index of the currently selected view in the application picker.
       </_description>
     </key>
     <key name="command-history" type="as">
@@ -45,22 +53,12 @@
       <default>[]</default>
       <_summary>History for the looking glass dialog</_summary>
     </key>
-    <key name="saved-im-presence" type="i">
-      <default>1</default>
-      <_summary>Internally used to store the last IM presence explicitly set by the user. The
-value here is from the TpConnectionPresenceType enumeration.</_summary>
-    </key>
-    <key name="saved-session-presence" type="i">
-      <default>0</default>
-      <_summary>Internally used to store the last session presence status for the user. The
-value here is from the GsmPresenceStatus enumeration.</_summary>
-    </key>
     <key name="always-show-log-out" type="b">
       <default>false</default>
-      <_summary>Always show the 'Log out' menuitem in the user menu.</_summary>
+      <_summary>Always show the 'Log out' menu item in the user menu.</_summary>
       <_description>
         This key overrides the automatic hiding of the 'Log out'
-        menuitem in single-user, single-session situations.
+        menu item in single-user, single-session situations.
       </_description>
     </key>
     <key name="remember-mount-password" type="b">
@@ -127,6 +125,11 @@ value here is from the GsmPresenceStatus enumeration.</_summary>
         Keybinding to focus the active notification.
       </_description>
     </key>
+    <key name="pause-resume-tweens" type="as">
+      <default>[]</default>
+      <_summary>Keybinding that pauses and resumes all running tweens, for debugging purposes</_summary>
+      <_description></_description>
+    </key>
   </schema>
 
   <schema id="org.gnome.shell.keyboard" path="/org/gnome/shell/keyboard/"
@@ -145,11 +148,11 @@ value here is from the GsmPresenceStatus enumeration.</_summary>
           gettext-domain="@GETTEXT_PACKAGE@">
     <key type="b" name="current-workspace-only">
       <default>false</default>
-      <summary>Limit switcher to current workspace.</summary>
-      <description>
+      <_summary>Limit switcher to current workspace.</_summary>
+      <_description>
 	If true, only applications that have windows on the current workspace are shown in the switcher.
 	Otherwise, all applications are included.
-      </description>
+      </_description>
     </key>
   </schema>
 
@@ -172,11 +175,11 @@ value here is from the GsmPresenceStatus enumeration.</_summary>
     </key>
     <key type="b" name="current-workspace-only">
       <default>true</default>
-      <summary>Limit switcher to current workspace.</summary>
-      <description>
+      <_summary>Limit switcher to current workspace.</_summary>
+      <_description>
 	If true, only windows from the current workspace are shown in the switcher.
 	Otherwise, all windows are included.
-      </description>
+      </_description>
     </key>
   </schema>
 
@@ -188,15 +191,6 @@ value here is from the GsmPresenceStatus enumeration.</_summary>
       <_description>
         This key overrides the key in org.gnome.mutter when running
         GNOME Shell.
-      </_description>
-    </key>
-
-    <key name="button-layout" type="s">
-      <default>":close"</default>
-      <_summary>Arrangement of buttons on the titlebar</_summary>
-      <_description>
-        This key overrides the key in org.gnome.desktop.wm.preferences when
-        running GNOME Shell.
       </_description>
     </key>
 
@@ -226,10 +220,10 @@ value here is from the GsmPresenceStatus enumeration.</_summary>
 
     <key name="focus-change-on-pointer-rest" type="b">
       <default>true</default>
-      <summary>Delay focus changes in mouse mode until the pointer stops moving</summary>
-      <description>
+      <_summary>Delay focus changes in mouse mode until the pointer stops moving</_summary>
+      <_description>
         This key overrides the key in org.gnome.mutter when running GNOME Shell.
-      </description>
+      </_description>
     </key>
   </schema>
 </schemalist>

@@ -18,6 +18,7 @@ const ExtensionSystem = imports.ui.extensionSystem;
 const ExtensionDownloader = imports.ui.extensionDownloader;
 const Keyboard = imports.ui.keyboard;
 const MessageTray = imports.ui.messageTray;
+const ModalDialog = imports.ui.modalDialog;
 const OsdWindow = imports.ui.osdWindow;
 const Overview = imports.ui.overview;
 const Panel = imports.ui.panel;
@@ -39,10 +40,9 @@ const Magnifier = imports.ui.magnifier;
 const XdndHandler = imports.ui.xdndHandler;
 const Util = imports.misc.util;
 
-const DEFAULT_BACKGROUND_COLOR = Clutter.Color.from_pixel(0x2e3436ff);
-
 const A11Y_SCHEMA = 'org.gnome.desktop.a11y.keyboard';
 const STICKY_KEYS_ENABLE = 'stickykeys-enable';
+const GNOMESHELL_STARTED_MESSAGE_ID = 'f3ea493c22934e26811cd62abe8e203a';
 
 let componentManager = null;
 let panel = null;
@@ -55,7 +55,7 @@ let screenShield = null;
 let notificationDaemon = null;
 let windowAttentionHandler = null;
 let ctrlAltTabManager = null;
-let osdWindow = null;
+let osdWindowManager = null;
 let sessionMode = null;
 let shellDBusService = null;
 let shellMountOpDBusService = null;
@@ -73,7 +73,6 @@ let _startDate;
 let _defaultCssStylesheet = null;
 let _cssStylesheet = null;
 let _a11ySettings = null;
-let dynamicWorkspacesSchema = null;
 
 function _sessionUpdated() {
     _loadDefaultStylesheet();
@@ -90,8 +89,12 @@ function _sessionUpdated() {
                                   Shell.KeyBindingMode.OVERVIEW,
                                   sessionMode.hasRunDialog ? openRunDialog : null);
 
-    if (!sessionMode.hasRunDialog && lookingGlass)
-        lookingGlass.close();
+    if (!sessionMode.hasRunDialog) {
+        if (runDialog)
+            runDialog.close();
+        if (lookingGlass)
+            lookingGlass.close();
+    }
 }
 
 function start() {
@@ -105,30 +108,13 @@ function start() {
     Gio.DesktopAppInfo.set_desktop_env('GNOME');
 
     sessionMode = new SessionMode.SessionMode();
-    sessionMode.connect('sessions-loaded', _sessionsLoaded);
-    sessionMode.init();
-}
-
-function _sessionsLoaded() {
     sessionMode.connect('updated', _sessionUpdated);
-    _initializePrefs();
     _initializeUI();
 
     shellDBusService = new ShellDBus.GnomeShell();
     shellMountOpDBusService = new ShellMountOperation.GnomeShellMountOpHandler();
 
     _sessionUpdated();
-}
-
-function _initializePrefs() {
-    let keys = new Gio.Settings({ schema: sessionMode.overridesSchema }).list_keys();
-    for (let i = 0; i < keys.length; i++)
-        Meta.prefs_override_preference_schema(keys[i], sessionMode.overridesSchema);
-
-    if (keys.indexOf('dynamic-workspaces') > -1)
-        dynamicWorkspacesSchema = sessionMode.overridesSchema;
-    else
-        dynamicWorkspacesSchema = 'org.gnome.mutter';
 }
 
 function _initializeUI() {
@@ -143,6 +129,9 @@ function _initializeUI() {
     Shell.WindowTracker.get_default();
     Shell.AppUsage.get_default();
 
+    let resource = Gio.Resource.load(global.datadir + '/gnome-shell-theme.gresource');
+    resource._register();
+
     _loadDefaultStylesheet();
 
     // Setup the stage hierarchy early
@@ -156,7 +145,7 @@ function _initializeUI() {
     screencastService = new Screencast.ScreencastService();
     xdndHandler = new XdndHandler.XdndHandler();
     ctrlAltTabManager = new CtrlAltTab.CtrlAltTabManager();
-    osdWindow = new OsdWindow.OsdWindow();
+    osdWindowManager = new OsdWindow.OsdWindowManager();
     overview = new Overview.Overview();
     wm = new WindowManager.WindowManager();
     magnifier = new Magnifier.Magnifier();
@@ -173,12 +162,22 @@ function _initializeUI() {
     layoutManager.init();
     overview.init();
 
-    _a11ySettings = new Gio.Settings({ schema: A11Y_SCHEMA });
+    _a11ySettings = new Gio.Settings({ schema_id: A11Y_SCHEMA });
 
     global.display.connect('overlay-key', Lang.bind(overview, function () {
         if (!_a11ySettings.get_boolean (STICKY_KEYS_ENABLE))
             overview.toggle();
     }));
+
+    global.display.connect('show-restart-message', function(display, message) {
+        showRestartMessage(message);
+        return true;
+    });
+
+    global.display.connect('restart', function() {
+        global.reexec_self();
+        return true;
+    });
 
     // Provide the bus object for gnome-session to
     // initiate logouts.
@@ -188,8 +187,6 @@ function _initializeUI() {
     Meta.register_with_session();
 
     _startDate = new Date();
-
-    log('GNOME Shell started at ' + _startDate);
 
     let perfModuleName = GLib.getenv("SHELL_PERF_MODULE");
     if (perfModuleName) {
@@ -208,21 +205,46 @@ function _initializeUI() {
     }
 
     layoutManager.connect('startup-complete', function() {
-                              if (keybindingMode == Shell.KeyBindingMode.NONE) {
-                                  keybindingMode = Shell.KeyBindingMode.NORMAL;
-                              }
-                              if (screenShield) {
-                                  screenShield.lockIfWasLocked();
-                              }
-                          });
+        if (keybindingMode == Shell.KeyBindingMode.NONE) {
+            keybindingMode = Shell.KeyBindingMode.NORMAL;
+        }
+        if (screenShield) {
+            screenShield.lockIfWasLocked();
+        }
+        if (LoginManager.haveSystemd() &&
+            sessionMode.currentMode != 'gdm' &&
+            sessionMode.currentMode != 'initial-setup') {
+            // Do not import globally to not depend
+            // on systemd on non-systemd systems.
+            let GSystem = imports.gi.GSystem;
+            GSystem.log_structured_print('GNOME Shell started at ' + _startDate,
+                                         ['MESSAGE_ID=' + GNOMESHELL_STARTED_MESSAGE_ID]);
+        } else {
+            log('GNOME Shell started at ' + _startDate);
+        }
+    });
+}
+
+function _getDefaultStylesheet() {
+    let stylesheet;
+
+    stylesheet = Gio.File.new_for_uri('resource:///org/gnome/shell/theme/' + sessionMode.stylesheetName);
+    if (stylesheet.query_exists(null))
+        return stylesheet;
+
+    stylesheet = Gio.File.new_for_path(global.datadir + '/theme/' + sessionMode.stylesheetName);
+    if (stylesheet.query_exists(null))
+        return stylesheet;
+
+    return null;
 }
 
 function _loadDefaultStylesheet() {
     if (!sessionMode.isPrimary)
         return;
 
-    let stylesheet = global.datadir + '/theme/' + sessionMode.stylesheetName;
-    if (_defaultCssStylesheet == stylesheet)
+    let stylesheet = _getDefaultStylesheet();
+    if (_defaultCssStylesheet && _defaultCssStylesheet.equal(stylesheet))
         return;
 
     _defaultCssStylesheet = stylesheet;
@@ -237,8 +259,7 @@ function _loadDefaultStylesheet() {
  * Returns: A file path that contains the theme CSS,
  *          null if using the default
  */
-function getThemeStylesheet()
-{
+function getThemeStylesheet() {
     return _cssStylesheet;
 }
 
@@ -249,9 +270,8 @@ function getThemeStylesheet()
  *
  * Set the theme CSS file that the shell will load
  */
-function setThemeStylesheet(cssStylesheet)
-{
-    _cssStylesheet = cssStylesheet;
+function setThemeStylesheet(cssStylesheet) {
+    _cssStylesheet = Gio.File.new_for_path(cssStylesheet);
 }
 
 /**
@@ -449,6 +469,7 @@ function popModal(actor, timestamp) {
     if (modalCount > 0)
         return;
 
+    layoutManager.modalEnded();
     global.end_modal(timestamp);
     Meta.enable_unredirect_for_screen(global.screen);
     keybindingMode = Shell.KeyBindingMode.NORMAL;
@@ -607,7 +628,33 @@ function queueDeferredWork(workId) {
         _deferredTimeoutId = Mainloop.timeout_add_seconds(DEFERRED_TIMEOUT_SECONDS, function () {
             _runAllDeferredWork();
             _deferredTimeoutId = 0;
-            return false;
+            return GLib.SOURCE_REMOVE;
         });
+        GLib.Source.set_name_by_id(_deferredTimeoutId, '[gnome-shell] _runAllDeferredWork');
     }
+}
+
+const RestartMessage = new Lang.Class({
+    Name: 'RestartMessage',
+    Extends: ModalDialog.ModalDialog,
+
+    _init : function(message) {
+        this.parent({ shellReactive: true,
+                      styleClass: 'restart-message',
+                      shouldFadeIn: false,
+                      destroyOnClose: true });
+
+        let label = new St.Label({ text: message });
+
+        this.contentLayout.add(label, { x_fill: false,
+                                        y_fill: false,
+                                        x_align: St.Align.MIDDLE,
+                                        y_align: St.Align.MIDDLE });
+        this.buttonLayout.hide();
+    }
+});
+
+function showRestartMessage(message) {
+    let restartMessage = new RestartMessage(message);
+    restartMessage.open();
 }

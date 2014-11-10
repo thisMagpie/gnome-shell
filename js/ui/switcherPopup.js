@@ -1,6 +1,7 @@
 // -*- mode: js; js-indent-level: 4; indent-tabs-mode: nil -*-
 
 const Clutter = imports.gi.Clutter;
+const GLib = imports.gi.GLib;
 const Gtk = imports.gi.Gtk;
 const Lang = imports.lang;
 const Mainloop = imports.mainloop;
@@ -101,16 +102,17 @@ const SwitcherPopup = new Lang.Class({
         this._switcherList.actor.allocate(childBox, flags);
     },
 
-    _createSwitcher: function() {
-        throw new Error('Not implemented');
-    },
-
     _initialSelection: function(backward, binding) {
-        throw new Error('Not implemented');
+        if (backward)
+            this._select(this._items.length - 1);
+        else if (this._items.length == 1)
+            this._select(0);
+        else
+            this._select(1);
     },
 
     show: function(backward, binding, mask) {
-        if (!this._createSwitcher())
+        if (this._items.length == 0)
             return false;
 
         if (!Main.pushModal(this.actor)) {
@@ -138,11 +140,6 @@ const SwitcherPopup = new Lang.Class({
         this.actor.show();
         this.actor.get_allocation_box();
 
-        if (this._items.length > 1)
-            this._selectedIndex = 1;
-        else
-            this._selectedIndex = 0;
-
         this._initialSelection(backward, binding);
 
         // There's a race condition; if the user released Alt before
@@ -160,10 +157,12 @@ const SwitcherPopup = new Lang.Class({
         // disturbed by the popup briefly flashing.
         this._initialDelayTimeoutId = Mainloop.timeout_add(POPUP_DELAY_TIMEOUT,
                                                            Lang.bind(this, function () {
-                                                               Main.osdWindow.cancel();
+                                                               Main.osdWindowManager.hideAll();
                                                                this.actor.opacity = 255;
                                                                this._initialDelayTimeoutId = 0;
+                                                               return GLib.SOURCE_REMOVE;
                                                            }));
+        GLib.Source.set_name_by_id(this._initialDelayTimeoutId, '[gnome-shell] Main.osdWindow.cancel');
         return true;
     },
 
@@ -175,24 +174,23 @@ const SwitcherPopup = new Lang.Class({
         return mod(this._selectedIndex - 1, this._items.length);
     },
 
-    _keyPressHandler: function(keysym, backwards, action) {
+    _keyPressHandler: function(keysym, action) {
         throw new Error('Not implemented');
     },
 
     _keyPressEvent: function(actor, event) {
         let keysym = event.get_key_symbol();
-        let event_state = event.get_state();
-        let backwards = event_state & Clutter.ModifierType.SHIFT_MASK;
-        let action = global.display.get_keybinding_action(event.get_key_code(), event_state);
+        let action = global.display.get_keybinding_action(event.get_key_code(), event.get_state());
 
         this._disableHover();
 
+        if (this._keyPressHandler(keysym, action) != Clutter.EVENT_PROPAGATE)
+            return Clutter.EVENT_STOP;
+
         if (keysym == Clutter.Escape)
             this.destroy();
-        else
-            this._keyPressHandler(keysym, backwards, action);
 
-        return true;
+        return Clutter.EVENT_STOP;
     },
 
     _keyReleaseEvent: function(actor, event) {
@@ -202,11 +200,12 @@ const SwitcherPopup = new Lang.Class({
         if (state == 0)
             this._finish(event.get_time());
 
-        return true;
+        return Clutter.EVENT_STOP;
     },
 
     _clickedOutside: function(actor, event) {
         this.destroy();
+        return Clutter.EVENT_PROPAGATE;
     },
 
     _scrollHandler: function(direction) {
@@ -218,6 +217,7 @@ const SwitcherPopup = new Lang.Class({
 
     _scrollEvent: function(actor, event) {
         this._scrollHandler(event.get_scroll_direction());
+        return Clutter.EVENT_PROPAGATE;
     },
 
     _itemActivatedHandler: function(n) {
@@ -246,11 +246,13 @@ const SwitcherPopup = new Lang.Class({
             Mainloop.source_remove(this._motionTimeoutId);
 
         this._motionTimeoutId = Mainloop.timeout_add(DISABLE_HOVER_TIMEOUT, Lang.bind(this, this._mouseTimedOut));
+        GLib.Source.set_name_by_id(this._motionTimeoutId, '[gnome-shell] this._mouseTimedOut');
     },
 
     _mouseTimedOut: function() {
         this._motionTimeoutId = 0;
         this.mouseActive = true;
+        return GLib.SOURCE_REMOVE;
     },
 
     _popModal: function() {
@@ -400,6 +402,7 @@ const SwitcherList = new Lang.Class({
 
     _onItemEnter: function (index) {
         this._itemEntered(index);
+        return Clutter.EVENT_PROPAGATE;
     },
 
     highlight: function(index, justOutline) {
@@ -446,10 +449,9 @@ const SwitcherList = new Lang.Class({
                            time: POPUP_SCROLL_TIME,
                            transition: 'easeOutQuad',
                            onComplete: Lang.bind(this, function () {
-                                if (this._highlighted == 0) {
+                                if (this._highlighted == 0)
                                     this._scrollableLeft = false;
-                                    this.actor.queue_relayout();
-                                }
+                                this.actor.queue_relayout();
                            })
                           });
     },
@@ -471,10 +473,9 @@ const SwitcherList = new Lang.Class({
                            time: POPUP_SCROLL_TIME,
                            transition: 'easeOutQuad',
                            onComplete: Lang.bind(this, function () {
-                                if (this._highlighted == this._items.length - 1) {
+                                if (this._highlighted == this._items.length - 1)
                                     this._scrollableRight = false;
-                                    this.actor.queue_relayout();
-                                }
+                                this.actor.queue_relayout();
                             })
                           });
     },
@@ -509,7 +510,7 @@ const SwitcherList = new Lang.Class({
     _getPreferredWidth: function (actor, forHeight, alloc) {
         let [maxChildMin, maxChildNat] = this._maxChildWidth(forHeight);
 
-        let totalSpacing = this._list.spacing * (this._items.length - 1);
+        let totalSpacing = Math.max(this._list.spacing * (this._items.length - 1), 0);
         alloc.min_size = this._items.length * maxChildMin + totalSpacing;
         alloc.natural_size = alloc.min_size;
         this._minSize = alloc.min_size;
@@ -539,7 +540,7 @@ const SwitcherList = new Lang.Class({
         let childHeight = box.y2 - box.y1;
 
         let [maxChildMin, maxChildNat] = this._maxChildWidth(childHeight);
-        let totalSpacing = this._list.spacing * (this._items.length - 1);
+        let totalSpacing = Math.max(this._list.spacing * (this._items.length - 1), 0);
 
         let childWidth = Math.floor(Math.max(0, box.x2 - box.x1 - totalSpacing) / this._items.length);
 

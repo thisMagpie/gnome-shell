@@ -13,9 +13,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Authors: David Zeuthen <davidz@redhat.com>
  *          Cosimo Cecchi <cosimoc@redhat.com>
@@ -78,6 +76,7 @@ ensure_autoquit_on (void)
   autoquit_id = 
     g_timeout_add_seconds (AUTOQUIT_TIMEOUT,
                            autoquit_timeout_cb, NULL);
+  g_source_set_name_by_id (autoquit_id, "[gnome-shell] autoquit_timeout_cb");
 }
 
 typedef struct {

@@ -10,13 +10,14 @@ const FileUtils = imports.misc.fileUtils;
 const Main = imports.ui.main;
 const Params = imports.misc.params;
 
+const Config = imports.misc.config;
+
 const DEFAULT_MODE = 'restrictive';
 
 const _modes = {
     'restrictive': {
         parentMode: null,
         stylesheetName: 'gnome-shell.css',
-        overridesSchema: 'org.gnome.shell.overrides',
         hasOverview: false,
         showCalendarEvents: false,
         allowSettings: false,
@@ -92,8 +93,12 @@ const _modes = {
         isLocked: false,
         isPrimary: true,
         unlockDialog: imports.ui.unlockDialog.UnlockDialog,
-        components: ['networkAgent', 'polkitAgent', 'telepathyClient',
+        components: Config.HAVE_NETWORKMANAGER ?
+                    ['networkAgent', 'polkitAgent', 'telepathyClient',
+                     'keyring', 'autorunManager', 'automountManager'] :
+                    ['polkitAgent', 'telepathyClient',
                      'keyring', 'autorunManager', 'automountManager'],
+
         panel: {
             left: ['activities', 'appMenu'],
             center: ['dateMenu'],
@@ -102,19 +107,12 @@ const _modes = {
     }
 };
 
-function _getModes(modesLoadedCallback) {
-    FileUtils.collectFromDatadirsAsync('modes',
-                                       { processFile: _loadMode,
-                                         loadedCallback: modesLoadedCallback,
-                                         data: _modes });
-}
-
-function _loadMode(file, info, loadedData) {
+function _loadMode(file, info) {
     let name = info.get_name();
     let suffix = name.indexOf('.json');
     let modeName = suffix == -1 ? name : name.slice(name, suffix);
 
-    if (loadedData.hasOwnProperty(modeName))
+    if (_modes.hasOwnProperty(modeName))
         return;
 
     let fileContent, success, tag, newMode;
@@ -125,41 +123,43 @@ function _loadMode(file, info, loadedData) {
         return;
     }
 
-    loadedData[modeName] = {};
+    _modes[modeName] = {};
     let propBlacklist = ['unlockDialog'];
-    for (let prop in loadedData[DEFAULT_MODE]) {
+    for (let prop in _modes[DEFAULT_MODE]) {
         if (newMode[prop] !== undefined &&
             propBlacklist.indexOf(prop) == -1)
-            loadedData[modeName][prop]= newMode[prop];
+            _modes[modeName][prop] = newMode[prop];
     }
-    loadedData[modeName]['isPrimary'] = true;
+    _modes[modeName]['isPrimary'] = true;
+}
+
+function _loadModes() {
+    FileUtils.collectFromDatadirs('modes', false, _loadMode);
 }
 
 function listModes() {
-    _getModes(function(modes) {
-        let names = Object.getOwnPropertyNames(modes);
+    _loadModes();
+    let id = Mainloop.idle_add(function() {
+        let names = Object.getOwnPropertyNames(_modes);
         for (let i = 0; i < names.length; i++)
             if (_modes[names[i]].isPrimary)
                 print(names[i]);
         Mainloop.quit('listModes');
     });
+    GLib.Source.set_name_by_id(id, '[gnome-shell] listModes');
     Mainloop.run('listModes');
 }
 
 const SessionMode = new Lang.Class({
     Name: 'SessionMode',
 
-    init: function() {
-        _getModes(Lang.bind(this, function(modes) {
-            this._modes = modes;
-            let primary = modes[global.session_mode] &&
-                          modes[global.session_mode].isPrimary;
-            let mode = primary ? global.session_mode : 'user';
-            this._modeStack = [mode];
-            this._sync();
-
-            this.emit('sessions-loaded');
-        }));
+    _init: function() {
+        _loadModes();
+        let isPrimary = (_modes[global.session_mode] &&
+                         _modes[global.session_mode].isPrimary);
+        let mode = isPrimary ? global.session_mode : 'user';
+        this._modeStack = [mode];
+        this._sync();
     },
 
     pushMode: function(mode) {
@@ -186,13 +186,13 @@ const SessionMode = new Lang.Class({
     },
 
     _sync: function() {
-        let params = this._modes[this.currentMode];
+        let params = _modes[this.currentMode];
         let defaults;
         if (params.parentMode)
-            defaults = Params.parse(this._modes[params.parentMode],
-                                    this._modes[DEFAULT_MODE]);
+            defaults = Params.parse(_modes[params.parentMode],
+                                    _modes[DEFAULT_MODE]);
         else
-            defaults = this._modes[DEFAULT_MODE];
+            defaults = _modes[DEFAULT_MODE];
         params = Params.parse(params, defaults);
 
         // A simplified version of Lang.copyProperties, handles

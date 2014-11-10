@@ -70,9 +70,10 @@ StTextureCache* st_texture_cache_get_default (void);
 
 ClutterActor *
 st_texture_cache_load_sliced_image (StTextureCache *cache,
-                                    const gchar    *path,
+                                    GFile          *file,
                                     gint            grid_width,
                                     gint            grid_height,
+                                    gint            scale,
                                     GFunc           load_callback,
                                     gpointer        user_data);
 
@@ -83,18 +84,22 @@ ClutterActor *st_texture_cache_bind_pixbuf_property (StTextureCache    *cache,
 ClutterActor *st_texture_cache_load_gicon (StTextureCache *cache,
                                            StThemeNode    *theme_node,
                                            GIcon          *icon,
-                                           gint            size);
+                                           gint            size,
+                                           gint            scale);
 
-ClutterActor *st_texture_cache_load_uri_async (StTextureCache    *cache,
-                                               const gchar       *uri,
-                                               int                available_width,
-                                               int                available_height);
+ClutterActor *st_texture_cache_load_file_async (StTextureCache    *cache,
+                                                GFile             *file,
+                                                int                available_width,
+                                                int                available_height,
+                                                int                scale);
 
-CoglHandle    st_texture_cache_load_file_to_cogl_texture (StTextureCache *cache,
-                                                          const gchar    *file_path);
+CoglTexture     *st_texture_cache_load_file_to_cogl_texture (StTextureCache *cache,
+                                                             GFile          *file,
+                                                             gint            scale);
 
 cairo_surface_t *st_texture_cache_load_file_to_cairo_surface (StTextureCache *cache,
-                                                              const gchar    *file_path);
+                                                              GFile          *file,
+                                                              gint            scale);
 
 /**
  * StTextureCacheLoader: (skip)
@@ -107,13 +112,13 @@ cairo_surface_t *st_texture_cache_load_file_to_cairo_surface (StTextureCache *ca
  * texture handle for the given key, or set @error.
  *
  */
-typedef CoglHandle (*StTextureCacheLoader) (StTextureCache *cache, const char *key, void *data, GError **error);
+typedef CoglTexture * (*StTextureCacheLoader) (StTextureCache *cache, const char *key, void *data, GError **error);
 
-CoglHandle st_texture_cache_load (StTextureCache       *cache,
-                                  const char           *key,
-                                  StTextureCachePolicy  policy,
-                                  StTextureCacheLoader  load,
-                                  void                 *data,
-                                  GError              **error);
+CoglTexture * st_texture_cache_load (StTextureCache       *cache,
+                                     const char           *key,
+                                     StTextureCachePolicy  policy,
+                                     StTextureCacheLoader  load,
+                                     void                 *data,
+                                     GError              **error);
 
 #endif /* __ST_TEXTURE_CACHE_H__ */

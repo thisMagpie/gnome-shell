@@ -1,5 +1,6 @@
 // -*- mode: js; js-indent-level: 4; indent-tabs-mode: nil -*-
 
+const Clutter = imports.gi.Clutter;
 const Gio = imports.gi.Gio;
 const GLib = imports.gi.GLib;
 const Lang = imports.lang;
@@ -13,7 +14,6 @@ const Tp = imports.gi.TelepathyGLib;
 const History = imports.misc.history;
 const Main = imports.ui.main;
 const MessageTray = imports.ui.messageTray;
-const NotificationDaemon = imports.ui.notificationDaemon;
 const Params = imports.misc.params;
 const PopupMenu = imports.ui.popupMenu;
 
@@ -29,10 +29,14 @@ const SCROLLBACK_HISTORY_LINES = 10;
 // See Notification._onEntryChanged
 const COMPOSING_STOP_TIMEOUT = 5;
 
+const CLOCK_FORMAT_KEY = 'clock-format';
+
 const NotificationDirection = {
     SENT: 'chat-sent',
     RECEIVED: 'chat-received'
 };
+
+const N_ = function(s) { return s; };
 
 function makeMessageFromTpMessage(tpMessage, direction) {
     let [text, flags] = tpMessage.to_text();
@@ -416,7 +420,7 @@ const TelepathyClient = new Lang.Class({
     _ensureAppSource: function() {
         if (this._appSource == null) {
             this._appSource = new MessageTray.Source(_("Chat"), 'empathy');
-            this._appSource.policy = new NotificationDaemon.NotificationApplicationPolicy('empathy');
+            this._appSource.policy = new MessageTray.NotificationApplicationPolicy('empathy');
 
             Main.messageTray.add(this._appSource);
             this._appSource.connect('destroy', Lang.bind(this, function () {
@@ -447,6 +451,7 @@ const ChatSource = new Lang.Class({
         this._closedId = this._channel.connect('invalidated', Lang.bind(this, this._channelClosed));
 
         this._notification = new ChatNotification(this);
+        this._notification.connect('clicked', Lang.bind(this, this.open));
         this._notification.setUrgency(MessageTray.Urgency.HIGH);
         this._notifyTimeoutId = 0;
 
@@ -488,7 +493,7 @@ const ChatSource = new Lang.Class({
     },
 
     _createPolicy: function() {
-        return new NotificationDaemon.NotificationApplicationPolicy('empathy');
+        return new MessageTray.NotificationApplicationPolicy('empathy');
     },
 
     _updateAlias: function() {
@@ -545,20 +550,19 @@ const ChatSource = new Lang.Class({
         this._notification.update(this._notification.title, null, { customContent: true });
     },
 
-    open: function(notification) {
-          if (this._client.is_handling_channel(this._channel)) {
-              // We are handling the channel, try to pass it to Empathy
-              this._client.delegate_channels_async([this._channel],
-                  global.get_current_time(),
-                  'org.freedesktop.Telepathy.Client.Empathy.Chat', null);
-          }
-          else {
-              // We are not the handler, just ask to present the channel
-              let dbus = Tp.DBusDaemon.dup();
-              let cd = Tp.ChannelDispatcher.new(dbus);
+    open: function() {
+        if (this._client.is_handling_channel(this._channel)) {
+            // We are handling the channel, try to pass it to Empathy
+            this._client.delegate_channels_async([this._channel],
+                                                 global.get_current_time(),
+                                                 'org.freedesktop.Telepathy.Client.Empathy.Chat', null);
+        } else {
+            // We are not the handler, just ask to present the channel
+            let dbus = Tp.DBusDaemon.dup();
+            let cd = Tp.ChannelDispatcher.new(dbus);
 
-              cd.present_channel_async(this._channel, global.get_current_time(), null);
-          }
+            cd.present_channel_async(this._channel, global.get_current_time(), null);
+        }
     },
 
     _getLogMessages: function() {
@@ -622,7 +626,11 @@ const ChatSource = new Lang.Class({
             this.notify();
     },
 
-    _channelClosed: function() {
+    destroy: function(reason) {
+        if (this._destroyed)
+            return;
+
+        this._destroyed = true;
         this._channel.disconnect(this._closedId);
         this._channel.disconnect(this._receivedId);
         this._channel.disconnect(this._pendingId);
@@ -632,7 +640,14 @@ const ChatSource = new Lang.Class({
         this._contact.disconnect(this._notifyAvatarId);
         this._contact.disconnect(this._presenceChangedId);
 
-        this.destroy();
+        if (this._timestampTimeoutId)
+            Mainloop.source_remove(this._timestampTimeoutId);
+
+        this.parent(reason);
+    },
+
+    _channelClosed: function() {
+        this.destroy(MessageTray.NotificationDestroyedReason.SOURCE_CLOSED);
     },
 
     /* All messages are new messages for Telepathy sources */
@@ -668,6 +683,7 @@ const ChatSource = new Lang.Class({
             Mainloop.source_remove(this._notifyTimeoutId);
         this._notifyTimeoutId = Mainloop.timeout_add(500,
             Lang.bind(this, this._notifyTimeout));
+        GLib.Source.set_name_by_id(this._notifyTimeoutId, '[gnome-shell] this._notifyTimeout');
     },
 
     _notifyTimeout: function() {
@@ -676,7 +692,7 @@ const ChatSource = new Lang.Class({
 
         this._notifyTimeoutId = 0;
 
-        return false;
+        return GLib.SOURCE_REMOVE;
     },
 
     // This is called for both messages we send from
@@ -769,7 +785,6 @@ const ChatNotification = new Lang.Class({
 
         this._createScrollArea();
         this._lastGroup = null;
-        this._lastGroupActor = null;
 
         // Keep track of the bottom position for the current adjustment and
         // force a scroll to the bottom if things change while we were at the
@@ -850,13 +865,6 @@ const ChatNotification = new Lang.Class({
             for (let i = 0; i < expired.length; i++)
                 expired[i].actor.destroy();
         }
-
-        let groups = this._contentArea.get_children();
-        for (let i = 0; i < groups.length; i++) {
-            let group = groups[i];
-            if (group.get_n_children() == 0)
-                group.destroy();
-        }
     },
 
     /**
@@ -895,30 +903,35 @@ const ChatNotification = new Lang.Class({
 
         let group = props.group;
         if (group != this._lastGroup) {
-            let style = 'chat-group-' + group;
             this._lastGroup = group;
-            this._lastGroupActor = new St.BoxLayout({ style_class: style,
-                                                      vertical: true });
-            this.addActor(this._lastGroupActor);
+            let emptyLine = new St.Label({ style_class: 'chat-empty-line' });
+            this.addActor(emptyLine);
+            this._history.unshift({ actor: emptyLine, time: timestamp,
+                                    realMessage: false });
         }
 
-        this._lastGroupActor.add(body, props.childProps);
+        let lineBox = new St.BoxLayout({ vertical: false });
+        lineBox.add(body, props.childProps);
+        this.addActor(lineBox);
+        this._lastMessageBox = lineBox;
 
         this.updated();
 
         let timestamp = props.timestamp;
-        this._history.unshift({ actor: body, time: timestamp,
+        this._history.unshift({ actor: lineBox, time: timestamp,
                                 realMessage: group != 'meta' });
 
         if (!props.noTimestamp) {
-            if (timestamp < currentTime - SCROLLBACK_IMMEDIATE_TIME)
+            if (timestamp < currentTime - SCROLLBACK_IMMEDIATE_TIME) {
                 this.appendTimestamp();
-            else
+            } else {
                 // Schedule a new timestamp in SCROLLBACK_IMMEDIATE_TIME
                 // from the timestamp of the message.
                 this._timestampTimeoutId = Mainloop.timeout_add_seconds(
                     SCROLLBACK_IMMEDIATE_TIME - (currentTime - timestamp),
                     Lang.bind(this, this.appendTimestamp));
+                GLib.Source.set_name_by_id(this._timestampTimeoutId, '[gnome-shell] this.appendTimestamp');
+            }
         }
 
         this._filterMessages();
@@ -931,50 +944,98 @@ const ChatNotification = new Lang.Class({
 
         let format;
 
-        // Show only the hour if date is on today
-        if(daysAgo < 1){
-            format = "<b>%H:%M</b>";
-        }
-        // Show the word "Yesterday" and time if date is on yesterday
-        else if(daysAgo <2){
-            /* Translators: this is the word "Yesterday" followed by a time string. i.e. "Yesterday, 14:30"*/
-            // xgettext:no-c-format
-            format = _("<b>Yesterday</b>, <b>%H:%M</b>");
-        }
-        // Show a week day and time if date is in the last week
-        else if (daysAgo < 7) {
-            /* Translators: this is the week day name followed by a time string. i.e. "Monday, 14:30*/
-            // xgettext:no-c-format
-            format = _("<b>%A</b>, <b>%H:%M</b>");
+        let desktopSettings = new Gio.Settings({ schema_id: 'org.gnome.desktop.interface' });
+        let clockFormat = desktopSettings.get_string(CLOCK_FORMAT_KEY);
+        let hasAmPm = date.toLocaleFormat('%p') != '';
 
-        } else if (date.getYear() == now.getYear()) {
-            /* Translators: this is the month name and day number followed by a time string. i.e. "May 25, 14:30"*/
-            // xgettext:no-c-format
-            format = _("<b>%B</b> <b>%d</b>, <b>%H:%M</b>");
+        if (clockFormat == '24h' || !hasAmPm) {
+            // Show only the time if date is on today
+            if(daysAgo < 1){
+                /* Translators: Time in 24h format */
+                format = N_("%H\u2236%M");
+            }
+            // Show the word "Yesterday" and time if date is on yesterday
+            else if(daysAgo <2){
+                /* Translators: this is the word "Yesterday" followed by a
+                 time string in 24h format. i.e. "Yesterday, 14:30" */
+                // xgettext:no-c-format
+                format = N_("Yesterday, %H\u2236%M");
+            }
+            // Show a week day and time if date is in the last week
+            else if (daysAgo < 7) {
+                /* Translators: this is the week day name followed by a time
+                 string in 24h format. i.e. "Monday, 14:30" */
+                // xgettext:no-c-format
+                format = N_("%A, %H\u2236%M");
+
+            } else if (date.getYear() == now.getYear()) {
+                /* Translators: this is the month name and day number
+                 followed by a time string in 24h format.
+                 i.e. "May 25, 14:30" */
+                // xgettext:no-c-format
+                format = N_("%B %d, %H\u2236%M");
+            } else {
+                /* Translators: this is the month name, day number, year
+                 number followed by a time string in 24h format.
+                 i.e. "May 25 2012, 14:30" */
+                // xgettext:no-c-format
+                format = N_("%B %d %Y, %H\u2236%M");
+            }
         } else {
-            /* Translators: this is the month name, day number, year number followed by a time string. i.e. "May 25 2012, 14:30"*/
-            // xgettext:no-c-format
-            format = _("<b>%B</b> <b>%d</b> <b>%Y</b>, <b>%H:%M</b> ");
-        }
+            // Show only the time if date is on today
+            if(daysAgo < 1){
+                /* Translators: Time in 24h format */
+                format = N_("%l\u2236%M %p");
+            }
+            // Show the word "Yesterday" and time if date is on yesterday
+            else if(daysAgo <2){
+                /* Translators: this is the word "Yesterday" followed by a
+                 time string in 12h format. i.e. "Yesterday, 2:30 pm" */
+                // xgettext:no-c-format
+                format = N_("Yesterday, %l\u2236%M %p");
+            }
+            // Show a week day and time if date is in the last week
+            else if (daysAgo < 7) {
+                /* Translators: this is the week day name followed by a time
+                 string in 12h format. i.e. "Monday, 2:30 pm" */
+                // xgettext:no-c-format
+                format = N_("%A, %l\u2236%M %p");
 
-        return date.toLocaleFormat(format);
+            } else if (date.getYear() == now.getYear()) {
+                /* Translators: this is the month name and day number
+                 followed by a time string in 12h format.
+                 i.e. "May 25, 2:30 pm" */
+                // xgettext:no-c-format
+                format = N_("%B %d, %l\u2236%M %p");
+            } else {
+                /* Translators: this is the month name, day number, year
+                 number followed by a time string in 12h format.
+                 i.e. "May 25 2012, 2:30 pm"*/
+                // xgettext:no-c-format
+                format = N_("%B %d %Y, %l\u2236%M %p");
+            }
+        }
+        return date.toLocaleFormat(Shell.util_translate_time_string(format));
     },
 
     appendTimestamp: function() {
+        this._timestampTimeoutId = 0;
+
         let lastMessageTime = this._history[0].time;
         let lastMessageDate = new Date(lastMessageTime * 1000);
 
-        let timeLabel = this._append({ body: this._formatTimestamp(lastMessageDate),
-                                       group: 'meta',
-                                       styles: ['chat-meta-message'],
-                                       childProps: { expand: true, x_fill: false,
-                                                     x_align: St.Align.END },
-                                       noTimestamp: true,
-                                       timestamp: lastMessageTime });
+        let timeLabel = new St.Label({ text: this._formatTimestamp(lastMessageDate),
+                                       style_class: 'chat-meta-message',
+                                       x_expand: true,
+                                       y_expand: true,
+                                       x_align: Clutter.ActorAlign.END,
+                                       y_align: Clutter.ActorAlign.END });
+
+        this._lastMessageBox.add_actor(timeLabel);
 
         this._filterMessages();
 
-        return false;
+        return GLib.SOURCE_REMOVE;
     },
 
     appendAliasChange: function(oldAlias, newAlias) {
@@ -1012,7 +1073,7 @@ const ChatNotification = new Lang.Class({
 
         this.source.setChatState(Tp.ChannelChatState.PAUSED);
 
-        return false;
+        return GLib.SOURCE_REMOVE;
     },
 
     _onEntryChanged: function() {
@@ -1035,6 +1096,7 @@ const ChatNotification = new Lang.Class({
             this._composingTimeoutId = Mainloop.timeout_add_seconds(
                 COMPOSING_STOP_TIMEOUT,
                 Lang.bind(this, this._composingStopTimeout));
+            GLib.Source.set_name_by_id(this._composingTimeoutId, '[gnome-shell] this._composingStopTimeout');
         } else {
             this.source.setChatState(Tp.ChannelChatState.ACTIVE);
         }
@@ -1061,7 +1123,7 @@ const ApproverSource = new Lang.Class({
     },
 
     _createPolicy: function() {
-        return new NotificationDaemon.NotificationApplicationPolicy('empathy');
+        return new MessageTray.NotificationApplicationPolicy('empathy');
     },
 
     destroy: function() {
@@ -1096,22 +1158,16 @@ const RoomInviteNotification = new Lang.Class({
          * for example. */
         this.addBody(_("%s is inviting you to join %s").format(inviter.get_alias(), channel.get_identifier()));
 
-        this.addButton('decline', _("Decline"));
-        this.addButton('accept', _("Accept"));
-
-        this.connect('action-invoked', Lang.bind(this, function(self, action) {
-            switch (action) {
-            case 'decline':
-                dispatchOp.leave_channels_async(Tp.ChannelGroupChangeReason.NONE,
-                                                '', function(src, result) {
-                    src.leave_channels_finish(result)});
-                break;
-            case 'accept':
-                dispatchOp.handle_with_time_async('', global.get_current_time(),
-                                                  function(src, result) {
-                    src.handle_with_time_finish(result)});
-                break;
-            }
+        this.addAction(_("Decline"), Lang.bind(this, function() {
+            dispatchOp.leave_channels_async(Tp.ChannelGroupChangeReason.NONE, '', function(src, result) {
+                src.leave_channels_finish(result);
+            });
+            this.destroy();
+        }));
+        this.addAction(_("Accept"), Lang.bind(this, function() {
+            dispatchOp.handle_with_time_async('', global.get_current_time(), function(src, result) {
+                src.handle_with_time_finish(result);
+            });
             this.destroy();
         }));
     }
@@ -1137,23 +1193,17 @@ const AudioVideoNotification = new Lang.Class({
 
         this.setUrgency(MessageTray.Urgency.CRITICAL);
 
-        this.addButton('reject', _("Decline"));
+        this.addAction(_("Decline"), Lang.bind(this, function() {
+            dispatchOp.leave_channels_async(Tp.ChannelGroupChangeReason.NONE, '', function(src, result) {
+                src.leave_channels_finish(result);
+            });
+            this.destroy();
+        }));
         /* translators: this is a button label (verb), not a noun */
-        this.addButton('answer', _("Answer"));
-
-        this.connect('action-invoked', Lang.bind(this, function(self, action) {
-            switch (action) {
-            case 'reject':
-                dispatchOp.leave_channels_async(Tp.ChannelGroupChangeReason.NONE,
-                                                '', function(src, result) {
-                    src.leave_channels_finish(result)});
-                break;
-            case 'answer':
-                dispatchOp.handle_with_time_async('', global.get_current_time(),
-                                                  function(src, result) {
-                    src.handle_with_time_finish(result)});
-                break;
-            }
+        this.addAction(_("Answer"), Lang.bind(this, function() {
+            dispatchOp.handle_with_time_async('', global.get_current_time(), function(src, result) {
+                src.handle_with_time_finish(result);
+            });
             this.destroy();
         }));
     }
@@ -1177,22 +1227,16 @@ const FileTransferNotification = new Lang.Class({
                     { customContent: true });
         this.setResident(true);
 
-        this.addButton('decline', _("Decline"));
-        this.addButton('accept', _("Accept"));
-
-        this.connect('action-invoked', Lang.bind(this, function(self, action) {
-            switch (action) {
-            case 'decline':
-                dispatchOp.leave_channels_async(Tp.ChannelGroupChangeReason.NONE,
-                                                '', function(src, result) {
-                    src.leave_channels_finish(result)});
-                break;
-            case 'accept':
-                dispatchOp.handle_with_time_async('', global.get_current_time(),
-                                                  function(src, result) {
-                    src.handle_with_time_finish(result)});
-                break;
-            }
+        this.addAction(_("Decline"), Lang.bind(this, function() {
+            dispatchOp.leave_channels_async(Tp.ChannelGroupChangeReason.NONE, '', function(src, result) {
+                src.leave_channels_finish(result);
+            });
+            this.destroy();
+        }));
+        this.addAction(_("Accept"), Lang.bind(this, function() {
+            dispatchOp.handle_with_time_async('', global.get_current_time(), function(src, result) {
+                src.handle_with_time_finish(result);
+            });
             this.destroy();
         }));
     }
@@ -1222,8 +1266,8 @@ const SubscriptionRequestNotification = new Lang.Class({
         let file = contact.get_avatar_file();
 
         if (file) {
-            let uri = file.get_uri();
-            iconBox.child = textureCache.load_uri_async(uri, iconBox._size, iconBox._size);
+            let scaleFactor = St.ThemeContext.get_for_stage(global.stage).scale_factor;
+            iconBox.child = textureCache.load_file_async(file, iconBox._size, iconBox._size, scaleFactor);
         }
         else {
             iconBox.child = new St.Icon({ icon_name: 'avatar-default',
@@ -1240,27 +1284,20 @@ const SubscriptionRequestNotification = new Lang.Class({
 
         this.addActor(layout);
 
-        this.addButton('decline', _("Decline"));
-        this.addButton('accept', _("Accept"));
+        this.addAction(_("Decline"), Lang.bind(this, function() {
+            contact.remove_async(function(src, result) {
+                src.remove_finish(result);
+            });
+        }));
+        this.addAction(_("Accept"), Lang.bind(this, function() {
+            // Authorize the contact and request to see his status as well
+            contact.authorize_publication_async(function(src, result) {
+                src.authorize_publication_finish(result);
+            });
 
-        this.connect('action-invoked', Lang.bind(this, function(self, action) {
-            switch (action) {
-            case 'decline':
-                contact.remove_async(function(src, result) {
-                    src.remove_finish(result)});
-                break;
-            case 'accept':
-                // Authorize the contact and request to see his status as well
-                contact.authorize_publication_async(function(src, result) {
-                    src.authorize_publication_finish(result)});
-
-                contact.request_subscription_async('', function(src, result) {
-                    src.request_subscription_finish(result)});
-                break;
-            }
-
-            // rely on _subscriptionStatesChangedCb to destroy the
-            // notification
+            contact.request_subscription_async('', function(src, result) {
+                src.request_subscription_finish(result);
+            });
         }));
 
         this._changedId = contact.connect('subscription-states-changed',
@@ -1359,18 +1396,11 @@ const AccountNotification = new Lang.Class({
 
         this._account = account;
 
-        this.addButton('view', _("View account"));
-
-        this.connect('action-invoked', Lang.bind(this, function(self, action) {
-            switch (action) {
-            case 'view':
-                let cmd = 'empathy-accounts --select-account=' +
-                          account.get_path_suffix();
-                let app_info = Gio.app_info_create_from_commandline(cmd, null, 0);
-                app_info.launch([], global.create_app_launch_context());
-                break;
-            }
-            this.destroy();
+        this.addAction(_("View account"), Lang.bind(this, function() {
+            let cmd = 'empathy-accounts --select-account=' +
+                account.get_path_suffix();
+            let app_info = Gio.app_info_create_from_commandline(cmd, null, 0);
+            app_info.launch([], global.create_app_launch_context(0, -1));
         }));
 
         this._enabledId = account.connect('notify::enabled',
@@ -1388,7 +1418,12 @@ const AccountNotification = new Lang.Class({
                 if (status == Tp.ConnectionStatus.CONNECTED) {
                     this.destroy();
                 } else if (status == Tp.ConnectionStatus.DISCONNECTED) {
-                    this.update(this.title, this._getMessage(account.connection_error));
+                    let connectionError = account.connection_error;
+
+                    if (connectionError == Tp.error_get_dbus_name(Tp.Error.CANCELLED))
+                        this.destroy();
+                    else
+                        this.update(this.title, this._getMessage(connectionError));
                 }
             }));
     },

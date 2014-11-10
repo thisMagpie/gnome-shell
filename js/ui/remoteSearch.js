@@ -7,58 +7,63 @@ const Lang = imports.lang;
 const St = imports.gi.St;
 const Shell = imports.gi.Shell;
 
+const FileUtils = imports.misc.fileUtils;
 const Search = imports.ui.search;
 
 const KEY_FILE_GROUP = 'Shell Search Provider';
 
-const SearchProviderIface = <interface name="org.gnome.Shell.SearchProvider">
-<method name="GetInitialResultSet">
-    <arg type="as" direction="in" />
-    <arg type="as" direction="out" />
-</method>
-<method name="GetSubsearchResultSet">
-    <arg type="as" direction="in" />
-    <arg type="as" direction="in" />
-    <arg type="as" direction="out" />
-</method>
-<method name="GetResultMetas">
-    <arg type="as" direction="in" />
-    <arg type="aa{sv}" direction="out" />
-</method>
-<method name="ActivateResult">
-    <arg type="s" direction="in" />
-</method>
-</interface>;
+const SearchProviderIface = '<node> \
+<interface name="org.gnome.Shell.SearchProvider"> \
+<method name="GetInitialResultSet"> \
+    <arg type="as" direction="in" /> \
+    <arg type="as" direction="out" /> \
+</method> \
+<method name="GetSubsearchResultSet"> \
+    <arg type="as" direction="in" /> \
+    <arg type="as" direction="in" /> \
+    <arg type="as" direction="out" /> \
+</method> \
+<method name="GetResultMetas"> \
+    <arg type="as" direction="in" /> \
+    <arg type="aa{sv}" direction="out" /> \
+</method> \
+<method name="ActivateResult"> \
+    <arg type="s" direction="in" /> \
+</method> \
+</interface> \
+</node>';
 
-const SearchProvider2Iface = <interface name="org.gnome.Shell.SearchProvider2">
-<method name="GetInitialResultSet">
-    <arg type="as" direction="in" />
-    <arg type="as" direction="out" />
-</method>
-<method name="GetSubsearchResultSet">
-    <arg type="as" direction="in" />
-    <arg type="as" direction="in" />
-    <arg type="as" direction="out" />
-</method>
-<method name="GetResultMetas">
-    <arg type="as" direction="in" />
-    <arg type="aa{sv}" direction="out" />
-</method>
-<method name="ActivateResult">
-    <arg type="s" direction="in" />
-    <arg type="as" direction="in" />
-    <arg type="u" direction="in" />
-</method>
-<method name="LaunchSearch">
-    <arg type="as" direction="in" />
-    <arg type="u" direction="in" />
-</method>
-</interface>;
+const SearchProvider2Iface = '<node> \
+<interface name="org.gnome.Shell.SearchProvider2"> \
+<method name="GetInitialResultSet"> \
+    <arg type="as" direction="in" /> \
+    <arg type="as" direction="out" /> \
+</method> \
+<method name="GetSubsearchResultSet"> \
+    <arg type="as" direction="in" /> \
+    <arg type="as" direction="in" /> \
+    <arg type="as" direction="out" /> \
+</method> \
+<method name="GetResultMetas"> \
+    <arg type="as" direction="in" /> \
+    <arg type="aa{sv}" direction="out" /> \
+</method> \
+<method name="ActivateResult"> \
+    <arg type="s" direction="in" /> \
+    <arg type="as" direction="in" /> \
+    <arg type="u" direction="in" /> \
+</method> \
+<method name="LaunchSearch"> \
+    <arg type="as" direction="in" /> \
+    <arg type="u" direction="in" /> \
+</method> \
+</interface> \
+</node>';
 
-var SearchProviderProxy = Gio.DBusProxy.makeProxyWrapper(SearchProviderIface);
-var SearchProvider2Proxy = Gio.DBusProxy.makeProxyWrapper(SearchProvider2Iface);
+var SearchProviderProxyInfo = Gio.DBusInterfaceInfo.new_for_xml(SearchProviderIface);
+var SearchProvider2ProxyInfo = Gio.DBusInterfaceInfo.new_for_xml(SearchProvider2Iface);
 
-function loadRemoteSearchProviders(addProviderCallback) {
+function loadRemoteSearchProviders(callback) {
     let objectPaths = {};
     let loadedProviders = [];
 
@@ -105,6 +110,13 @@ function loadRemoteSearchProviders(addProviderCallback) {
             else
                 remoteProvider = new RemoteSearchProvider(appInfo, busName, objectPath);
 
+            remoteProvider.defaultEnabled = true;
+            try {
+                remoteProvider.defaultEnabled = !keyfile.get_boolean(group, 'DefaultDisabled');
+            } catch(e) {
+                // ignore error
+            }
+
             objectPaths[objectPath] = remoteProvider;
             loadedProviders.push(remoteProvider);
         } catch(e) {
@@ -112,29 +124,30 @@ function loadRemoteSearchProviders(addProviderCallback) {
         }
     }
 
-    let dataDirs = GLib.get_system_data_dirs();
-    dataDirs.forEach(function(dataDir) {
-        let path = GLib.build_filenamev([dataDir, 'gnome-shell', 'search-providers']);
-        let dir = Gio.File.new_for_path(path);
-        let fileEnum;
-        try {
-            fileEnum = dir.enumerate_children('standard::name,standard::type',
-                                              Gio.FileQueryInfoFlags.NONE, null);
-        } catch (e) {
-            fileEnum = null;
-        }
-        if (fileEnum != null) {
-            let info;
-            while ((info = fileEnum.next_file(null)))
-                loadRemoteSearchProvider(fileEnum.get_child(info));
-        }
-    });
+    let searchSettings = new Gio.Settings({ schema_id: Search.SEARCH_PROVIDERS_SCHEMA });
+    if (searchSettings.get_boolean('disable-external')) {
+        callback([]);
+        return;
+    }
 
-    let searchSettings = new Gio.Settings({ schema: Search.SEARCH_PROVIDERS_SCHEMA });
+    FileUtils.collectFromDatadirs('search-providers', false, loadRemoteSearchProvider);
+
     let sortOrder = searchSettings.get_strv('sort-order');
 
     // Special case gnome-control-center to be always active and always first
     sortOrder.unshift('gnome-control-center.desktop');
+
+    loadedProviders = loadedProviders.filter(function(provider) {
+        let appId = provider.appInfo.get_id();
+
+        if (provider.defaultEnabled) {
+            let disabled = searchSettings.get_strv('disabled');
+            return disabled.indexOf(appId) == -1;
+        } else {
+            let enabled = searchSettings.get_strv('enabled');
+            return enabled.indexOf(appId) != -1;
+        }
+    });
 
     loadedProviders.sort(function(providerA, providerB) {
         let idxA, idxB;
@@ -166,32 +179,34 @@ function loadRemoteSearchProviders(addProviderCallback) {
         return (idxA - idxB);
     });
 
-    loadedProviders.forEach(addProviderCallback);
+    callback(loadedProviders);
 }
 
 const RemoteSearchProvider = new Lang.Class({
     Name: 'RemoteSearchProvider',
 
-    _init: function(appInfo, dbusName, dbusPath, proxyType) {
-        if (!proxyType)
-            proxyType = SearchProviderProxy;
+    _init: function(appInfo, dbusName, dbusPath, proxyInfo) {
+        if (!proxyInfo)
+            proxyInfo = SearchProviderProxyInfo;
 
-        this.proxy = new proxyType(Gio.DBus.session,
-                dbusName, dbusPath, Lang.bind(this, this._onProxyConstructed));
+        this.proxy = new Gio.DBusProxy({ g_bus_type: Gio.BusType.SESSION,
+                                         g_name: dbusName,
+                                         g_object_path: dbusPath,
+                                         g_interface_info: proxyInfo,
+                                         g_interface_name: proxyInfo.name,
+                                         g_flags: (Gio.DBusProxyFlags.DO_NOT_AUTO_START_AT_CONSTRUCTION |
+                                                   Gio.DBusProxyFlags.DO_NOT_LOAD_PROPERTIES) });
+        this.proxy.init_async(GLib.PRIORITY_DEFAULT, null, null);
 
         this.appInfo = appInfo;
         this.id = appInfo.get_id();
         this.isRemoteProvider = true;
-
-        this._cancellable = new Gio.Cancellable();
-    },
-
-    _onProxyConstructed: function(proxy) {
-        // Do nothing
     },
 
     createIcon: function(size, meta) {
-        let gicon;
+        let gicon = null;
+        let icon = null;
+
         if (meta['icon']) {
             gicon = Gio.icon_deserialize(meta['icon']);
         } else if (meta['gicon']) {
@@ -203,44 +218,49 @@ const RemoteSearchProvider = new Lang.Class({
                                                        bitsPerSample, width, height, rowStride);
         }
 
-        return new St.Icon({ gicon: gicon,
-                             icon_size: size });
+        if (gicon)
+            icon = new St.Icon({ gicon: gicon,
+                                 icon_size: size });
+        return icon;
     },
 
-    _getResultsFinished: function(results, error) {
-        if (error)
+    filterResults: function(results, maxNumber) {
+        if (results.length <= maxNumber)
+            return results;
+
+        let regularResults = results.filter(function(r) { return !r.startsWith('special:'); });
+        let specialResults = results.filter(function(r) { return r.startsWith('special:'); });
+
+        return regularResults.slice(0, maxNumber).concat(specialResults.slice(0, maxNumber));
+    },
+
+    _getResultsFinished: function(results, error, callback) {
+        if (error) {
+            if (!error.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
+                log('Received error from DBus search provider %s: %s'.format(this.id, String(error)));
+            callback([]);
             return;
-        this.searchSystem.setResults(this, results[0]);
+        }
+
+        callback(results[0]);
     },
 
-    getInitialResultSet: function(terms) {
-        this._cancellable.cancel();
-        this._cancellable.reset();
-        try {
-            this.proxy.GetInitialResultSetRemote(terms,
-                                                 Lang.bind(this, this._getResultsFinished),
-                                                 this._cancellable);
-        } catch(e) {
-            log('Error calling GetInitialResultSet for provider %s: %s'.format(this.id, e.toString()));
-            this.searchSystem.setResults(this, []);
-        }
+    getInitialResultSet: function(terms, callback, cancellable) {
+        this.proxy.GetInitialResultSetRemote(terms,
+                                             Lang.bind(this, this._getResultsFinished, callback),
+                                             cancellable);
     },
 
-    getSubsearchResultSet: function(previousResults, newTerms) {
-        this._cancellable.cancel();
-        this._cancellable.reset();
-        try {
-            this.proxy.GetSubsearchResultSetRemote(previousResults, newTerms,
-                                                   Lang.bind(this, this._getResultsFinished),
-                                                   this._cancellable);
-        } catch(e) {
-            log('Error calling GetSubsearchResultSet for provider %s: %s'.format(this.id, e.toString()));
-            this.searchSystem.setResults(this, []);
-        }
+    getSubsearchResultSet: function(previousResults, newTerms, callback, cancellable) {
+        this.proxy.GetSubsearchResultSetRemote(previousResults, newTerms,
+                                               Lang.bind(this, this._getResultsFinished, callback),
+                                               cancellable);
     },
 
     _getResultMetasFinished: function(results, error, callback) {
         if (error) {
+            if (!error.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
+                log('Received error from DBus search provider %s during GetResultMetas: %s'.format(this.id, String(error)));
             callback([]);
             return;
         }
@@ -262,17 +282,10 @@ const RemoteSearchProvider = new Lang.Class({
         callback(resultMetas);
     },
 
-    getResultMetas: function(ids, callback) {
-        this._cancellable.cancel();
-        this._cancellable.reset();
-        try {
-            this.proxy.GetResultMetasRemote(ids,
-                                            Lang.bind(this, this._getResultMetasFinished, callback),
-                                            this._cancellable);
-        } catch(e) {
-            log('Error calling GetResultMetas for provider %s: %s'.format(this.id, e.toString()));
-            callback([]);
-        }
+    getResultMetas: function(ids, callback, cancellable) {
+        this.proxy.GetResultMetasRemote(ids,
+                                        Lang.bind(this, this._getResultMetasFinished, callback),
+                                        cancellable);
     },
 
     activateResult: function(id) {
@@ -283,7 +296,7 @@ const RemoteSearchProvider = new Lang.Class({
         // the provider is not compatible with the new version of the interface, launch
         // the app itself but warn so we can catch the error in logs
         log('Search provider ' + this.appInfo.get_id() + ' does not implement LaunchSearch');
-        this.appInfo.launch([], global.create_app_launch_context());
+        this.appInfo.launch([], global.create_app_launch_context(0, -1));
     }
 });
 
@@ -292,7 +305,7 @@ const RemoteSearchProvider2 = new Lang.Class({
     Extends: RemoteSearchProvider,
 
     _init: function(appInfo, dbusName, dbusPath) {
-        this.parent(appInfo, dbusName, dbusPath, SearchProvider2Proxy);
+        this.parent(appInfo, dbusName, dbusPath, SearchProvider2ProxyInfo);
 
         this.canLaunchSearch = true;
     },

@@ -1,3 +1,663 @@
+3.15.1
+======
+* Use GResources for theme loading [Cosimo; #736936]
+* Reset the OSK to primary on monitor changes [Rui; #738536]
+* Use LC_TIME locale for format string translations [Florian; #738640]
+* Summarize queued up notifications [Devyani; #702460]
+* Improve handling of multi-day events [Andreas; #727302]
+* Support EXTERNAL scroll policy type [Florian; #739379]
+* Misc. bugfixes [Owen, Rui; #738652, #739252]
+
+Contributors:
+  Andreas Brauchli, Cosimo Cecchi, Devyani Kota, Rui Matos, Florian Müllner,
+  Jasper St. Pierre, Owen W. Taylor
+
+Translations:
+  Bahodir Mansurov [uz@cyrillic]
+
+3.14.1
+======
+* Fix pulse animation for scrolled app folders [Florian; #736885]
+* Fix updating background on file changes [Owen; #710756]
+* Obtain keyboard variant from IBus [Jinkyu; #735066]
+* Implement Ctrl-u / Ctrl-k keybindings in entries [Florian; #737346]
+* Pass VPN hints to auth dialog [Dan; #737592]
+* Only allow one screenshot request at a time [Adel; #737456]
+* Respect disable-save-to-disc lockdown setting [Florian; #737846]
+* Respect scaling-factor for profile pictures [Darcy; #735419]
+* Focus login screen after lifting the lock screen shield [Ray; #708105]
+* Speed up pulse animation for few items [Carlos S.; #737017]
+* Fix gap between workspace switcher and screen edge [Florian; #728899]
+* Disable unredirection during recordings [Adel; #738226]
+* Ensure there's always at least one input source [Rui; #738303]
+* Restrict width of dash icons' context menus [Adel; #738054]
+* Misc. bug fixes [Jasper, Florian, Carlos G., Owen; #736999, #737382, #737001,
+  #738314, #738256, #738147]
+
+Contributors:
+  Darcy Beurle, Cosimo Cecchi, Adel Gadllah, Carlos Garnacho, Rui Matos,
+  Florian Müllner, Carlos Soriano, Jasper St. Pierre, Ray Strode, Patrick Ward,
+  Dan Williams, Owen W. Taylor, Jinkyu Yi
+
+Translations:
+  Мирослав Николић po/sr, sr@latin.po, Fran Diéguez [gl], Marek Černocký [cs],
+  Saibal Ray [bn_IN], Rajesh Ranjan [hi], Friedel Wolff [af],
+  Zhou Fang [zh_CN], Krishnababu Krothapalli [te], Kjartan Maraas [nb],
+  Rūdolfs Mazurs [lv], Sweta Kothari [gu], Christian Kirbach [de],
+  Cheng-Chia Tseng [zh_TW], Pedro Albuquerque [pt], Daniel Mustieles [es],
+  Luca Ferretti [it], Baurzhan Muftakhidinov [kk], Arash Mousavi [fa],
+  Milo Casagrande [it]
+
+3.14.0
+======
+* Fix exposure of the accessible tree [Alejandro; #736821]
+* Hide empty app folders in app picker [Florian; #736910]
+
+Contributors:
+  Florian Müllner, Alejandro Piñeiro
+
+Translations:
+  Yuri Myasoedov [ru], Pawan Chitrakar [ne], Manoj Kumar Giri [or],
+  Daniel Mustieles [es], GNOME Translation Robot [de], Rajesh Ranjan [hi],
+  Shankar Prasad [kn], Kenneth Nielsen [da], Daniel Korostil [uk],
+  Changwoo Ryu [ko], A S Alam [pa], Tom Tryfonidis [el], Petr Kovar [cs]
+
+3.13.92
+=======
+* Fix submenu arrow animations [Hashem; #728927]
+* Always initialize clutter accessibility [Alejandro; #735908]
+* Adapt to mutter background changes [Owen; #735638]
+* Improve handling of outOfDate extensions in prefs [Florian; #736185]
+* Port offline updates to PackageKit's DBus interface [Kalev; #736337]
+* location: Translate accuracy levels for geoclue [Zeeshan; #736479]
+* Implement input source switching [Rui; #736435]
+* Fix crash when dragging window from workspace switcher [Carlos G.; #735972]
+* Clean out list of default favorites [Elad; #735682]
+* Add settings link to location submenu [Florian; #736542]
+* Fix keynav of message tray menu button [Florian; #707799]
+* Misc. bug fixes [Carlos G., Florian, Rui; #736110, #736329, #736343,
+  #735927, #735976]
+
+Contributors:
+  Elad Alfassa, Zeeshan Ali (Khattak), Michael Catanzaro, Adel Gadllah,
+  Carlos Garnacho, Kalev Lember, Rui Matos, Florian Müllner, Hashem Nasarat,
+  Alejandro Piñeiro, Carlos Soriano, Jasper St. Pierre, Owen W. Taylor
+
+Translations:
+  Piotr Drąg [pl], Changwoo Ryu [ko], Yuri Myasoedov [ru], Zhou Fang [ja],
+  Peter Mráz [sk], Ville-Pekka Vainio [fi], Sweta Kothari [gu],
+  Marek Černocký [cs], A S Alam [pa], Christian Kirbach [de],
+  Alexandre Franke [fr], Aurimas Černius [lt], Khaled Hosny [ar],
+  Enrico Nicoletto [pt_BR], Andika Triwidada [id], Shantha kumar [ta],
+  Matej Urbančič [sl], Pawan Chitrakar [ne], Yosef Or Boczko [he],
+  Balázs Úr [hu], Dušan Kazik [sk], Gil Forcada [ca],
+  Carles Ferrando [ca@valencia], Nilamdyuti Goswami [as], Ivaylo Valkov [bg],
+  Sandeep Sheshrao Shedmake [mr], Umarzuki Bin Mochlis Moktar [ms],
+  Muhammet Kara [tr], Jiro Matsuzawa [ja], Kris Thomsen [da],
+  Mattias Eriksson [sv]
+
+3.13.91
+=======
+* Fix keynav into session menu on login screen [Florian; #735614]
+* Add gesture to summon message tray [Carlos G.; #735625]
+* Accept scrolls/swipes either way on the screen shield [Jasper; #734874]
+* Animate opening the app picker and improve app folder animations
+  [Carlos S.; #734726]
+* Animate app icons on launching a new window [Carlos S., Florian; #734726]
+* Show the on-screen keyboard when touch input is being used [David; #702015]
+* Misc. bug fixes [Bastien, Owen, Florian, Carlos G.; #735190, #735385,
+  #735608, #735681]
+
+Contributors:
+  Carlos Garnacho, David King, Kalev Lember, Florian Müllner, Bastien Nocera,
+  Carlos Soriano, Jasper St. Pierre, Owen W. Taylor
+
+Translations:
+  Fran Diéguez [gl], Sweta Kothari [gu], Manoj Kumar Giri [or],
+  Alain Lojewski [fr], Praveen Illa [te], Arash Mousavi [fa],
+  Andika Triwidada [id]
+
+3.13.90
+=======
+* Make use of GLSL optional [Adel; #733623]
+* Update on-screen-keyboard position on monitor changes [Cosimo; #733790]
+* Improve window manager animations [Giovanni; #732857]
+* Handle touch events [Carlos G.; #733633]
+* Try to not show "New Window" action for single-window apps
+  [Giovanni; #722554]
+* Fix overview exceeding screen size with many apps installed
+  [Carlos S.; #723496]
+* Add Software to default favorites [Mathieu; #734406]
+* Improve app picker <-> desktop transition [Carlos S.; #732901]
+* Remove <shift>-magic for switcher popups [Christophe; #732296]
+* Add a special background to use for performance testing [Owen; #734610]
+* Add support for default disabled search providers [Giovanni; #734110]
+* Fix portals that don't redirect properly [Giovanni; #733848]
+* Fix history trimming in chat notifications [Giovanni; #733899]
+* Try to use default calendar application [Florian; #722333]
+* Only show location menu when geolocation is in use [Zeeshan; #731122]
+* Misc. bug fixes and cleanups [Giovanni, Carlos G., Zeeshan, Carlos S.,
+  Cosimo; #711682, #733840, #734483, #734680, #733813, #735062]
+
+Contributors:
+  Zeeshan Ali (Khattak), Mathieu Bridon, Giovanni Campagna, Cosimo Cecchi,
+  Piotr Drąg, Christophe Fergeau, Adel Gadllah, Carlos Garnacho,
+  Florian Müllner, Carlos Soriano, Jasper St. Pierre, Olav Vitters,
+  Owen W. Taylor
+
+Translations:
+  Aurimas Černius [lt], MarMav [el], Inaki Larranaga Murgoitio [eu],
+  Reinout van Schouwen [nl], ngoswami [as], Fabio Tomat [fur],
+  Chao-Hsiung Liao [zh_HK, zh_TW]
+
+3.13.4
+======
+* Handle portal login requests [Giovanni; #704416]
+* Scale fonts on wayland on hiDPI devices [Adel; #732537]
+* Fix default ibus candidate index labels [Rui; #702944]
+* Add gestures for various system actions [Carlos G.]
+* Add performance test script for the perf.gnome.org [Owen; #732350]
+* Use new restart framework to improve restart visuals [Owen; #733026]
+* Improve keynav in app folder popups [Carlos S.; #731477]
+* Fix truncation of app search results [Carlos S.; #732416]
+* Automatically update renamed desktop files in favorites [Kalev; #729429]
+* Misc. bug fixes and cleanups [Giovanni, Yosef, Owen, Bastien, Javier;
+  #729823, #726401, #732301, #732348, #732349, #733498, #733540]
+
+Contributors:
+  Giovanni Campagna, Adel Gadllah, Carlos Garnacho, Javier Hernández,
+  Kalev Lember, Rui Matos, Florian Müllner, Bastien Nocera, Yosef Or Boczko,
+  Carlos Soriano, Jasper St. Pierre, Owen W. Taylor
+
+Translations:
+  Yuri Myasoedov [ru], Daniel Mustieles [es], Fran Diéguez [gl],
+  Cheng-Chia Tseng [zh_TW], A S Alam [pa], Benjamin Steinwender [de],
+  Enrico Nicoletto [pt_BR], MarMav [el], Yosef Or Boczko [he],
+  Kjartan Maraas [nb]
+
+3.13.3
+======
+* Don't allow closing windows with attached modals [Florian; #729886]
+* Fix self-restarting on OpenBSD [Antoine; #727763]
+* Improve behavior of window buttons with compositor menus [Florian; #731058]
+* Work around atspi-related performance regression [Alejandro; #730118]
+* Misc bug fixes and cleanups [Florian, Lan, Jasper, Christophe, Debarshi,
+  Zeeshan; #728271, #726460, #703833, #731118, #731220, #695487, #730527,
+  #728170, #731619, #731738, #731882, #731923]
+
+Contributors:
+  Zeeshan Ali (Khattak), Christophe Fergeau, Adel Gadllah, Antoine Jacoutot,
+  Ting-Wei Lan, Florian Müllner, Alejandro Piñeiro, Debarshi Ray,
+  Carlos Soriano, Jasper St. Pierre, Wim Taymans, Rico Tzschichholz
+
+Translations:
+  Philip Withnall [en_GB], Milo Casagrande [it], Aurimas Černius [lt],
+  Enrico Nicoletto [pt_BR], Kjartan Maraas [nb], Balázs Meskó [hu],
+  Muhammet Kara [tr], Daniel Mustieles [es], Yosef Or Boczko [he],
+  Matej Urbančič [sl], Mattias Eriksson [sv]
+
+3.13.2
+======
+* Make airplane mode menu insensitive in lock screen [Giovanni; #729224]
+* Don't always extend struts to the screen edge [Florian; #683819]
+* Fix keynav for alternatives in AltSwitcher [Florian; #727259]
+* Implement window menus in the shell [Jasper; #726352]
+* Support resource:/// URLs in GNOME_SHELL_JS envvar [Owen; #730409]
+* Fix switcher popups with keybindings containing Escape [Rui; #730739]
+* Update extension-prefs UI to follow GNOME 3 patterns [Florian; #730829]
+* Add support for fallback app menu in window decorations [Florian; #730752]
+* Fix keynav escaping open app folders [Florian; #726760]
+* Misc. bug fixes [Kalev, Florian, Owen; #729429, #728449, #730408, #730753,
+  #730653]
+
+Contributors:
+  Giovanni Campagna, Piotr Drąg, Kalev Lember, Rui Matos, Florian Müllner,
+  Vadim Rutkovsky, Carlos Soriano, Jasper St. Pierre, Owen W. Taylor
+
+Translations:
+  Ihar Hrachyshka [be], Giovanni Campagna [it], Carles Ferrando [ca@valencia],
+  Daniel Mustieles [es], Aurimas Černius [lt], Enrico Nicoletto [pt_BR],
+  Yosef Or Boczko [he], Marek Černocký [cs], Muhammet Kara [tr],
+  Georges Neto [pt_BR], Andika Triwidada [id]
+
+3.13.1
+======
+* Ensure the currently focused app icon is viewable [Rui; #726759]
+* Improve language in location menu [Zeeshan; #726498]
+* Improve HiDpi support [Cosimo; #726907]
+* Set accessible role for window previews [Alejandro; #726670]
+* Fix bad antialiasing on panel menu buttons [Carlos; #727336]
+* Don't hide location menu [Zeeshan; #727398]
+* Fix IM candidate window obscuring current text [Rui; #727579]
+* Don't always extend struts to the screen edge [Florian; #663690]
+* Add shortcuts for switching to the last workspace [Elad; #659288]
+* Show OSD window on all monitors [Adel; #722684]
+* Improve consistency of labels in network menu [Paul; #727163]
+* Fix zombie search providers showing up [Jasper; #728597]
+* Remove ConsoleKit support [Florian; #686626]
+* Fix region screenshots with open shell menus [Florian; #709126]
+* Support <shift>insert in text entries [Florian; #648318]
+* Improve app picker scrolling on touch [Jasper; #729064]
+* Don't make date button clickable when on current date [Carlos; #726724]
+* Tweak heuristic for hiding workspace switcher [Florian; #662457]
+* Add option to show in Software to app context menu [Matthias; #643043]
+* Misc. bug fixes and cleanups [Bastien, Florian, Giovanni, Adel, Vadim,
+  Carlos; #727983, #727948, #728512, #728681, #728897, #727384, #728820,
+  #715042, #728449, #728343]
+
+Contributors:
+  Elad Alfassa, Zeeshan Ali (Khattak), Giovanni Campagna, Cosimo Cecchi,
+  Matthias Clasen, Piotr Drąg, Adel Gadllah, Paul Lange, Rui Matos,
+  Simon McVittie, Florian Müllner, Bastien Nocera, Alejandro Piñeiro,
+  Vadim Rutkovsky, Carlos Soriano, Jasper St. Pierre
+
+Translations:
+  Khaled Hosny [ar], Piotr Drąg [pl], Yosef Or Boczko [he],
+  Antonio Fernandes C. Neto [pt_BR], Marek Černocký [cs], maria thukididu [el],
+  Andika Triwidada [id], Daniel Mustieles [es], Changwoo Ryu [ko],
+  Benjamin Steinwender [de], Sphinx Jiang [zh_CN],
+  Inaki Larranaga Murgoitio [eu], Marcus Lundblad [sv], Aurimas Černius [lt],
+  Stas Solovey [ru], Alexandre Franke [fr], Matej Urbančič [sl],
+  Fran Diéguez [gl], Pau Iranzo [ca], Luca Ferretti [it], Milo Casagrande [it],
+  Tiago S [pt], Victor Ibragimov [tg], Dirgita [id], Khoem Sokhem [km],
+  Rūdolfs Mazurs [lv], Balázs Úr [hu], Ask H. Larsen [da], Ikuya Awashiro [ja],
+  Wouter Bolsterlee [nl], Daniel Korostil [uk], Daniel Șerbănescu [ro],
+  Enrico Nicoletto [pt_BR]
+
+3.12.0
+======
+* gdm: Reset greeter when coming back to login screen [Jasper; #726989]
+
+Contributors:
+  Jasper St. Pierre
+
+Translations:
+  Daniel Martinez [an], Yuri Myasoedov [ru], Inaki Larranaga Murgoitio [eu],
+  Abderrahim Kitouni [ar], Praveen Illa [te], Matej Urbančič [sl],
+  Chao-Hsiung Liao [zh_HK, zh_TW], Frédéric Péters [fr],
+  Мирослав Николић [sr, sr@latin], Ask H. Larsen [da], Kenneth Nielsen [da],
+  Jiro Matsuzawa [ja], Dušan Kazik [sk]
+
+3.11.92
+=======
+* calendar: Grab key focus after changing day [Volker; #725606]
+* gdm: Don't load user list if disabled [Florian; #725905]
+* Don't show network-offline in the top bar [Jasper; #725340]
+* Improve radial shade effect of modal dialogs [Giovanni; #725830]
+* Fix broken suspend-on-idle functionality [Giovanni; #712706]
+* Close wifi selection dialog when device disappears [Giovanni; #723935]
+* Don't close chats when pressing Escape [Giovanni; #724178]
+* Improve smartcard support in login/lock screen [Ray; #726262, #726263]
+* Wake up screen when resuming from suspend [Giovanni; #726378]
+* Make bluetooth and location items insensitive when locked [Florian; #726319]
+* Don't show bluetooth icon when there is no adapter [Giovanni; #725057]
+* Make sure to keep the OSK on top of modal dialogs [Rui; #719451]
+* Misc. bug fixes and cleanups [Giovanni, Ray, Adel, Daniel, Jasper, Florian;
+  #725832, #725958, #722149, #724977, #724798, #725020, #723976, #726119,
+  #726238, #585500, #704844, #726323, #726322, #726120, #726414]
+
+Contributors:
+  Giovanni Campagna, Daniel Drake, Adel Gadllah, Rui Matos, Florian Müllner,
+  Volker Sobek, Jasper St. Pierre, Ray Strode
+
+Translations:
+  Fabio Tomat [fur], Rafael Ferreira [pt_BR], Fran Diéguez [gl],
+  Marek Černocký [cs], Baurzhan Muftakhidinov [kk], Andika Triwidada [id],
+  A S Alam [pa], Rūdolfs Mazurs [lv], Wylmer Wang [zh_CN],
+  Aurimas Černius [lt], Cheng-Chia Tseng [zh_TW], Stas Solovey [ru],
+  Tiagosdot [pt], Benjamin Steinwender [de], Frédéric Peters [fr],
+  Daniel Korostil [uk], Yaron Shahrabani [he], Ville-Pekka Vainio [fi],
+  maria thukididu [el], Victor Ibragimov [tg], Kjartan Maraas [nb],
+  Gábor Kelemen [hu], Ask H. Larsen [da]
+
+3.11.91
+=======
+* Don't use network profile name in menu [Giovanni; #725586]
+* calendar: Make date label clickable to return to current date [Vit; #641366]
+* Misc. bug fixes [Florian, Zeeshan, Adel, Jasper, Dan, Volker; #724813,
+  #724686, #725082, #724870, #724779, #725533]
+
+Contributors:
+  Zeeshan Ali (Khattak), Giovanni Campagna, Piotr Drąg, Adel Gadllah,
+  Florian Müllner, Volker Sobek, Vit Stanislav, Jasper St. Pierre, Dan Williams
+
+Translations:
+  Victor Ibragimov [tg], Aurimas Černius [lt], Dimitris Spingos [el],
+  Andika Triwidada [id], Rafael Ferreira [pt_BR], Daniel Mustieles [es],
+  Baurzhan Muftakhidinov [kk], Marek Černocký [cs], Ihar Hrachyshka [be],
+  eternalhui [zh_CN], Yosef Or Boczko [he], Fran Diéguez [gl],
+  Khaled Hosny [ar], Ville-Pekka Vainio [fi], Piotr Drąg [pl],
+  Kjartan Maraas [nb], Changwoo Ryu [ko]
+
+3.11.90
+=======
+* Stop showing two bluetooth entries [Giovanni; #709353]
+* Improve styling of login/lock screen [Reda; #723833]
+* Fix magnifier crosshairs [Magdalen; #723709]
+* Make NetworkManager support optional [Michael; #669495]
+* Make middle-click open a new instance [Florian; #695010]
+* Scale the UI on high resolution displays [Cosimo, Adel; #705410, #724607]
+* Remove notification counter on screen shield [Carlos; #709275]
+* Improve app picker transition [Carlos; #722331]
+* Add geolocation indicator to status menu [Zeeshan; #723684]
+* Improve timestamps in chat notifications [Carlos; #708031, #715158]
+* Improve network menus [Giovanni; #723570]
+* Add "VPN Setting" item to VPN submenu [Giovanni; #709167]
+* Improve appearance of disclosure arrows [Carlos; #720206]
+* Add GSetting key to disable version validation of extensions [Adel; #724683]
+* Delay auto-removing empty workspaces [Florian; #709064]
+* Offer offline updates in the shutdown dialog [Kalev; #722898]
+* Animate tile previews [Florian; #665758]
+* Misc. bug fixes and cleanups [Giovanni, Ryan, Debarshi, Florian; #709128,
+  #722342, #723661, #724184, #724256, #724293, #724305, #722554, #724282,
+  #724690, #722928]
+
+Contributors:
+  Zeeshan Ali (Khattak), Magdalen Berns, Michael Biebl, Giovanni Campagna,
+  Cosimo Cecchi, Adel Gadllah, Reda Lazri, Kalev Lember, Ryan Lortie,
+  Florian Müllner, Debarshi Ray, Carlos Soriano, Jasper St. Pierre,
+  Colin Walters
+
+Translations:
+  Victor Ibragimov [tg], Daniel Mustieles [es], Khaled Hosny [ar],
+  Enrico Nicoletto [pt_BR], Yosef Or Boczko [he], Fran Diéguez [gl],
+  Marek Černocký [cs], Baurzhan Muftakhidinov [kk], Jorge Pérez Pérez [an],
+  Kjartan Maraas [nb], David Lüder [de], Daniel Korostil [uk], ngoswami [as],
+  Rafael Ferreira [pt_BR]
+
+3.11.5
+======
+* Fix extension preference tool [Florian; #722334]
+* Fix keyboard activation of legacy tray icons [Giovanni; #721267]
+* Add radial background shade for modal dialogs [Giovanni; #669798]
+* Show attached modal windows in the overview [Giovanni; #650843]
+* Add support for desktop actions [Giovanni; #669603]
+* Indicate in system status when location service is used [Zeeshan; #709372]
+* Add support for extended app folder schema [Jasper; #723179]
+* Show status icon for wired network connections [Jasper; #708966]
+* Indicate airplane mode in network selection dialog [Giovanni; #709128]
+* Misc bug fixes and cleanups [Florian, Sebastian, Giovanni, Tim, Matt, Jasper;
+  #722417, #722494, #722547, #722593, #722434, #722787, #722690, #722840,
+  #722660, #722812, #723197, #722927, #723306, #723308, #723523, #709685,
+  #723570]
+
+Contributors:
+  Zeeshan Ali (Khattak), Magdalen Berns, Giovanni Campagna, William Jon McCann,
+  Sebastian Keller, Tim Lunn, Florian Müllner, Carlos Soriano,
+  Jasper St. Pierre, Rico Tzschichholz, Matt Watson
+
+Translations:
+  Marek Černocký [cs], Mattias Põldaru [et], Tong Hui [zh_CN],
+  Victor Ibragimov [tg], Enrico Nicoletto [pt_BR], Daniel Mustieles [es],
+  Fran Diéguez [gl], Kjartan Maraas [nb], Nilamdyuti Goswami [as],
+  Aurimas Černius [lt], Stas Solovey [ru], Yosef Or Boczko [he],
+  Jorge Pérez Pérez [an], Dimitris Spingos [el], Baurzhan Muftakhidinov [kk],
+  Chao-Hsiung Liao [zh_HK, zh_TW], Shankar Prasad [kn], Yaron Shahrabani [he],
+  Andika Triwidada [id]
+
+3.11.4
+======
+* Fix removal of workspacaes that are not at the end [Giovanni; #721417]
+* Allow session mode to be specified in the environment [Ray; #720894]
+* Special-case launching of terminals [Debarshi; #695010]
+* Always show arrow if app switcher is scrollable [Jonh; #711467]
+* Implement new app folders system [Jasper; #722117]
+* Remove arrow from background menu [Tarun; #699608]
+* Misc bug fixes and cleanups [Giovanni, Andika, Florian, Ray; #721039,
+  #721439, #721507, #721629, #721868, #722210]
+
+Contributors:
+  Giovanni Campagna, Piotr Drąg, Tarun Kumar Joshi, Florian Müllner,
+  Debarshi Ray, Jasper St. Pierre, Ray Strode, Andika Triwidada, Jonh Wendell
+
+Translations:
+  Dušan Kazik [sk], Tong Hui [zh_CN], Benjamin Steinwender [de],
+  Matej Urbančič [sl], Jorge Pérez Pérez [an], Kjartan Maraas [nb],
+  Milo Casagrande [it], Rafael Ferreira [pt_BR], Marek Černocký [cs],
+  Daniel Mustieles [es], Adorilson Bezerra [pt_BR], Christian Kirbach [de],
+  Aurimas Černius [lt], Andika Triwidada [id], Baurzhan Muftakhidinov [kk],
+  Victor Ibragimov [tg], Yosef Or Boczko [he], Dimitris Spingos [el],
+  Fran Diéguez [gl]
+
+3.11.3
+======
+* Fix fade effect of desktop icons [Florian; #707671]
+* Fix issues with background management code [Jasper; #709313]
+* Use new Glib facilities for application search [Jasper; #711631]
+* Add focus indication to session menu button [Sebastien; #710539]
+* Fix hover tracking for StEntries [Jasper; #706749]
+* Fix reentrancy issue in message tray [Jasper; #711694]
+* Tone down zoom animation on login/unlock [Jasper; #712362]
+* Allow specifying monitor for OSD [Carlos; #712664]
+* Fix resetting prompt on user switch [Ray; #710456]
+* Stop using gnome-bluetooth-applet [Bastien; #719341]
+* Add support for EAP-FAST password requests [Dan; #719813]
+* Fix entry focus of chat notifications [Jasper; #709853]
+* Make window previews keyboard navigatable [Jasper; #644306]
+* Fix app switcher order with dialog windows [Florian; #719824]
+* Allow remote search providers without icons [Debarshi; #719965]
+* Fix various alignment issues in RTL locales [Yosef; #712638, #712596,
+  #712594, #712600, #712579]
+* Misc. bug fixes and cleanups [Jasper, Florian, Giovanni, Dan; #712727,
+  #712753, #719378, #719730, #719803, #710115, #720017, #719815, #719567,
+  #720298]
+
+Contributors:
+  Giovanni Campagna, Carlos Garnacho, Sebastien Lafargue, Tim Lunn,
+  Florian Müllner, Bastien Nocera, Yosef Or Boczko, Debarshi Ray,
+  Jasper St. Pierre, Ray Strode, Dan Williams
+
+Translations:
+  Kjartan Maraas [nb], Reinout van Schouwen [nl], Rafael Ferreira [pt_BR],
+  Mattias Põldaru [et], Emin Tufan Çetin [tr], Jiri Grönroos [fi],
+  Khaled Hosny [ar], Fran Diéguez [gl], Victor Ibragimov [tg],
+  Daniel Mustieles [es]
+
+3.11.2
+======
+* Cache search result display actors [Jasper; #704912]
+* Use username in userWidget if real name doesn't fit [Jasper; #706851]
+* Support shell_global_reexec_self() on OpenBSD [Antoine; #709571]
+* Support disabling browser plugin [Colin; #711218]
+* Restore support for 'disable-restart-buttons' [Florian; #711244]
+* Validate parameters of exposed DBus methods [Florian; #699752]
+* Connect applications to systemd journal if available [Colin; #711626]
+* Misc bug fixes and cleanups [Florian, Jasper; #711205, #698486, #711416,
+  #644306, #711555, #709806, #711631, #711732]
+
+Contributors:
+  Cosimo Cecchi, Antoine Jacoutot, Florian Müllner, Jasper St. Pierre,
+  Rico Tzschichholz, Colin Walters
+
+Translations:
+  Yuri Myasoedov [ru], Kjartan Maraas [nb], Efstathios Iosifidis [el],
+  Benjamin Steinwender [de], eternalhui [zh_CN], Shantha kumar [ta]
+
+3.11.1
+======
+* power: Use UPower directly instead of gnome-settings-daemon [Bastien; #710273]
+* Implement support for new GTK+ notification API [Jasper, Giovanni, Florian;
+  #710137, #710596]
+* gdm: Don't allow user-list to fill up the entire screen [Florian; #710555]
+* Don't autostart remote search providers at login [Giovanni; #708830]
+* Fix spacing in end-session dialog [Sebastien; #710543]
+* Prepare for js24 [Tim; #711052]
+* Misc bug fixes and cleanups [Jasper, Florian, Adel, Tim, Sebastien; #710347,
+  #710144, #710541, #691409, #710745, #688331, #704912]
+
+Contributors:
+  Giovanni Campagna, Adel Gadllah, Sebastien Lafargue, Tim Lunn,
+  Florian Müllner, Bastien Nocera, Jasper St. Pierre, Rico Tzschichholz
+
+Translations:
+  Stas Solovey [ru], Yosef Or Boczko [he], Rafael Ferreira [pt_BR]
+
+3.10.1
+======
+* Make sure lock screen is drawn once before switching user [Giovanni; #708051]
+* Fix signal strength indicators in network selector [Jasper; #708442]
+* Scroll search results when focusing provider icons [Jasper; #708868]
+* Add separate hover/active states to page indicators [Carlos; #708852]
+* Tweak appearance of user name and avatar [Yash; #702309]
+* Hide "Turn On" in network menu when disabled by hardware [Giovanni; #709635]
+* Cancel open keyring prompts when the screen is locked [Florian; #708910]
+* Differentiate "Not Connected" and "Off" in network menu [Giovanni; #709043]
+* Make network settings items point to the right device [Giovanni; #709246]
+* Remove animation of window preview titles [Sebastien; #709392]
+* Add 'Notifications' switch to tray menu [Florian; #707073]
+* Make dropdown arrows consistent [Carlos; #709564]
+* power: Use icon from primary device for status [Jasper; #709925]
+* Fix XDND drags to overview [Adel; #708887]
+* Fix workspace switcher disappearing with too many workspaces [Jasper; #694881]
+* Handle search results with 'special:' prefix specially [Giovanni; #707055]
+* gdm: Support pre-authenticated logins from oVirt [Vinzenz; #702162]
+* Use ARROW role for labels representing arrows [Alejandro; #710120]
+* Make selected view in app picker persistent [Florian; #710042]
+* Make network selector navigable by keyboard [Alejandro; #710144]
+* Misc bug fixes [Florian, Adel, Jasper, Aleksander, Giovanni, Dan, Michael,
+  Tim; #709034, #709263, #698486, #709286, #709248, #709543, #696564, #703265,
+  #709638, #709866, #709998, #710019, #710104, #710115]
+
+Contributors:
+  Giovanni Campagna, Michael Catanzaro, Vinzenz Feenstra, Adel Gadllah,
+  Yash Girdhar, Sebastien Lafargue, Tim Lunn, Aleksander Morgado,
+  Florian Müllner, Alejandro Piñeiro, Carlos Soriano, Jasper St. Pierre,
+  Dieter Verfaillie, Dan Winship
+
+Translations:
+  Inaki Larranaga Murgoitio [eu], Christian Kirbach [de], Muhammet Kara [tr],
+  Aurimas Černius [lt], Ryan Lortie [eo], Rūdolfs Mazurs [lv],
+  Dušan Kazik [sk], Fran Diéguez [gl], Enrico Nicoletto [pt_BR],
+  Kjartan Maraas [nb], Victor Ibragimov [tg], Matej Urbančič [sl],
+  A S Alam [pa], Nilamdyuti Goswami [as], Daniel Mustieles [es],
+  Cheng-Chia Tseng [zh_HK, zh_TW], Mattias Põldaru [et], Kenneth Nielsen [da],
+  Milo Casagrande [it], Marek Černocký [cs], Ihar Hrachyshka [be],
+  Мирослав Николић [sr, sr@latin], Arash Mousavi [fa], Yuri Myasoedov [ru],
+  Gil Forcada [ca], Carles Ferrando [ca@valencia], Andika Triwidada [id],
+  Timo Jyrinki [fi], Piotr Drąg [pl], Rafael Ferreira [pt_BR],
+  Gabor Kelemen [hu], Yosef Or Boczko [he], Daniel Korostil [uk],
+  Wouter Bolsterlee [nl], António Lima [pt]
+
+3.10.0.1
+=========
+* Fix login screen [Ray; #708691]
+
+Contributors:
+  Ray Strode, Giovanni Campagna, Jasper St. Pierree
+
+Translations:
+  Kjartan Maraas [nb], Marek Černocký [cs], A S Alam [pa], Daniel Mustieles [es],
+  Ihar Hrachyshka [be], Chao-Hsiung Liao [zh_HK], Nilamdyuti Goswami [as],
+  Yuri Myasoedov [ru], Baurzhan Muftakhidinov [kk]
+
+3.10.0
+======
+* Fix fade effect in ScrollViews [Carlos; #708256]
+* network: Resync when activating connection changes [Jasper; #708322]
+* Close run dialog when the screen locks [Florian; #708218]
+* Fix entry growing out of password dialogs [Florian; #708324, #703833]
+* Vertically center labels in submenu items [Jasper; #708330]
+* https://bugzilla.gnome.org/show_bug.cgi?id=708387 [Mike; #708387]
+* Fix bluetooth icon not being added to status menu [Jasper; #708541]
+* Fix GNOME 2 keyring dialogs appearing on lock screen [Florian; #708187]
+* Fix passwords being cleared twice when authentication fails [Florian; #708186]
+* Fix message tray appearing in a11y popup on login screen [Florian; #708380]
+* Increase width of aggregate menu popup [Adel; #708472]
+
+Contributors:
+  Adel Gadllah, Mike Gorse, Ryan Lortie, Florian Müllner, Frédéric Péters,
+  Carlos Soriano, Jasper St. Pierre, Rico Tzschichholz
+
+Translations:
+  Daniel Șerbănescu [ro], Ryan Lortie [eo], Ihar Hrachyshka [be],
+  A S Alam [pa], Jiro Matsuzawa [ja], Chao-Hsiung Liao [zh_HK, zh_TW],
+  Piotr Drąg [pl], Kristjan SCHMIDT [eo], Daniel Korostil [uk],
+  Rūdolfs Mazurs [lv], Reinout van Schouwen [nl], Yosef Or Boczko [he],
+  Fran Diéguez [gl], António Lima [pt], Andika Triwidada [id],
+  Alexandre Franke [fr], Rafael Ferreira [pt_BR], Milo Casagrande [it],
+  Kenneth Nielsen [da], Matej Urbančič [sl]
+
+3.9.92
+======
+* Don't show page indicators if there's only one page [Florian; #707363]
+* Make :active style of app and non-app results consistent [Jakub; #704714]
+* Fade app pages when scrolled [Florian; #707409]
+* Don't block scrolling on page indicators [Carlos; #707609]
+* Tweak visual appearance of folder views [Florian; #707662]
+* Don't put minimized apps at the end of the app switcher [Florian; #707663]
+* Merge the wayland branch [Giovanni, Neil; #707467]
+* Make search entry behave better in RTL locales [Matthias, Florian; #705779]
+* Allow to change app pages with pageUp/pageDown keys [Carlos; #707979]
+* Set approriate a11y states on expandable menu items [Alejandro; #708038]
+* Improve page indicator animation [Carlos; #707565]
+* Misc bug fixes and cleanups [Florian, Olivier, Jasper, Giovanni, Magdalen,
+  Adel, Carlos, Rico, Joanmarie; #707308, #707430, #707508, #707557, #707600,
+  #707614, #707666, #707814, #707806, #707801, #707889, #707892, #707935,
+  #707842, #707940, #707996, #708007, #708009, #708020, #707580, #708080]
+
+Contributors:
+  Magdalen Berns, Olivier Blin, Giovanni Campagna, Matthias Clasen,
+  Joanmarie Diggs, Adel Gadllah, Florian Müllner, Alejandro Piñeiro,
+  Neil Roberts, Carlos Soriano, Jasper St. Pierre, Jakub Steiner,
+  Rico Tzschichholz
+
+Translations:
+  Rafael Ferreira [pt_BR], Fran Diéguez [gl], Daniel Mustieles [es],
+  Aurimas Černius [lt], Luca Ferretti [it], Piotr Drąg [pl],
+  Chao-Hsiung Liao [zh_HK, zh_TW], Timo Jyrinki [fi], Daniel Korostil [uk],
+  Dušan Kazik [sk], Adam Matoušek [cs], Marek Černocký [cs],
+  Jiro Matsuzawa [ja], Yuri Myasoedov [ru], Tobias Endrigkeit [de],
+  Kjartan Maraas [nb], Victor Ibragimov [tg], Мирослав Николић [sr, sr@latin],
+  A S Alam [pa], Khaled Hosny [ar], Andika Triwidada [id],
+  Nilamdyuti Goswami [as], Ihar Hrachyshka [be], Rūdolfs Mazurs [lv],
+  Mattias Põldaru [et], Gabor Kelemen [hu], Bruce Cowan [en_GB],
+  Matej Urbančič [sl], Enrico Nicoletto [pt_BR], Benjamin Steinwender [de],
+  Changwoo Ryu [ko], Kris Thomsen [da], Alexandre Franke [fr],
+  Evgeny Bobkin [ru], Baurzhan Muftakhidinov [kk], Peter Mráz [sk],
+  Inaki Larranaga Murgoitio [eu], Yosef Or Boczko [he]
+
+3.9.91
+======
+* Improve submenu styling [Jakub; #706037]
+* Fix changing slider values via keyboard [Alejandro; #706386]
+* Fix accessibility of sliders [Alejandro; #706391]
+* Tweak system actions style [Jakub; #706638]
+* Add support for auth without username / fix Not Listed? [Ray; #706607]
+* Dash: Don't show tooltips for apps with open popups [Giovanni; #705611]
+* Implement new end-session/power-off dialog design [Jasper, Matthias; #706612]
+* Implement building separate binaries for x11 and wayland [Giovanni; #705497]
+* authPrompt: Fix controls moving when showing messages [Ray; #706670]
+* Tweak padding between system status icons [Allan; #706796]
+* Add a generic accessible usable by JS code [Alejandro; #648623]
+* Improve keynav and accessibility of the calendar [Alejandro; #706903]
+* Update to new NetworkManager APIs [Jasper; #706098]
+* Hide system actions section in the lock screen [Jasper; #706852]
+* Don't show other logged in users at log out [Giovanni; #707124]
+* Remove "Session" subtitle heading in login dialog [Jasper; #707072]
+* dash: Reload favorites when installed apps change [Giovanni; #706878]
+* Don't open overview after closing last window on workspace [Florian; #662581]
+* Add FocusApp DBus method [Giovanni; #654086]
+* Add ShowApplications DBus method [Giovanni; #698743]
+* Implement new app picker design [Carlos, Florian; #706081]
+* Improve frequent apps being empty by default [Carlos, Florian; #694710]
+* Extend clickable area of page indicators [Giovanni; #707314]
+
+* Misc bug fixes [Ray, Giovanni, Jasper, Emmanuele; #706542, #706654, #706005,
+  #706681, #706841, #706843, #707064, #706262, #707197, #707269]
+
+Contributors:
+  Emmanuele Bassi, Giovanni Campagna, Matthias Clasen, Allan Day, Adel Gadllah,
+  Florian Müllner, Alejandro Piñeiro, Carlos Soriano, Jasper St. Pierre,
+  Jakub Steiner, Ray Strode, Seán de Búrca
+
+Translations:
+  Piotr Drąg [pl], Kjartan Maraas [nb], Victor Ibragimov [tg],
+  Enrico Nicoletto [pt_BR], Benjamin Steinwender [de],
+  Baurzhan Muftakhidinov [kk], Aurimas Černius [lt], Seán de Búrca [ga],
+  Fran Diéguez [gl], Daniel Mustieles [es], Dušan Kazik [sk],
+  Matej Urbančič [sl], Andika Triwidada [id], Jordi Mas [ca],
+  Ihar Hrachyshka [be]
+
 3.9.90
 ======
 * workspaceThumbnails: Exclude transient windows when shifting workspaces

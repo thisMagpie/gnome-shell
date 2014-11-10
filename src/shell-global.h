@@ -35,6 +35,7 @@ GdkScreen     *shell_global_get_gdk_screen            (ShellGlobal *global);
 MetaDisplay   *shell_global_get_display               (ShellGlobal *global);
 GList         *shell_global_get_window_actors         (ShellGlobal *global);
 GSettings     *shell_global_get_settings              (ShellGlobal *global);
+GSettings     *shell_global_get_overrides_settings    (ShellGlobal *global);
 guint32        shell_global_get_current_time          (ShellGlobal *global);
 
 
@@ -44,25 +45,9 @@ gboolean shell_global_begin_modal            (ShellGlobal         *global,
                                               MetaModalOptions    options);
 void     shell_global_end_modal              (ShellGlobal         *global,
                                               guint32              timestamp);
-void     shell_global_freeze_keyboard        (ShellGlobal         *global,
-                                              guint32              timestamp);
 
 void     shell_global_set_stage_input_region (ShellGlobal         *global,
                                               GSList              *rectangles);
-
-/* X utilities */
-typedef enum {
-  SHELL_CURSOR_DND_IN_DRAG,
-  SHELL_CURSOR_DND_UNSUPPORTED_TARGET,
-  SHELL_CURSOR_DND_MOVE,
-  SHELL_CURSOR_DND_COPY,
-  SHELL_CURSOR_POINTING_HAND,
-  SHELL_CURSOR_CROSSHAIR
-} ShellCursor;
-
-void    shell_global_set_cursor              (ShellGlobal         *global,
-                                              ShellCursor          type);
-void    shell_global_unset_cursor            (ShellGlobal         *global);
 
 void    shell_global_get_pointer             (ShellGlobal         *global,
                                               int                 *x,
@@ -83,10 +68,6 @@ typedef struct {
   guint  last_gc_seconds_ago;
 } ShellMemoryInfo;
 
-void     shell_global_get_memory_info      (ShellGlobal     *global,
-                                            ShellMemoryInfo *meminfo);
-
-
 /* Run-at-leisure API */
 void shell_global_begin_work     (ShellGlobal          *global);
 void shell_global_end_work       (ShellGlobal          *global);
@@ -103,7 +84,9 @@ void shell_global_run_at_leisure (ShellGlobal          *global,
 void     shell_global_sync_pointer              (ShellGlobal  *global);
 
 GAppLaunchContext *
-         shell_global_create_app_launch_context (ShellGlobal  *global);
+         shell_global_create_app_launch_context (ShellGlobal  *global,
+                                                 int           timestamp,
+                                                 int           workspace);
 
 void     shell_global_play_theme_sound          (ShellGlobal *global,
                                                  guint        id,
@@ -143,13 +126,19 @@ void     shell_global_reexec_self               (ShellGlobal  *global);
 
 const char *     shell_global_get_session_mode  (ShellGlobal  *global);
 
-void     shell_global_set_runtime_state      (ShellGlobal  *global,
-                                              const char   *property_name,
-                                              GVariant     *variant);
+void     shell_global_set_runtime_state         (ShellGlobal  *global,
+                                                 const char   *property_name,
+                                                 GVariant     *variant);
 GVariant * shell_global_get_runtime_state       (ShellGlobal  *global,
                                                  const char   *property_type,
                                                  const char   *property_name);
 
+void     shell_global_set_persistent_state      (ShellGlobal  *global,
+                                                 const char   *property_name,
+                                                 GVariant     *variant);
+GVariant * shell_global_get_persistent_state    (ShellGlobal  *global,
+                                                 const char   *property_type,
+                                                 const char   *property_name);
 
 G_END_DECLS
 

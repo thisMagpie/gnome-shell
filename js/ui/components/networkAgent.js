@@ -72,19 +72,28 @@ const NetworkSecretDialog = new Lang.Class({
                              expand: true });
         }
 
-        let secretTable = new St.Table({ style_class: 'network-dialog-secret-table' });
+        let layout = new Clutter.GridLayout({ orientation: Clutter.Orientation.VERTICAL });
+        let secretTable = new St.Widget({ style_class: 'network-dialog-secret-table',
+                                          layout_manager: layout });
+        layout.hookup_style(secretTable);
+
+        let rtl = secretTable.get_text_direction() == Clutter.TextDirection.RTL;
         let initialFocusSet = false;
         let pos = 0;
         for (let i = 0; i < this._content.secrets.length; i++) {
             let secret = this._content.secrets[i];
             let label = new St.Label({ style_class: 'prompt-dialog-password-label',
-                                       text: secret.label });
+                                       text: secret.label,
+                                       x_align: Clutter.ActorAlign.START,
+                                       y_align: Clutter.ActorAlign.CENTER });
+            label.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
 
             let reactive = secret.key != null;
 
             secret.entry = new St.Entry({ style_class: 'prompt-dialog-password-entry',
                                           text: secret.value, can_focus: reactive,
-                                          reactive: reactive });
+                                          reactive: reactive,
+                                          x_expand: true });
             ShellEntry.addContextMenu(secret.entry,
                                       { isPassword: secret.password });
 
@@ -111,11 +120,13 @@ const NetworkSecretDialog = new Lang.Class({
             } else
                 secret.valid = true;
 
-            secretTable.add(label, { row: pos, col: 0,
-                                     x_expand: false, x_fill: true,
-                                     x_align: St.Align.START,
-                                     y_fill: false, y_align: St.Align.MIDDLE });
-            secretTable.add(secret.entry, { row: pos, col: 1, x_expand: true, x_fill: true, y_align: St.Align.END });
+            if (rtl) {
+                layout.attach(secret.entry, 0, pos, 1, 1);
+                layout.attach(label, 1, pos, 1, 1);
+            } else {
+                layout.attach(label, 0, pos, 1, 1);
+                layout.attach(secret.entry, 1, pos, 1, 1);
+            }
             pos++;
 
             if (secret.password)
@@ -134,6 +145,8 @@ const NetworkSecretDialog = new Lang.Class({
                            key:    Clutter.KEY_Escape,
                          },
                          this._okButton]);
+
+        this._updateOkButton();
     },
 
     _updateOkButton: function() {
@@ -249,6 +262,7 @@ const NetworkSecretDialog = new Lang.Class({
         case 'leap':
         case 'ttls':
         case 'peap':
+        case 'fast':
             // TTLS and PEAP are actually much more complicated, but this complication
             // is not visible here since we only care about phase2 authentication
             // (and don't even care of which one)
@@ -302,7 +316,7 @@ const NetworkSecretDialog = new Lang.Class({
             wirelessSetting = this._connection.get_setting_wireless();
             ssid = NetworkManager.utils_ssid_to_utf8(wirelessSetting.get_ssid());
             content.title = _("Authentication required by wireless network");
-            content.message = _("Passwords or encryption keys are required to access the wireless network '%s'.").format(ssid);
+            content.message = _("Passwords or encryption keys are required to access the wireless network “%s”.").format(ssid);
             this._getWirelessSecrets(content.secrets, wirelessSetting);
             break;
         case '802-3-ethernet':
@@ -329,7 +343,7 @@ const NetworkSecretDialog = new Lang.Class({
         case 'cdma':
         case 'bluetooth':
             content.title = _("Mobile broadband network password");
-            content.message = _("A password is required to connect to '%s'.").format(connectionSetting.get_id());
+            content.message = _("A password is required to connect to “%s”.").format(connectionSetting.get_id());
             this._getMobileSecrets(content.secrets, connectionType);
             break;
         default:
@@ -366,6 +380,12 @@ const VPNRequestHandler = new Lang.Class({
             argv.push('-i');
         if (flags & NMClient.SecretAgentGetSecretsFlags.REQUEST_NEW)
             argv.push('-r');
+        if (authHelper.supportsHints) {
+            for (let i = 0; i < hints.length; i++) {
+                argv.push('-t');
+                argv.push(hints[i]);
+            }
+        }
 
         this._newStylePlugin = authHelper.externalUIMode;
 
@@ -380,11 +400,7 @@ const VPNRequestHandler = new Lang.Class({
             this._childPid = pid;
             this._stdin = new Gio.UnixOutputStream({ fd: stdin, close_fd: true });
             this._stdout = new Gio.UnixInputStream({ fd: stdout, close_fd: true });
-            // We need this one too, even if don't actually care of what the process
-            // has to say on stderr, because otherwise the fd opened by g_spawn_async_with_pipes
-            // is kept open indefinitely
-            let stderrStream = new Gio.UnixInputStream({ fd: stderr, close_fd: true });
-            stderrStream.close(null);
+            GLib.close(stderr);
             this._dataStdout = new Gio.DataInputStream({ base_stream: this._stdout });
 
             if (this._newStylePlugin)
@@ -432,6 +448,7 @@ const VPNRequestHandler = new Lang.Class({
     },
 
     _vpnChildFinished: function(pid, status, requestObj) {
+        this._childWatch = 0;
         if (this._newStylePlugin) {
             // For new style plugin, all work is done in the async reading functions
             // Just reap the process here
@@ -506,10 +523,12 @@ const VPNRequestHandler = new Lang.Class({
 
     _showNewStyleDialog: function() {
         let keyfile = new GLib.KeyFile();
+        let data;
         let contentOverride;
 
         try {
-            let data = this._dataStdout.peek_buffer();
+            data = this._dataStdout.peek_buffer();
+
             keyfile.load_from_data(data.toString(), data.length,
                                    GLib.KeyFileFlags.NONE);
 
@@ -542,13 +561,16 @@ const VPNRequestHandler = new Lang.Class({
                 }
             }
         } catch(e) {
-            logError(e, 'error while reading VPN plugin output keyfile');
+            // No output is a valid case it means "both secrets are stored"
+            if (data.length > 0) {
+                logError(e, 'error while reading VPN plugin output keyfile');
 
-            this._agent.respond(this._requestId, Shell.NetworkAgentResponse.INTERNAL_ERROR);
-            return;
+                this._agent.respond(this._requestId, Shell.NetworkAgentResponse.INTERNAL_ERROR);
+                return;
+            }
         }
 
-        if (contentOverride.secrets.length) {
+        if (contentOverride && contentOverride.secrets.length) {
             // Only show the dialog if we actually have something to ask
             this._shellDialog = new NetworkSecretDialog(this._agent, this._requestId, this._connection, 'vpn', [], contentOverride);
             this._shellDialog.open(global.get_current_time());
@@ -582,7 +604,9 @@ const NetworkAgent = new Lang.Class({
     Name: 'NetworkAgent',
 
     _init: function() {
-        this._native = new Shell.NetworkAgent({ identifier: 'org.gnome.Shell.NetworkAgent' });
+        this._native = new Shell.NetworkAgent({ identifier: 'org.gnome.Shell.NetworkAgent',
+                                                capabilities: NMClient.SecretAgentCapabilities.VPN_HINTS
+                                              });
 
         this._dialogs = { };
         this._vpnRequests = { };
@@ -682,16 +706,23 @@ const NetworkAgent = new Lang.Class({
                     let service = keyfile.get_string('VPN Connection', 'service');
                     let binary = keyfile.get_string('GNOME', 'auth-dialog');
                     let externalUIMode = false;
+                    let hints = false;
+
                     try {
                         externalUIMode = keyfile.get_boolean('GNOME', 'supports-external-ui-mode');
                     } catch(e) { } // ignore errors if key does not exist
+
+                    try {
+                        hints = keyfile.get_boolean('GNOME', 'supports-hints');
+                    } catch(e) { } // ignore errors if key does not exist
+
                     let path = binary;
                     if (!GLib.path_is_absolute(path)) {
                         path = GLib.build_filenamev([Config.LIBEXECDIR, path]);
                     }
 
                     if (GLib.file_test(path, GLib.FileTest.IS_EXECUTABLE))
-                        this._vpnBinaries[service] = { fileName: path, externalUIMode: externalUIMode };
+                        this._vpnBinaries[service] = { fileName: path, externalUIMode: externalUIMode, supportsHints: hints };
                     else
                         throw new Error('VPN plugin at %s is not executable'.format(path));
                 } catch(e) {

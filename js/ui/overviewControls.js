@@ -36,6 +36,7 @@ const SlideLayout = new Lang.Class({
 
     _init: function(params) {
         this._slideX = 1;
+        this._translationX = undefined;
         this._direction = SlideDirection.LEFT;
 
         this.parent(params);
@@ -55,18 +56,22 @@ const SlideLayout = new Lang.Class({
     vfunc_allocate: function(container, box, flags) {
         let child = container.get_first_child();
 
-        let [, , natWidth, natHeight] = child.get_preferred_size();
         let availWidth = Math.round(box.x2 - box.x1);
         let availHeight = Math.round(box.y2 - box.y1);
+        let [, natWidth] = child.get_preferred_width(availHeight);
 
+        // Align the actor inside the clipped box, as the actor's alignment
+        // flags only determine what to do if the allocated box is bigger
+        // than the actor's box.
         let realDirection = getRtlSlideDirection(this._direction, child);
-        let translationX = (realDirection == SlideDirection.LEFT) ?
-            (availWidth - natWidth) : (natWidth - availWidth);
+        let alignX = (realDirection == SlideDirection.LEFT) ? (availWidth - natWidth)
+                                                            : (availWidth - natWidth * this._slideX);
 
-        let actorBox = new Clutter.ActorBox({ x1: translationX,
-                                              y1: 0,
-                                              x2: child.x_expand ? availWidth : natWidth,
-                                              y2: child.y_expand ? availHeight : natHeight });
+        let actorBox = new Clutter.ActorBox();
+        actorBox.x1 = box.x1 + alignX + this._translationX;
+        actorBox.x2 = actorBox.x1 + (child.x_expand ? availWidth : natWidth);
+        actorBox.y1 = box.y1;
+        actorBox.y2 = actorBox.y1 + availHeight;
 
         child.allocate(actorBox, flags);
     },
@@ -87,7 +92,16 @@ const SlideLayout = new Lang.Class({
 
     get slideDirection() {
         return this._direction;
-    }
+    },
+
+    set translationX(value) {
+        this._translationX = value;
+        this.layout_changed();
+    },
+
+    get translationX() {
+        return this._translationX;
+    },
 });
 
 const SlidingControl = new Lang.Class({
@@ -96,8 +110,8 @@ const SlidingControl = new Lang.Class({
     _init: function(params) {
         params = Params.parse(params, { slideDirection: SlideDirection.LEFT });
 
-        this.visible = true;
-        this.inDrag = false;
+        this._visible = true;
+        this._inDrag = false;
 
         this.layout = new SlideLayout();
         this.layout.slideDirection = params.slideDirection;
@@ -105,7 +119,7 @@ const SlidingControl = new Lang.Class({
                                      style_class: 'overview-controls',
                                      clip_to_allocation: true });
 
-        Main.overview.connect('showing', Lang.bind(this, this._onOverviewShowing));
+        Main.overview.connect('hiding', Lang.bind(this, this._onOverviewHiding));
 
         Main.overview.connect('item-drag-begin', Lang.bind(this, this._onDragBegin));
         Main.overview.connect('item-drag-end', Lang.bind(this, this._onDragEnd));
@@ -116,12 +130,12 @@ const SlidingControl = new Lang.Class({
         Main.overview.connect('window-drag-end', Lang.bind(this, this._onWindowDragEnd));
     },
 
-    getSlide: function() {
+    _getSlide: function() {
         throw new Error('getSlide() must be overridden');
     },
 
-    updateSlide: function() {
-        Tweener.addTween(this.layout, { slideX: this.getSlide(),
+    _updateSlide: function() {
+        Tweener.addTween(this.layout, { slideX: this._getSlide(),
                                         time: SIDE_CONTROLS_ANIMATION_TIME,
                                         transition: 'easeOutQuad' });
     },
@@ -148,28 +162,26 @@ const SlidingControl = new Lang.Class({
         let translationEnd = 0;
         let translation = this._getTranslation();
 
-        if (this.visible) {
+        let shouldShow = (this._getSlide() > 0);
+        if (shouldShow) {
             translationStart = translation;
         } else {
             translationEnd = translation;
         }
 
-        if (this.actor.translation_x == translationEnd)
+        if (this.layout.translationX == translationEnd)
             return;
 
-        this.actor.translation_x = translationStart;
-        Tweener.addTween(this.actor, { translation_x: translationEnd,
-                                       time: SIDE_CONTROLS_ANIMATION_TIME,
-                                       transition: 'easeOutQuad'
-                                     });
+        this.layout.translationX = translationStart;
+        Tweener.addTween(this.layout, { translationX: translationEnd,
+                                        time: SIDE_CONTROLS_ANIMATION_TIME,
+                                        transition: 'easeOutQuad' });
     },
 
-    _onOverviewShowing: function() {
-        // reset any translation and make sure the actor is visible when
-        // entering the overview
-        this.visible = true;
-        this.layout.slideX = this.getSlide();
-        this.actor.translation_x = 0;
+    _onOverviewHiding: function() {
+        // We need to explicitly slideOut since showing pages
+        // doesn't imply sliding out, instead, hiding the overview does.
+        this.slideOut();
     },
 
     _onWindowDragBegin: function() {
@@ -181,14 +193,14 @@ const SlidingControl = new Lang.Class({
     },
 
     _onDragBegin: function() {
-        this.inDrag = true;
-        this.actor.translation_x = 0;
-        this.updateSlide();
+        this._inDrag = true;
+        this._updateTranslation();
+        this._updateSlide();
     },
 
     _onDragEnd: function() {
-        this.inDrag = false;
-        this.updateSlide();
+        this._inDrag = false;
+        this._updateSlide();
     },
 
     fadeIn: function() {
@@ -206,13 +218,12 @@ const SlidingControl = new Lang.Class({
     },
 
     slideIn: function() {
-        this.visible = true;
-        this._updateTranslation();
+        this._visible = true;
         // we will update slideX and the translation from pageEmpty
     },
 
     slideOut: function() {
-        this.visible = false;
+        this._visible = false;
         this._updateTranslation();
         // we will update slideX from pageEmpty
     },
@@ -222,7 +233,7 @@ const SlidingControl = new Lang.Class({
         // selector; this means we can now safely set the full slide for
         // the next page, since slideIn or slideOut might have been called,
         // changing the visiblity
-        this.layout.slideX = this.getSlide();
+        this.layout.slideX = this._getSlide();
         this._updateTranslation();
     }
 });
@@ -236,26 +247,25 @@ const ThumbnailsSlider = new Lang.Class({
 
         this._thumbnailsBox = thumbnailsBox;
 
-        // SlideLayout reads the actor's expand flags to decide
-        // whether to allocate the natural size to its child, or the whole
-        // available allocation
-        this._thumbnailsBox.actor.y_expand = true;
-
         this.actor.request_mode = Clutter.RequestMode.WIDTH_FOR_HEIGHT;
         this.actor.reactive = true;
         this.actor.track_hover = true;
         this.actor.add_actor(this._thumbnailsBox.actor);
 
-        Main.layoutManager.connect('monitors-changed', Lang.bind(this, this.updateSlide));
-        Main.overview.connect('hiding', Lang.bind(this, this.slideOut));
-        this.actor.connect('notify::hover', Lang.bind(this, this.updateSlide));
+        Main.layoutManager.connect('monitors-changed', Lang.bind(this, this._updateSlide));
+        this.actor.connect('notify::hover', Lang.bind(this, this._updateSlide));
+        global.window_manager.connect('switch-workspace', Lang.bind(this, this._updateSlide));
         this._thumbnailsBox.actor.bind_property('visible', this.actor, 'visible', GObject.BindingFlags.SYNC_CREATE);
     },
 
     _getAlwaysZoomOut: function() {
         // Always show the pager when hover, during a drag, or if workspaces are
-        // actually used, e.g. there are windows on more than one
-        let alwaysZoomOut = this.actor.hover || this.inDrag || !Meta.prefs_get_dynamic_workspaces() || global.screen.n_workspaces > 2;
+        // actually used, e.g. there are windows on any non-active workspace
+        let alwaysZoomOut = this.actor.hover ||
+                            this._inDrag ||
+                            !Meta.prefs_get_dynamic_workspaces() ||
+                            global.screen.n_workspaces > 2 ||
+                            global.screen.get_active_workspace_index() != 0;
 
         if (!alwaysZoomOut) {
             let monitors = Main.layoutManager.monitors;
@@ -275,20 +285,13 @@ const ThumbnailsSlider = new Lang.Class({
         return alwaysZoomOut;
     },
 
-    _onOverviewShowing: function() {
-        this.visible = true;
-        this.layout.slideX = this.getSlide();
-        this.actor.translation_x = this._getTranslation();
-        this.slideIn();
-    },
-
     getNonExpandedWidth: function() {
         let child = this.actor.get_first_child();
         return child.get_theme_node().get_length('visible-width');
     },
 
-    getSlide: function() {
-        if (!this.visible)
+    _getSlide: function() {
+        if (!this._visible)
             return 0;
 
         let alwaysZoomOut = this._getAlwaysZoomOut();
@@ -324,29 +327,21 @@ const DashSlider = new Lang.Class({
         // whether to allocate the natural size to its child, or the whole
         // available allocation
         this._dash.actor.x_expand = true;
-        this._dash.actor.y_expand = true;
 
+        this.actor.x_expand = true;
         this.actor.x_align = Clutter.ActorAlign.START;
         this.actor.y_expand = true;
 
         this.actor.add_actor(this._dash.actor);
 
-        this._dash.connect('icon-size-changed', Lang.bind(this, this.updateSlide));
-        Main.overview.connect('hiding', Lang.bind(this, this.slideOut));
+        this._dash.connect('icon-size-changed', Lang.bind(this, this._updateSlide));
     },
 
-    getSlide: function() {
-        if (this.visible || this.inDrag)
+    _getSlide: function() {
+        if (this._visible || this._inDrag)
             return 1;
         else
             return 0;
-    },
-
-    _onOverviewShowing: function() {
-        this.visible = true;
-        this.layout.slideX = this.getSlide();
-        this.actor.translation_x = this._getTranslation();
-        this.slideIn();
     },
 
     _onWindowDragBegin: function() {
@@ -465,9 +460,6 @@ const MessagesIndicator = new Lang.Class({
         if (source.trayIcon)
             return;
 
-        if (source.isTransient)
-            return;
-
         source.connect('count-updated', Lang.bind(this, this._updateCount));
         this._sources.push(source);
         this._updateCount();
@@ -504,6 +496,17 @@ const MessagesIndicator = new Lang.Class({
     }
 });
 
+const ControlsLayout = new Lang.Class({
+    Name: 'ControlsLayout',
+    Extends: Clutter.BinLayout,
+    Signals: { 'allocation-changed': { flags: GObject.SignalFlags.RUN_LAST } },
+
+    vfunc_allocate: function(container, box, flags) {
+        this.parent(container, box, flags);
+        this.emit('allocation-changed');
+    }
+});
+
 const ControlsManager = new Lang.Class({
     Name: 'ControlsManager',
 
@@ -524,7 +527,8 @@ const ControlsManager = new Lang.Class({
         this._indicator = new MessagesIndicator(this.viewSelector);
         this.indicatorActor = this._indicator.actor;
 
-        this.actor = new St.Widget({ layout_manager: new Clutter.BinLayout(),
+        let layout = new ControlsLayout();
+        this.actor = new St.Widget({ layout_manager: layout,
                                      reactive: true,
                                      x_expand: true, y_expand: true,
                                      clip_to_allocation: true });
@@ -539,7 +543,7 @@ const ControlsManager = new Lang.Class({
                                                    expand: true });
         this._group.add_actor(this._thumbnailsSlider.actor);
 
-        this._group.connect('notify::allocation', Lang.bind(this, this._updateWorkspacesGeometry));
+        layout.connect('allocation-changed', Lang.bind(this, this._updateWorkspacesGeometry));
 
         Main.overview.connect('showing', Lang.bind(this, this._updateSpacerVisibility));
         Main.overview.connect('item-drag-begin', Lang.bind(this,

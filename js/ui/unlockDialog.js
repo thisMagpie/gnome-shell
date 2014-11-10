@@ -9,6 +9,7 @@ const GLib = imports.gi.GLib;
 const GnomeDesktop = imports.gi.GnomeDesktop;
 const Gtk = imports.gi.Gtk;
 const Lang = imports.lang;
+const Meta = imports.gi.Meta;
 const Signals = imports.signals;
 const Shell = imports.gi.Shell;
 const St = imports.gi.St;
@@ -33,6 +34,7 @@ const UnlockDialog = new Lang.Class({
     _init: function(parentActor) {
         this.actor = new St.Widget({ accessible_role: Atk.Role.WINDOW,
                                      style_class: 'login-dialog',
+                                     layout_manager: new Clutter.BoxLayout(),
                                      visible: false });
 
         this.actor.add_constraint(new Layout.MonitorConstraint({ primary: true }));
@@ -42,11 +44,12 @@ const UnlockDialog = new Lang.Class({
         this._userName = GLib.get_user_name();
         this._user = this._userManager.get_user(this._userName);
 
-        this._promptBox = new St.BoxLayout({ vertical: true });
+        this._promptBox = new St.BoxLayout({ vertical: true,
+                                             x_align: Clutter.ActorAlign.CENTER,
+                                             y_align: Clutter.ActorAlign.CENTER,
+                                             x_expand: true,
+                                             y_expand: true });
         this.actor.add_child(this._promptBox);
-        this._promptBox.add_constraint(new Clutter.AlignConstraint({ source: this.actor,
-                                                                     align_axis: Clutter.AlignAxis.BOTH,
-                                                                     factor: 0.5 }));
 
         this._authPrompt = new AuthPrompt.AuthPrompt(new Gdm.Client(), AuthPrompt.AuthPromptMode.UNLOCK_ONLY);
         this._authPrompt.connect('failed', Lang.bind(this, this._fail));
@@ -59,7 +62,7 @@ const UnlockDialog = new Lang.Class({
 
         this.allowCancel = false;
 
-        let screenSaverSettings = new Gio.Settings({ schema: 'org.gnome.desktop.screensaver' });
+        let screenSaverSettings = new Gio.Settings({ schema_id: 'org.gnome.desktop.screensaver' });
         if (screenSaverSettings.get_boolean('user-switch-enabled')) {
             let otherUserLabel = new St.Label({ text: _("Log in as another user"),
                                                 style_class: 'login-dialog-not-listed-label' });
@@ -68,7 +71,7 @@ const UnlockDialog = new Lang.Class({
                                                     child: otherUserLabel,
                                                     reactive: true,
                                                     x_align: St.Align.START,
-                                                    x_fill: true });
+                                                    x_fill: false });
             this._otherUserButton.connect('clicked', Lang.bind(this, this._otherUserClicked));
             this._promptBox.add_child(this._otherUserButton);
         } else {
@@ -80,7 +83,7 @@ const UnlockDialog = new Lang.Class({
 
         Main.ctrlAltTabManager.addGroup(this.actor, _("Unlock Window"), 'dialog-password-symbolic');
 
-        this._idleMonitor = new GnomeDesktop.IdleMonitor();
+        this._idleMonitor = Meta.IdleMonitor.get_core();
         this._idleWatchId = this._idleMonitor.add_idle_watch(IDLE_TIMEOUT * 1000, Lang.bind(this, this._escape));
     },
 

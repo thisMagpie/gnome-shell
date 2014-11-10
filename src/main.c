@@ -29,12 +29,12 @@
 #include "shell-perf-log.h"
 #include "st.h"
 
-#include <jsapi.h>
-
 extern GType gnome_shell_plugin_get_type (void);
 
 #define SHELL_DBUS_SERVICE "org.gnome.Shell"
 #define MAGNIFIER_DBUS_SERVICE "org.gnome.Magnifier"
+
+#define OVERRIDES_SCHEMA "org.gnome.shell.overrides"
 
 #define WM_NAME "GNOME Shell"
 #define GNOME_WM_KEYBINDINGS "Mutter,GNOME Shell"
@@ -170,15 +170,31 @@ shell_dbus_init (gboolean replace)
 }
 
 static void
+shell_prefs_init (void)
+{
+  ShellGlobal *global = shell_global_get ();
+  GSettings *settings = shell_global_get_overrides_settings (global);
+  char **keys, **k, *schema_id;
+
+  if (!settings)
+    return;
+
+  g_object_get (G_OBJECT (settings), "schema-id", &schema_id, NULL);
+
+  keys = g_settings_list_keys (settings);
+  for (keys = k = g_settings_list_keys (settings); *k; k++)
+    meta_prefs_override_preference_schema (*k, schema_id);
+
+  g_strfreev (keys);
+  g_free (schema_id);
+}
+
+static void
 shell_introspection_init (void)
 {
 
   g_irepository_prepend_search_path (MUTTER_TYPELIB_DIR);
   g_irepository_prepend_search_path (GNOME_SHELL_PKGLIBDIR);
-#if HAVE_BLUETOOTH
-  g_irepository_prepend_search_path (BLUETOOTH_DIR);
-#endif
-
 }
 
 static void
@@ -244,6 +260,8 @@ shell_perf_log_init (void)
 static void
 shell_a11y_init (void)
 {
+  cally_accessibility_init ();
+
   if (clutter_get_accessibility_enabled () == FALSE)
     {
       g_warning ("Accessibility: clutter has no accessibility enabled"
@@ -277,7 +295,9 @@ default_log_handler (const char     *log_domain,
 
   g_get_current_time (&now);
 
-  tp_debug_sender_add_message (sender, &now, log_domain, log_level, message);
+  /* Send telepathy debug through DBus */
+  if (log_domain != NULL && g_str_has_prefix (log_domain, "tp-glib"))
+    tp_debug_sender_add_message (sender, &now, log_domain, log_level, message);
 
   /* Filter out telepathy-glib logs, we don't want to flood Shell's output
    * with those. */
@@ -386,8 +406,11 @@ main (int argc, char **argv)
   bind_textdomain_codeset (GETTEXT_PACKAGE, "UTF-8");
   textdomain (GETTEXT_PACKAGE);
 
+  session_mode = (char *) g_getenv ("GNOME_SHELL_SESSION_MODE");
+
   ctx = meta_get_option_context ();
   g_option_context_add_main_entries (ctx, gnome_shell_options, GETTEXT_PACKAGE);
+  g_option_context_add_group (ctx, g_irepository_get_option_group ());
   if (!g_option_context_parse (ctx, &argc, &argv, &error))
     {
       g_printerr ("%s: %s\n", argv[0], error->message);
@@ -401,7 +424,7 @@ main (int argc, char **argv)
   meta_set_wm_name (WM_NAME);
   meta_set_gnome_wm_keybindings (GNOME_WM_KEYBINDINGS);
 
-  /* Prevent meta_init() from causing gtk to load gail and at-bridge */
+  /* Prevent meta_init() from causing gtk to load the atk-bridge*/
   g_setenv ("NO_AT_BRIDGE", "1", TRUE);
   meta_init ();
   g_unsetenv ("NO_AT_BRIDGE");
@@ -434,6 +457,8 @@ main (int argc, char **argv)
     session_mode = is_gdm_mode ? "gdm" : "user";
 
   _shell_global_init ("session-mode", session_mode, NULL);
+
+  shell_prefs_init ();
 
   ecode = meta_run ();
 

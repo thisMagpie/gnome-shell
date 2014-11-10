@@ -1,6 +1,7 @@
 // -*- mode: js; js-indent-level: 4; indent-tabs-mode: nil -*-
 
 const Clutter = imports.gi.Clutter;
+const GLib = imports.gi.GLib;
 const Signals = imports.signals;
 const Lang = imports.lang;
 const Meta = imports.gi.Meta;
@@ -380,6 +381,8 @@ const DashActor = new Lang.Class({
     }
 });
 
+const baseIconSizes = [ 16, 22, 24, 32, 48, 64 ];
+
 const Dash = new Lang.Class({
     Name: 'Dash',
 
@@ -423,7 +426,10 @@ const Dash = new Lang.Class({
 
         this._appSystem = Shell.AppSystem.get_default();
 
-        this._appSystem.connect('installed-changed', Lang.bind(this, this._queueRedisplay));
+        this._appSystem.connect('installed-changed', Lang.bind(this, function() {
+            AppFavorites.getAppFavorites().reload();
+            this._queueRedisplay();
+        }));
         AppFavorites.getAppFavorites().connect('changed', Lang.bind(this, this._queueRedisplay));
         this._appSystem.connect('app-state-changed', Lang.bind(this, this._queueRedisplay));
 
@@ -502,15 +508,21 @@ const Dash = new Lang.Class({
         Main.queueDeferredWork(this._workId);
     },
 
-    _hookUpLabel: function(item) {
+    _hookUpLabel: function(item, appIcon) {
         item.child.connect('notify::hover', Lang.bind(this, function() {
-            this._onHover(item);
+            this._syncLabel(item, appIcon);
         }));
 
         Main.overview.connect('hiding', Lang.bind(this, function() {
             this._labelShowing = false;
             item.hideLabel();
         }));
+
+        if (appIcon) {
+            appIcon.connect('sync-tooltip', Lang.bind(this, function() {
+                this._syncLabel(item, appIcon);
+            }));
+        }
     },
 
     _createAppItem: function(app) {
@@ -539,7 +551,7 @@ const Dash = new Lang.Class({
         item.setLabelText(app.get_name());
 
         appIcon.icon.setIconSize(this.iconSize);
-        this._hookUpLabel(item);
+        this._hookUpLabel(item, appIcon);
 
         return item;
     },
@@ -557,16 +569,20 @@ const Dash = new Lang.Class({
         }
     },
 
-    _onHover: function (item) {
-        if (item.child.get_hover()) {
+    _syncLabel: function (item, appIcon) {
+        let shouldShow = appIcon ? appIcon.shouldShowTooltip() : item.child.get_hover();
+
+        if (shouldShow) {
             if (this._showLabelTimeoutId == 0) {
                 let timeout = this._labelShowing ? 0 : DASH_ITEM_HOVER_TIMEOUT;
                 this._showLabelTimeoutId = Mainloop.timeout_add(timeout,
                     Lang.bind(this, function() {
                         this._labelShowing = true;
                         item.showLabel();
-                        return false;
+                        this._showLabelTimeoutId = 0;
+                        return GLib.SOURCE_REMOVE;
                     }));
+                GLib.Source.set_name_by_id(this._showLabelTimeoutId, '[gnome-shell] item.showLabel');
                 if (this._resetHoverTimeoutId > 0) {
                     Mainloop.source_remove(this._resetHoverTimeoutId);
                     this._resetHoverTimeoutId = 0;
@@ -581,8 +597,10 @@ const Dash = new Lang.Class({
                 this._resetHoverTimeoutId = Mainloop.timeout_add(DASH_ITEM_HOVER_TIMEOUT,
                     Lang.bind(this, function() {
                         this._labelShowing = false;
-                        return false;
+                        this._resetHoverTimeoutId = 0;
+                        return GLib.SOURCE_REMOVE;
                     }));
+                GLib.Source.set_name_by_id(this._resetHoverTimeoutId, '[gnome-shell] this._labelShowing');
             }
         }
     },
@@ -618,25 +636,24 @@ const Dash = new Lang.Class({
         let minHeight, natHeight;
 
         // Enforce the current icon size during the size request
-        let [currentWidth, currentHeight] = firstIcon.icon.get_size();
-
-        firstIcon.icon.set_size(this.iconSize, this.iconSize);
+        firstIcon.setIconSize(this.iconSize);
         [minHeight, natHeight] = firstButton.get_preferred_height(-1);
 
-        firstIcon.icon.set_size(currentWidth, currentHeight);
+        let scaleFactor = St.ThemeContext.get_for_stage(global.stage).scale_factor;
+        let iconSizes = baseIconSizes.map(function(s) {
+            return s * scaleFactor;
+        });
 
         // Subtract icon padding and box spacing from the available height
-        availHeight -= iconChildren.length * (natHeight - this.iconSize) +
+        availHeight -= iconChildren.length * (natHeight - this.iconSize * scaleFactor) +
                        (iconChildren.length - 1) * spacing;
 
         let availSize = availHeight / iconChildren.length;
 
-        let iconSizes = [ 16, 22, 24, 32, 48, 64 ];
-
-        let newIconSize = 16;
+        let newIconSize = baseIconSizes[0];
         for (let i = 0; i < iconSizes.length; i++) {
             if (iconSizes[i] < availSize)
-                newIconSize = iconSizes[i];
+                newIconSize = baseIconSizes[i];
         }
 
         if (newIconSize == this.iconSize)

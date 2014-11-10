@@ -1,5 +1,6 @@
 // -*- mode: js; js-indent-level: 4; indent-tabs-mode: nil -*-
 
+const GLib = imports.gi.GLib;
 const Lang = imports.lang;
 const Mainloop = imports.mainloop;
 const St = imports.gi.St;
@@ -11,7 +12,7 @@ const ANIMATED_ICON_UPDATE_TIMEOUT = 100;
 const Animation = new Lang.Class({
     Name: 'Animation',
 
-    _init: function(filename, width, height, speed) {
+    _init: function(file, width, height, speed) {
         this.actor = new St.Bin();
         this.actor.connect('destroy', Lang.bind(this, this._onDestroy));
         this._speed = speed;
@@ -20,7 +21,9 @@ const Animation = new Lang.Class({
         this._isPlaying = false;
         this._timeoutId = 0;
         this._frame = 0;
-        this._animations = St.TextureCache.get_default().load_sliced_image (filename, width, height,
+
+        let scaleFactor = St.ThemeContext.get_for_stage(global.stage).scale_factor;
+        this._animations = St.TextureCache.get_default().load_sliced_image (file, width, height, scaleFactor,
                                                                             Lang.bind(this, this._animationsLoaded));
         this.actor.set_child(this._animations);
     },
@@ -31,6 +34,7 @@ const Animation = new Lang.Class({
                 this._showFrame(0);
 
             this._timeoutId = Mainloop.timeout_add(this._speed, Lang.bind(this, this._update));
+            GLib.Source.set_name_by_id(this._timeoutId, '[gnome-shell] this._update');
         }
 
         this._isPlaying = true;
@@ -59,7 +63,7 @@ const Animation = new Lang.Class({
 
     _update: function() {
         this._showFrame(this._frame + 1);
-        return true;
+        return GLib.SOURCE_CONTINUE;
     },
 
     _animationsLoaded: function() {
@@ -78,7 +82,7 @@ const AnimatedIcon = new Lang.Class({
     Name: 'AnimatedIcon',
     Extends: Animation,
 
-    _init: function(filename, size) {
-        this.parent(filename, size, size, ANIMATED_ICON_UPDATE_TIMEOUT);
+    _init: function(file, size) {
+        this.parent(file, size, size, ANIMATED_ICON_UPDATE_TIMEOUT);
     }
 });

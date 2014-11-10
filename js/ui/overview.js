@@ -1,6 +1,7 @@
 // -*- mode: js; js-indent-level: 4; indent-tabs-mode: nil -*-
 
 const Clutter = imports.gi.Clutter;
+const GLib = imports.gi.GLib;
 const Gtk = imports.gi.Gtk;
 const Meta = imports.gi.Meta;
 const Mainloop = imports.mainloop;
@@ -13,6 +14,7 @@ const Gdk = imports.gi.Gdk;
 const Background = imports.ui.background;
 const DND = imports.ui.dnd;
 const LayoutManager = imports.ui.layout;
+const Lightbox = imports.ui.lightbox;
 const Main = imports.ui.main;
 const MessageTray = imports.ui.messageTray;
 const OverviewControls = imports.ui.overviewControls;
@@ -78,10 +80,8 @@ const ShellInfo = new Lang.Class({
         }
 
         this._undoCallback = undoCallback;
-        if (undoCallback) {
-            notification.addButton('system-undo', _("Undo"));
-            notification.connect('action-invoked', Lang.bind(this, this._onUndoClicked));
-        }
+        if (undoCallback)
+            notification.addAction(_("Undo"), Lang.bind(this, this._onUndoClicked));
 
         this._source.notify(notification);
     }
@@ -114,9 +114,6 @@ const Overview = new Lang.Class({
         // rendering options without duplicating the texture data.
         let monitor = Main.layoutManager.primaryMonitor;
 
-        this._desktopFade = new St.Bin();
-        Main.layoutManager.overviewGroup.add_child(this._desktopFade);
-
         let layout = new Clutter.BinLayout();
         this._stack = new Clutter.Actor({ layout_manager: layout });
         this._stack.add_constraint(new LayoutManager.MonitorConstraint({ primary: true }));
@@ -135,6 +132,9 @@ const Overview = new Lang.Class({
         Main.layoutManager.overviewGroup.add_child(this._backgroundGroup);
         this._bgManagers = [];
 
+        this._desktopFade = new St.Widget();
+        Main.layoutManager.overviewGroup.add_child(this._desktopFade);
+
         this._activationTime = 0;
 
         this.visible = false;           // animating to overview, in overview, animating out
@@ -148,8 +148,8 @@ const Overview = new Lang.Class({
         // Dash elements, or mouseover handlers in the workspaces.
         this._coverPane = new Clutter.Actor({ opacity: 0,
                                               reactive: true });
-        this._stack.add_actor(this._coverPane);
-        this._coverPane.connect('event', Lang.bind(this, function (actor, event) { return true; }));
+        Main.layoutManager.overviewGroup.add_child(this._coverPane);
+        this._coverPane.connect('event', Lang.bind(this, function (actor, event) { return Clutter.EVENT_STOP; }));
 
         this._stack.add_actor(this._overview);
         Main.layoutManager.overviewGroup.add_child(this._stack);
@@ -185,7 +185,7 @@ const Overview = new Lang.Class({
         for (let i = 0; i < Main.layoutManager.monitors.length; i++) {
             let bgManager = new Background.BackgroundManager({ container: this._backgroundGroup,
                                                                monitorIndex: i,
-                                                               effects: Meta.BackgroundEffects.VIGNETTE });
+                                                               vignette: true });
             this._bgManagers.push(bgManager);
         }
     },
@@ -193,15 +193,9 @@ const Overview = new Lang.Class({
     _unshadeBackgrounds: function() {
         let backgrounds = this._backgroundGroup.get_children();
         for (let i = 0; i < backgrounds.length; i++) {
-            let background = backgrounds[i]._delegate;
-
-            Tweener.addTween(background,
+            Tweener.addTween(backgrounds[i],
                              { brightness: 1.0,
-                               time: SHADE_ANIMATION_TIME,
-                               transition: 'easeOutQuad'
-                             });
-            Tweener.addTween(background,
-                             { vignetteSharpness: 0.0,
+                               vignette_sharpness: 0.0,
                                time: SHADE_ANIMATION_TIME,
                                transition: 'easeOutQuad'
                              });
@@ -211,15 +205,9 @@ const Overview = new Lang.Class({
     _shadeBackgrounds: function() {
         let backgrounds = this._backgroundGroup.get_children();
         for (let i = 0; i < backgrounds.length; i++) {
-            let background = backgrounds[i]._delegate;
-
-            Tweener.addTween(background,
-                             { brightness: 0.8,
-                               time: SHADE_ANIMATION_TIME,
-                               transition: 'easeOutQuad'
-                             });
-            Tweener.addTween(background,
-                             { vignetteSharpness: 0.7,
+            Tweener.addTween(backgrounds[i],
+                             { brightness: Lightbox.VIGNETTE_BRIGHTNESS,
+                               vignette_sharpness: Lightbox.VIGNETTE_SHARPNESS,
                                time: SHADE_ANIMATION_TIME,
                                transition: 'easeOutQuad'
                              });
@@ -250,7 +238,7 @@ const Overview = new Lang.Class({
                                         opacity: 0 });
         this._overview.add_actor(this._panelGhost);
 
-        this._searchEntry = new St.Entry({ name: 'searchEntry',
+        this._searchEntry = new St.Entry({ style_class: 'search-entry',
                                            /* Translators: this is the text displayed
                                               in the search entry when no search is
                                               active; it should not exceed ~30
@@ -265,7 +253,7 @@ const Overview = new Lang.Class({
         // Create controls
         this._controls = new OverviewControls.ControlsManager(this._searchEntry);
         this._dash = this._controls.dash;
-        this._viewSelector = this._controls.viewSelector;
+        this.viewSelector = this._controls.viewSelector;
 
         // Add our same-line elements after the search entry
         this._overview.add(this._controls.actor, { y_fill: true, expand: true });
@@ -285,11 +273,11 @@ const Overview = new Lang.Class({
     },
 
     addSearchProvider: function(provider) {
-        this._viewSelector.addSearchProvider(provider);
+        this.viewSelector.addSearchProvider(provider);
     },
 
     removeSearchProvider: function(provider) {
-        this._viewSelector.removeSearchProvider(provider);
+        this.viewSelector.removeSearchProvider(provider);
     },
 
     //
@@ -365,12 +353,15 @@ const Overview = new Lang.Class({
             this._lastHoveredWindow = dragEvent.targetActor._delegate.metaWindow;
             this._windowSwitchTimeoutId = Mainloop.timeout_add(DND_WINDOW_SWITCH_TIMEOUT,
                                             Lang.bind(this, function() {
+                                                this._windowSwitchTimeoutId = 0;
                                                 this._needsFakePointerEvent = true;
                                                 Main.activateWindow(dragEvent.targetActor._delegate.metaWindow,
                                                                     this._windowSwitchTimestamp);
                                                 this.hide();
                                                 this._lastHoveredWindow = null;
+                                                return GLib.SOURCE_REMOVE;
                                             }));
+            GLib.Source.set_name_by_id(this._windowSwitchTimeoutId, '[gnome-shell] Main.activateWindow');
         }
 
         return DND.DragMotionResult.CONTINUE;
@@ -378,6 +369,7 @@ const Overview = new Lang.Class({
 
     _onScrollEvent: function(actor, event) {
         this.emit('scroll-event', event);
+        return Clutter.EVENT_PROPAGATE;
     },
 
     addAction: function(action) {
@@ -429,8 +421,6 @@ const Overview = new Lang.Class({
         this.emit('windows-restacked', stackIndices);
     },
 
-    //// Public methods ////
-
     beginItemDrag: function(source) {
         this.emit('item-drag-begin');
         this._inDrag = true;
@@ -445,35 +435,18 @@ const Overview = new Lang.Class({
         this._inDrag = false;
     },
 
-    beginWindowDrag: function(source) {
-        this.emit('window-drag-begin');
+    beginWindowDrag: function(window) {
+        this.emit('window-drag-begin', window);
         this._inDrag = true;
     },
 
-    cancelledWindowDrag: function(source) {
-        this.emit('window-drag-cancelled');
+    cancelledWindowDrag: function(window) {
+        this.emit('window-drag-cancelled', window);
     },
 
-    endWindowDrag: function(source) {
-        this.emit('window-drag-end');
+    endWindowDrag: function(window) {
+        this.emit('window-drag-end', window);
         this._inDrag = false;
-    },
-
-    // show:
-    //
-    // Animates the overview visible and grabs mouse and keyboard input
-    show: function() {
-        if (this.isDummy)
-            return;
-        if (this._shown)
-            return;
-        this._shown = true;
-
-        if (!this._syncGrab())
-            return;
-
-        Main.layoutManager.showOverview();
-        this._animateVisible();
     },
 
     focusSearch: function() {
@@ -491,8 +464,13 @@ const Overview = new Lang.Class({
     },
 
     fadeOutDesktop: function() {
-        if (!this._desktopFade.child)
-            this._desktopFade.child = this._getDesktopClone();
+        if (!this._desktopFade.get_n_children()) {
+            let clone = this._getDesktopClone();
+            if (!clone)
+                return;
+
+            this._desktopFade.add_child(clone);
+        }
 
         this._desktopFade.opacity = 255;
         this._desktopFade.show();
@@ -501,69 +479,6 @@ const Overview = new Lang.Class({
                            time: ANIMATION_TIME,
                            transition: 'easeOutQuad'
                          });
-    },
-
-    _animateVisible: function() {
-        if (this.visible || this.animationInProgress)
-            return;
-
-        this.visible = true;
-        this.animationInProgress = true;
-        this.visibleTarget = true;
-        this._activationTime = Date.now() / 1000;
-
-        Meta.disable_unredirect_for_screen(global.screen);
-        this._viewSelector.show();
-
-        this._stack.opacity = 0;
-        Tweener.addTween(this._stack,
-                         { opacity: 255,
-                           transition: 'easeOutQuad',
-                           time: ANIMATION_TIME,
-                           onComplete: this._showDone,
-                           onCompleteScope: this
-                         });
-        this._shadeBackgrounds();
-
-        this._coverPane.raise_top();
-        this._coverPane.show();
-        this.emit('showing');
-    },
-
-    // hide:
-    //
-    // Reverses the effect of show()
-    hide: function() {
-        if (this.isDummy)
-            return;
-
-        if (!this._shown)
-            return;
-
-        let event = Clutter.get_current_event();
-        if (event) {
-            let type = event.type();
-            let button = (type == Clutter.EventType.BUTTON_PRESS ||
-                          type == Clutter.EventType.BUTTON_RELEASE);
-            let ctrl = (event.get_state() & Clutter.ModifierType.CONTROL_MASK) != 0;
-            if (button && ctrl)
-                return;
-        }
-
-        this._animateNotVisible();
-
-        this._shown = false;
-        this._syncGrab();
-    },
-
-    toggle: function() {
-        if (this.isDummy)
-            return;
-
-        if (this.visible)
-            this.hide();
-        else
-            this.show();
     },
 
     // Checks if the Activities button is currently sensitive to
@@ -581,8 +496,6 @@ const Overview = new Lang.Class({
             return true;
         return false;
     },
-
-    //// Private methods ////
 
     _syncGrab: function() {
         // We delay grab changes during animation so that when removing the
@@ -613,28 +526,49 @@ const Overview = new Lang.Class({
         return true;
     },
 
-    _animateNotVisible: function() {
-        if (!this.visible || this.animationInProgress)
+    // show:
+    //
+    // Animates the overview visible and grabs mouse and keyboard input
+    show: function() {
+        if (this.isDummy)
+            return;
+        if (this._shown)
+            return;
+        this._shown = true;
+
+        if (!this._syncGrab())
             return;
 
+        Main.layoutManager.showOverview();
+        this._animateVisible();
+    },
+
+
+    _animateVisible: function() {
+        if (this.visible || this.animationInProgress)
+            return;
+
+        this.visible = true;
         this.animationInProgress = true;
-        this.visibleTarget = false;
+        this.visibleTarget = true;
+        this._activationTime = Date.now() / 1000;
 
-        this._viewSelector.zoomFromOverview();
+        Meta.disable_unredirect_for_screen(global.screen);
+        this.viewSelector.show();
 
-        // Make other elements fade out.
+        this._stack.opacity = 0;
         Tweener.addTween(this._stack,
-                         { opacity: 0,
+                         { opacity: 255,
                            transition: 'easeOutQuad',
                            time: ANIMATION_TIME,
-                           onComplete: this._hideDone,
+                           onComplete: this._showDone,
                            onCompleteScope: this
                          });
-        this._unshadeBackgrounds();
+        this._shadeBackgrounds();
 
         this._coverPane.raise_top();
         this._coverPane.show();
-        this.emit('hiding');
+        this.emit('showing');
     },
 
     _showDone: function() {
@@ -651,11 +585,62 @@ const Overview = new Lang.Class({
         global.sync_pointer();
     },
 
+    // hide:
+    //
+    // Reverses the effect of show()
+    hide: function() {
+        if (this.isDummy)
+            return;
+
+        if (!this._shown)
+            return;
+
+        let event = Clutter.get_current_event();
+        if (event) {
+            let type = event.type();
+            let button = (type == Clutter.EventType.BUTTON_PRESS ||
+                          type == Clutter.EventType.BUTTON_RELEASE);
+            let ctrl = (event.get_state() & Clutter.ModifierType.CONTROL_MASK) != 0;
+            if (button && ctrl)
+                return;
+        }
+
+        this._animateNotVisible();
+
+        this._shown = false;
+        this._syncGrab();
+    },
+
+
+    _animateNotVisible: function() {
+        if (!this.visible || this.animationInProgress)
+            return;
+
+        this.animationInProgress = true;
+        this.visibleTarget = false;
+
+        this.viewSelector.animateFromOverview();
+
+        // Make other elements fade out.
+        Tweener.addTween(this._stack,
+                         { opacity: 0,
+                           transition: 'easeOutQuad',
+                           time: ANIMATION_TIME,
+                           onComplete: this._hideDone,
+                           onCompleteScope: this
+                         });
+        this._unshadeBackgrounds();
+
+        this._coverPane.raise_top();
+        this._coverPane.show();
+        this.emit('hiding');
+    },
+
     _hideDone: function() {
         // Re-enable unredirection
         Meta.enable_unredirect_for_screen(global.screen);
 
-        this._viewSelector.hide();
+        this.viewSelector.hide();
         this._desktopFade.hide();
         this._coverPane.hide();
 
@@ -676,6 +661,20 @@ const Overview = new Lang.Class({
             this._fakePointerEvent();
             this._needsFakePointerEvent = false;
         }
+    },
+
+    toggle: function() {
+        if (this.isDummy)
+            return;
+
+        if (this.visible)
+            this.hide();
+        else
+            this.show();
+    },
+
+    getShowAppsButton: function() {
+        return this._dash.showAppsButton;
     }
 });
 Signals.addSignalMethods(Overview.prototype);

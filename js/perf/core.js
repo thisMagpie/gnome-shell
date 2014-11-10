@@ -72,6 +72,9 @@ function run() {
     Scripting.defineScriptEvent("applicationsShowStart", "Starting to switch to applications view");
     Scripting.defineScriptEvent("applicationsShowDone", "Done switching to applications view");
 
+    // Enable recording of timestamps for different points in the frame cycle
+    global.frame_timestamps = true;
+
     Main.overview.connect('shown', function() {
                               Scripting.scriptEvent('overviewShowDone');
                           });
@@ -87,7 +90,10 @@ function run() {
             yield Scripting.destroyTestWindows();
 
             for (let k = 0; k < config.count; k++)
-                yield Scripting.createTestWindow(config.width, config.height, config.alpha, config.maximized);
+                yield Scripting.createTestWindow({ width: config.width,
+                                                   height: config.height,
+                                                   alpha: config.alpha,
+                                                   maximized: config.maximized });
 
             yield Scripting.waitTestWindows();
             yield Scripting.sleep(1000);

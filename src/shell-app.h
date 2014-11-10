@@ -4,9 +4,8 @@
 
 #include <clutter/clutter.h>
 #include <gio/gio.h>
+#include <gio/gdesktopappinfo.h>
 #include <meta/window.h>
-#define GMENU_I_KNOW_THIS_IS_UNSTABLE
-#include <gmenu-tree.h>
 
 G_BEGIN_DECLS
 
@@ -39,7 +38,6 @@ GType shell_app_get_type (void) G_GNUC_CONST;
 
 const char *shell_app_get_id (ShellApp *app);
 
-GMenuTreeEntry *shell_app_get_tree_entry (ShellApp *app);
 GDesktopAppInfo *shell_app_get_app_info (ShellApp *app);
 
 ClutterActor *shell_app_create_icon_texture (ShellApp *app, int size);
@@ -58,6 +56,7 @@ void shell_app_activate_full (ShellApp      *app,
 
 void shell_app_open_new_window (ShellApp *app,
                                 int       workspace);
+gboolean shell_app_can_open_new_window (ShellApp *app);
 
 ShellAppState shell_app_get_state (ShellApp *app);
 
@@ -73,10 +72,13 @@ gboolean shell_app_is_on_workspace (ShellApp *app, MetaWorkspace *workspace);
 
 gboolean shell_app_launch (ShellApp     *app,
                            guint         timestamp,
-                           GList        *uris,
                            int           workspace,
-                           char        **startup_id,
                            GError      **error);
+
+void shell_app_launch_action (ShellApp        *app,
+                              const char      *action_name,
+                              guint            timestamp,
+                              int              workspace);
 
 int shell_app_compare_by_name (ShellApp *app, ShellApp *other);
 

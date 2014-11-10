@@ -13,26 +13,31 @@ const Shell = imports.gi.Shell;
 
 const MSECS_IN_DAY = 24 * 60 * 60 * 1000;
 const SHOW_WEEKDATE_KEY = 'show-weekdate';
+const ELLIPSIS_CHAR = '\u2026';
+
+// alias to prevent xgettext from picking up strings translated in GTK+
+const gtk30_ = Gettext_gtk30.gettext;
+const NC_ = function(context, str) { return str; };
 
 // in org.gnome.desktop.interface
 const CLOCK_FORMAT_KEY        = 'clock-format';
-
-function _sameDay(dateA, dateB) {
-    return (dateA.getDate() == dateB.getDate() &&
-            dateA.getMonth() == dateB.getMonth() &&
-            dateA.getYear() == dateB.getYear());
-}
 
 function _sameYear(dateA, dateB) {
     return (dateA.getYear() == dateB.getYear());
 }
 
-/* TODO: maybe needs config - right now we assume that Saturday and
- * Sunday are non-work days (not true in e.g. Israel, it's Sunday and
- * Monday there)
- */
+function _sameMonth(dateA, dateB) {
+    return _sameYear(dateA, dateB) && (dateA.getMonth() == dateB.getMonth());
+}
+
+function _sameDay(dateA, dateB) {
+    return _sameMonth(dateA, dateB) && (dateA.getDate() == dateB.getDate());
+}
+
 function _isWorkDay(date) {
-    return date.getDay() != 0 && date.getDay() != 6;
+    /* Translators: Enter 0-6 (Sunday-Saturday) for non-work days. Examples: "0" (Sunday) "6" (Saturday) "06" (Sunday and Saturday). */
+    let days = C_('calendar-no-work', "06");
+    return days.indexOf(date.getDay().toString()) == -1;
 }
 
 function _getBeginningOfDay(date) {
@@ -53,19 +58,21 @@ function _getEndOfDay(date) {
     return ret;
 }
 
-function _formatEventTime(event, clockFormat) {
+function _formatEventTime(event, clockFormat, periodBegin, periodEnd) {
     let ret;
-    if (event.allDay) {
+    let allDay = (event.allDay || (event.date <= periodBegin && event.end >= periodEnd));
+    if (allDay) {
         /* Translators: Shown in calendar event list for all day events
          * Keep it short, best if you can use less then 10 characters
          */
         ret = C_("event list time", "All Day");
     } else {
+        let date = event.date >= periodBegin ? event.date : event.end;
         switch (clockFormat) {
         case '24h':
             /* Translators: Shown in calendar event list, if 24h format,
                \u2236 is a ratio character, similar to : */
-            ret = event.date.toLocaleFormat(C_("event list time", "%H\u2236%M"));
+            ret = date.toLocaleFormat(C_("event list time", "%H\u2236%M"));
             break;
 
         default:
@@ -74,7 +81,7 @@ function _formatEventTime(event, clockFormat) {
             /* Translators: Shown in calendar event list, if 12h format,
                \u2236 is a ratio character, similar to : and \u2009 is
                a thin space */
-            ret = event.date.toLocaleFormat(C_("event list time", "%l\u2236%M\u2009%p"));
+            ret = date.toLocaleFormat(C_("event list time", "%l\u2236%M\u2009%p"));
             break;
         }
     }
@@ -190,16 +197,18 @@ const EmptyEventSource = new Lang.Class({
 });
 Signals.addSignalMethods(EmptyEventSource.prototype);
 
-const CalendarServerIface = <interface name="org.gnome.Shell.CalendarServer">
-<method name="GetEvents">
-    <arg type="x" direction="in" />
-    <arg type="x" direction="in" />
-    <arg type="b" direction="in" />
-    <arg type="a(sssbxxa{sv})" direction="out" />
-</method>
-<property name="HasCalendars" type="b" access="read" />
-<signal name="Changed" />
-</interface>;
+const CalendarServerIface = '<node> \
+<interface name="org.gnome.Shell.CalendarServer"> \
+<method name="GetEvents"> \
+    <arg type="x" direction="in" /> \
+    <arg type="x" direction="in" /> \
+    <arg type="b" direction="in" /> \
+    <arg type="a(sssbxxa{sv})" direction="out" /> \
+</method> \
+<property name="HasCalendars" type="b" access="read" /> \
+<signal name="Changed" /> \
+</interface> \
+</node>';
 
 const CalendarServerInfo  = Gio.DBusInterfaceInfo.new_for_xml(CalendarServerIface);
 
@@ -327,25 +336,22 @@ const DBusEventSource = new Lang.Class({
             return;
 
         if (this._curRequestBegin && this._curRequestEnd){
-            let callFlags = Gio.DBusCallFlags.NO_AUTO_START;
-            if (forceReload)
-                callFlags = Gio.DBusCallFlags.NONE;
             this._dbusProxy.GetEventsRemote(this._curRequestBegin.getTime() / 1000,
                                             this._curRequestEnd.getTime() / 1000,
                                             forceReload,
                                             Lang.bind(this, this._onEventsReceived),
-                                            callFlags);
+                                            Gio.DBusCallFlags.NONE);
         }
     },
 
-    requestRange: function(begin, end, forceReload) {
-        if (forceReload || !(_datesEqual(begin, this._lastRequestBegin) && _datesEqual(end, this._lastRequestEnd))) {
+    requestRange: function(begin, end) {
+        if (!(_datesEqual(begin, this._lastRequestBegin) && _datesEqual(end, this._lastRequestEnd))) {
             this.isLoading = true;
             this._lastRequestBegin = begin;
             this._lastRequestEnd = end;
             this._curRequestBegin = begin;
             this._curRequestEnd = end;
-            this._loadEvents(forceReload);
+            this._loadEvents(false);
         }
     },
 
@@ -357,6 +363,12 @@ const DBusEventSource = new Lang.Class({
                 result.push(event);
             }
         }
+        result.sort(function(event1, event2) {
+            // sort events by end time on ending day
+            let d1 = event1.date < begin && event1.end <= end ? event1.end : event1.date;
+            let d2 = event2.date < begin && event2.end <= end ? event2.end : event2.date;
+            return d1.getTime() - d2.getTime();
+        });
         return result;
     },
 
@@ -379,14 +391,14 @@ const Calendar = new Lang.Class({
 
     _init: function() {
         this._weekStart = Shell.util_get_week_start();
-        this._settings = new Gio.Settings({ schema: 'org.gnome.shell.calendar' });
+        this._settings = new Gio.Settings({ schema_id: 'org.gnome.shell.calendar' });
 
         this._settings.connect('changed::' + SHOW_WEEKDATE_KEY, Lang.bind(this, this._onSettingsChange));
         this._useWeekdate = this._settings.get_boolean(SHOW_WEEKDATE_KEY);
 
         // Find the ordering for month/year in the calendar heading
         this._headerFormatWithoutYear = '%B';
-        switch (Gettext_gtk30.gettext('calendar:MY')) {
+        switch (gtk30_('calendar:MY')) {
         case 'calendar:MY':
             this._headerFormat = '%B %Y';
             break;
@@ -402,9 +414,11 @@ const Calendar = new Lang.Class({
         // Start off with the current date
         this._selectedDate = new Date();
 
-        this.actor = new St.Table({ homogeneous: false,
-                                    style_class: 'calendar',
-                                    reactive: true });
+        this._shouldDateGrabFocus = false;
+
+        this.actor = new St.Widget({ style_class: 'calendar',
+                                     layout_manager: new Clutter.GridLayout(),
+                                     reactive: true });
 
         this.actor.connect('scroll-event',
                            Lang.bind(this, this._onScroll));
@@ -417,41 +431,44 @@ const Calendar = new Lang.Class({
     setEventSource: function(eventSource) {
         this._eventSource = eventSource;
         this._eventSource.connect('changed', Lang.bind(this, function() {
-            this._update(false);
+            this._rebuildCalendar();
+            this._update();
         }));
-        this._update(true);
+        this._rebuildCalendar();
+        this._update();
     },
 
     // Sets the calendar to show a specific date
-    setDate: function(date, forceReload) {
-        if (!_sameDay(date, this._selectedDate)) {
-            this._selectedDate = date;
-            this._update(forceReload);
-            this.emit('selected-date-changed', new Date(this._selectedDate));
-        } else {
-            if (forceReload)
-                this._update(forceReload);
-        }
+    setDate: function(date) {
+        if (_sameDay(date, this._selectedDate))
+            return;
+
+        this._selectedDate = date;
+        this._update();
+        this.emit('selected-date-changed', new Date(this._selectedDate));
     },
 
     _buildHeader: function() {
+        let layout = this.actor.layout_manager;
         let offsetCols = this._useWeekdate ? 1 : 0;
         this.actor.destroy_all_children();
 
         // Top line of the calendar '<| September 2009 |>'
         this._topBox = new St.BoxLayout();
-        this.actor.add(this._topBox,
-                       { row: 0, col: 0, col_span: offsetCols + 7 });
+        layout.attach(this._topBox, 0, 0, offsetCols + 7, 1);
 
         this._backButton = new St.Button({ style_class: 'calendar-change-month-back',
+                                           accessible_name: _("Previous month"),
                                            can_focus: true });
         this._topBox.add(this._backButton);
         this._backButton.connect('clicked', Lang.bind(this, this._onPrevMonthButtonClicked));
 
-        this._monthLabel = new St.Label({style_class: 'calendar-month-label'});
+        this._monthLabel = new St.Label({style_class: 'calendar-month-label',
+                                         can_focus: true });
         this._topBox.add(this._monthLabel, { expand: true, x_fill: false, x_align: St.Align.MIDDLE });
 
         this._forwardButton = new St.Button({ style_class: 'calendar-change-month-forward',
+                                              accessible_name: _("Next month"),
                                               can_focus: true });
         this._topBox.add(this._forwardButton);
         this._forwardButton.connect('clicked', Lang.bind(this, this._onNextMonthButtonClicked));
@@ -470,10 +487,12 @@ const Calendar = new Lang.Class({
             let customDayAbbrev = _getCalendarDayAbbreviation(iter.getDay());
             let label = new St.Label({ style_class: 'calendar-day-base calendar-day-heading',
                                        text: customDayAbbrev });
-            this.actor.add(label,
-                           { row: 1,
-                             col: offsetCols + (7 + iter.getDay() - this._weekStart) % 7,
-                             x_fill: false, x_align: St.Align.MIDDLE });
+            let col;
+            if (this.actor.get_text_direction() == Clutter.TextDirection.RTL)
+                col = 6 - (7 + iter.getDay() - this._weekStart) % 7;
+            else
+                col = offsetCols + (7 + iter.getDay() - this._weekStart) % 7;
+            layout.attach(label, col, 1, 1, 1);
             iter.setTime(iter.getTime() + MSECS_IN_DAY);
         }
 
@@ -492,6 +511,7 @@ const Calendar = new Lang.Class({
             this._onNextMonthButtonClicked();
             break;
         }
+        return Clutter.EVENT_PROPAGATE;
     },
 
     _onPrevMonthButtonClicked: function() {
@@ -515,7 +535,7 @@ const Calendar = new Lang.Class({
 
         this._backButton.grab_key_focus();
 
-        this.setDate(newDate, false);
+        this.setDate(newDate);
     },
 
     _onNextMonthButtonClicked: function() {
@@ -539,27 +559,25 @@ const Calendar = new Lang.Class({
 
         this._forwardButton.grab_key_focus();
 
-        this.setDate(newDate, false);
+        this.setDate(newDate);
     },
 
     _onSettingsChange: function() {
         this._useWeekdate = this._settings.get_boolean(SHOW_WEEKDATE_KEY);
         this._buildHeader();
-        this._update(false);
+        this._rebuildCalendar();
+        this._update();
     },
 
-    _update: function(forceReload) {
+    _rebuildCalendar: function() {
         let now = new Date();
-
-        if (_sameYear(this._selectedDate, now))
-            this._monthLabel.text = this._selectedDate.toLocaleFormat(this._headerFormatWithoutYear);
-        else
-            this._monthLabel.text = this._selectedDate.toLocaleFormat(this._headerFormat);
 
         // Remove everything but the topBox and the weekday labels
         let children = this.actor.get_children();
         for (let i = this._firstDayIndex; i < children.length; i++)
             children[i].destroy();
+
+        this._buttons = [];
 
         // Start at the beginning of the week before the start of the month
         //
@@ -578,11 +596,13 @@ const Calendar = new Lang.Class({
         // Actually computing the number of weeks is complex, but we know that the
         // problematic categories (2 and 4) always start on week start, and that
         // all months at the end have 6 weeks.
-
         let beginDate = new Date(this._selectedDate);
         beginDate.setDate(1);
         beginDate.setSeconds(0);
         beginDate.setHours(12);
+
+        this._calendarBegin = new Date(beginDate);
+
         let year = beginDate.getYear();
 
         let daysToWeekStart = (7 + beginDate.getDay() - this._weekStart) % 7;
@@ -591,6 +611,7 @@ const Calendar = new Lang.Class({
 
         beginDate.setTime(beginDate.getTime() - (weekPadding + daysToWeekStart) * MSECS_IN_DAY);
 
+        let layout = this.actor.layout_manager;
         let iter = new Date(beginDate);
         let row = 2;
         // nRows here means 6 weeks + one header + one navbar
@@ -603,13 +624,10 @@ const Calendar = new Lang.Class({
             if (this._eventSource.isDummy)
                 button.reactive = false;
 
-            let iterStr = iter.toUTCString();
+            button._date = new Date(iter);
             button.connect('clicked', Lang.bind(this, function() {
                 this._shouldDateGrabFocus = true;
-
-                let newlySelectedDate = new Date(iterStr);
-                this.setDate(newlySelectedDate, false);
-
+                this.setDate(button._date);
                 this._shouldDateGrabFocus = false;
             }));
 
@@ -617,9 +635,9 @@ const Calendar = new Lang.Class({
             let styleClass = 'calendar-day-base calendar-day';
 
             if (_isWorkDay(iter))
-                styleClass += ' calendar-work-day'
+                styleClass += ' calendar-work-day';
             else
-                styleClass += ' calendar-nonwork-day'
+                styleClass += ' calendar-nonwork-day';
 
             // Hack used in lieu of border-collapse - see gnome-shell.css
             if (row == 2)
@@ -636,26 +654,24 @@ const Calendar = new Lang.Class({
                 styleClass += ' calendar-other-month-day';
 
             if (hasEvents)
-                styleClass += ' calendar-day-with-events'
+                styleClass += ' calendar-day-with-events';
 
             button.style_class = styleClass;
 
             let offsetCols = this._useWeekdate ? 1 : 0;
-            this.actor.add(button,
-                           { row: row, col: offsetCols + (7 + iter.getDay() - this._weekStart) % 7 });
+            let col;
+            if (rtl)
+                col = 6 - (7 + iter.getDay() - this._weekStart) % 7;
+            else
+                col = offsetCols + (7 + iter.getDay() - this._weekStart) % 7;
+            layout.attach(button, col, row, 1, 1);
 
-            if (_sameDay(this._selectedDate, iter)) {
-                button.add_style_pseudo_class('active');
-
-                if (this._shouldDateGrabFocus)
-                    button.grab_key_focus();
-            }
+            this._buttons.push(button);
 
             if (this._useWeekdate && iter.getDay() == 4) {
                 let label = new St.Label({ text: _getCalendarWeekForDate(iter).toString(),
                                            style_class: 'calendar-day-base calendar-week-number'});
-                this.actor.add(label,
-                               { row: row, col: 0, y_align: St.Align.MIDDLE });
+                layout.attach(label, rtl ? 7 : 0, row, 1, 1);
             }
 
             iter.setTime(iter.getTime() + MSECS_IN_DAY);
@@ -663,9 +679,32 @@ const Calendar = new Lang.Class({
             if (iter.getDay() == this._weekStart)
                 row++;
         }
+
         // Signal to the event source that we are interested in events
         // only from this date range
-        this._eventSource.requestRange(beginDate, iter, forceReload);
+        this._eventSource.requestRange(beginDate, iter);
+    },
+
+    _update: function() {
+        let now = new Date();
+
+        if (_sameYear(this._selectedDate, now))
+            this._monthLabel.text = this._selectedDate.toLocaleFormat(this._headerFormatWithoutYear);
+        else
+            this._monthLabel.text = this._selectedDate.toLocaleFormat(this._headerFormat);
+
+        if (!this._calendarBegin || !_sameMonth(this._selectedDate, this._calendarBegin))
+            this._rebuildCalendar();
+
+        this._buttons.forEach(Lang.bind(this, function(button) {
+            if (_sameDay(button._date, this._selectedDate)) {
+                button.add_style_pseudo_class('active');
+                if (this._shouldDateGrabFocus)
+                    button.grab_key_focus();
+            }
+            else
+                button.remove_style_pseudo_class('active');
+        }));
     }
 });
 
@@ -675,9 +714,12 @@ const EventsList = new Lang.Class({
     Name: 'EventsList',
 
     _init: function() {
-        this.actor = new St.Table({ style_class: 'events-table' });
+        let layout = new Clutter.GridLayout({ orientation: Clutter.Orientation.VERTICAL });
+        this.actor = new St.Widget({ style_class: 'events-table',
+                                     layout_manager: layout });
+        layout.hookup_style(this.actor);
         this._date = new Date();
-        this._desktopSettings = new Gio.Settings({ schema: 'org.gnome.desktop.interface' });
+        this._desktopSettings = new Gio.Settings({ schema_id: 'org.gnome.desktop.interface' });
         this._desktopSettings.connect('changed', Lang.bind(this, this._update));
         this._weekStart = Shell.util_get_week_start();
     },
@@ -687,68 +729,82 @@ const EventsList = new Lang.Class({
         this._eventSource.connect('changed', Lang.bind(this, this._update));
     },
 
-    _addEvent: function(event, index, includeDayName) {
+    _addEvent: function(event, index, includeDayName, periodBegin, periodEnd) {
         let dayString;
-        if (includeDayName)
-            dayString = _getEventDayAbbreviation(event.date.getDay());
-        else
+        if (includeDayName) {
+            if (event.date >= periodBegin)
+                dayString = _getEventDayAbbreviation(event.date.getDay());
+            else /* show event end day if it began earlier */
+                dayString = _getEventDayAbbreviation(event.end.getDay());
+        } else {
             dayString = '';
+        }
 
         let dayLabel = new St.Label({ style_class: 'events-day-dayname',
-                                      text: dayString });
+                                      text: dayString,
+                                      x_align: Clutter.ActorAlign.END,
+                                      y_align: Clutter.ActorAlign.START });
         dayLabel.clutter_text.line_wrap = false;
         dayLabel.clutter_text.ellipsize = false;
 
-        this.actor.add(dayLabel, { row: index, col: 0,
-                                   x_expand: false, x_align: St.Align.END,
-                                   y_fill: false, y_align: St.Align.START });
+        let rtl = this.actor.get_text_direction() == Clutter.TextDirection.RTL;
 
+        let layout = this.actor.layout_manager;
+        layout.attach(dayLabel, rtl ? 2 : 0, index, 1, 1);
         let clockFormat = this._desktopSettings.get_string(CLOCK_FORMAT_KEY);
-        let timeString = _formatEventTime(event, clockFormat);
+        let timeString = _formatEventTime(event, clockFormat, periodBegin, periodEnd);
         let timeLabel = new St.Label({ style_class: 'events-day-time',
-                                       text: timeString });
+                                       text: timeString,
+                                       y_align: Clutter.ActorAlign.START });
         timeLabel.clutter_text.line_wrap = false;
         timeLabel.clutter_text.ellipsize = false;
 
-        this.actor.add(timeLabel, { row: index, col: 1,
-                                    x_expand: false, x_align: St.Align.MIDDLE,
-                                    y_fill: false, y_align: St.Align.START });
+        let preEllipsisLabel = new St.Label({ style_class: 'events-day-time-ellipses',
+                                              text: ELLIPSIS_CHAR,
+                                              y_align: Clutter.ActorAlign.START });
+        let postEllipsisLabel = new St.Label({ style_class: 'events-day-time-ellipses',
+                                               text: ELLIPSIS_CHAR,
+                                               y_align: Clutter.ActorAlign.START });
+        if (event.allDay || event.date >= periodBegin)
+            preEllipsisLabel.opacity = 0;
+        if (event.allDay || event.end <= periodEnd)
+            postEllipsisLabel.opacity = 0;
+
+        let timeLabelBoxLayout = new St.BoxLayout();
+        timeLabelBoxLayout.add(preEllipsisLabel);
+        timeLabelBoxLayout.add(timeLabel);
+        timeLabelBoxLayout.add(postEllipsisLabel);
+        layout.attach(timeLabelBoxLayout, 1, index, 1, 1);
 
         let titleLabel = new St.Label({ style_class: 'events-day-task',
-                                        text: event.summary });
+                                        text: event.summary,
+                                        x_expand: true });
         titleLabel.clutter_text.line_wrap = true;
         titleLabel.clutter_text.ellipsize = false;
 
-        this.actor.add(titleLabel, { row: index, col: 2,
-                                     x_expand: true, x_align: St.Align.START,
-                                     y_fill: false, y_align: St.Align.START });
+        layout.attach(titleLabel, rtl ? 0 : 2, index, 1, 1);
     },
 
-    _addPeriod: function(header, index, begin, end, includeDayName, showNothingScheduled) {
-        let events = this._eventSource.getEvents(begin, end);
+    _addPeriod: function(header, index, periodBegin, periodEnd, includeDayName, showNothingScheduled) {
+        let events = this._eventSource.getEvents(periodBegin, periodEnd);
 
         if (events.length == 0 && !showNothingScheduled)
             return index;
 
-        this.actor.add(new St.Label({ style_class: 'events-day-header', text: header }),
-                       { row: index, col: 0, col_span: 3,
-                         // In theory, x_expand should be true here, but x_expand
-                         // is a property of the column for StTable, ie all day cells
-                         // get it too
-                         x_expand: false, x_align: St.Align.START,
-                         y_fill: false, y_align: St.Align.START });
+        let label = new St.Label({ style_class: 'events-day-header', text: header });
+        let layout = this.actor.layout_manager;
+        layout.attach(label, 0, index, 3, 1);
         index++;
 
         for (let n = 0; n < events.length; n++) {
-            this._addEvent(events[n], index, includeDayName);
+            this._addEvent(events[n], index, includeDayName, periodBegin, periodEnd);
             index++;
         }
 
         if (events.length == 0 && showNothingScheduled) {
-            let now = new Date();
             /* Translators: Text to show if there are no events */
-            let nothingEvent = new CalendarEvent(now, now, _("Nothing Scheduled"), true);
-            this._addEvent(nothingEvent, index, false);
+            let nothingEvent = new CalendarEvent(periodBegin, periodBegin, _("Nothing Scheduled"), true);
+            this._addEvent(nothingEvent, index, false, periodBegin, periodEnd);
             index++;
         }
 
@@ -761,14 +817,17 @@ const EventsList = new Lang.Class({
         let dayBegin = _getBeginningOfDay(day);
         let dayEnd = _getEndOfDay(day);
 
-        let dayString;
+        let dayFormat;
         let now = new Date();
         if (_sameYear(day, now))
             /* Translators: Shown on calendar heading when selected day occurs on current year */
-            dayString = day.toLocaleFormat(C_("calendar heading", "%A, %B %d"));
+            dayFormat = Shell.util_translate_time_string(NC_("calendar heading",
+                                                             "%A, %B %d"));
         else
             /* Translators: Shown on calendar heading when selected day occurs on different year */
-            dayString = day.toLocaleFormat(C_("calendar heading", "%A, %B %d, %Y"));
+            dayFormat = Shell.util_translate_time_string(NC_("calendar heading",
+                                                             "%A, %B %d, %Y"));
+        let dayString = day.toLocaleFormat(dayFormat);
         this._addPeriod(dayString, 0, dayBegin, dayEnd, false, true);
     },
 

@@ -13,9 +13,7 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
 const AccountsService = imports.gi.AccountsService;
@@ -38,6 +36,7 @@ const BoxPointer = imports.ui.boxpointer;
 const CtrlAltTab = imports.ui.ctrlAltTab;
 const GdmUtil = imports.gdm.util;
 const Layout = imports.ui.layout;
+const LoginManager = imports.misc.loginManager;
 const Main = imports.ui.main;
 const PopupMenu = imports.ui.popupMenu;
 const Realmd = imports.gdm.realmd;
@@ -49,8 +48,6 @@ const _SCROLL_ANIMATION_TIME = 0.5;
 const _TIMED_LOGIN_IDLE_THRESHOLD = 5.0;
 const _LOGO_ICON_HEIGHT = 48;
 
-let _loginDialog = null;
-
 const UserListItem = new Lang.Class({
     Name: 'UserListItem',
 
@@ -59,7 +56,7 @@ const UserListItem = new Lang.Class({
         this._userChangedId = this.user.connect('changed',
                                                  Lang.bind(this, this._onUserChanged));
 
-        let layout = new St.BoxLayout({ vertical: false });
+        let layout = new St.BoxLayout({ vertical: true });
         this.actor = new St.Button({ style_class: 'login-dialog-user-list-item',
                                      button_mask: St.ButtonMask.ONE | St.ButtonMask.THREE,
                                      can_focus: true,
@@ -67,46 +64,22 @@ const UserListItem = new Lang.Class({
                                      reactive: true,
                                      x_align: St.Align.START,
                                      x_fill: true });
+        this.actor.connect('destroy',
+                           Lang.bind(this, this._onDestroy));
 
-        this._userAvatar = new UserWidget.Avatar(this.user,
-                                                 { styleClass: 'login-dialog-user-list-item-icon' });
-        layout.add(this._userAvatar.actor);
-        let textLayout = new St.BoxLayout({ style_class: 'login-dialog-user-list-item-text-box',
-                                            vertical:    true });
-        layout.add(textLayout, { expand: true });
-
-        this._nameLabel = new St.Label({ style_class: 'login-dialog-user-list-item-name' });
-        this.actor.label_actor = this._nameLabel;
-        textLayout.add(this._nameLabel,
-                       { y_fill: false,
-                         y_align: St.Align.MIDDLE,
-                         expand: true });
+        this._userWidget = new UserWidget.UserWidget(this.user);
+        layout.add(this._userWidget.actor);
 
         this._timedLoginIndicator = new St.Bin({ style_class: 'login-dialog-timed-login-indicator',
                                                  scale_x: 0 });
-        textLayout.add(this._timedLoginIndicator,
-                       { x_fill: true,
-                         x_align: St.Align.MIDDLE,
-                         y_fill: false,
-                         y_align: St.Align.END });
+        layout.add(this._timedLoginIndicator);
 
         this.actor.connect('clicked', Lang.bind(this, this._onClicked));
         this._onUserChanged();
     },
 
     _onUserChanged: function() {
-        this._nameLabel.set_text(this.user.get_real_name());
-        this._userAvatar.update();
         this._updateLoggedIn();
-    },
-
-    syncStyleClasses: function() {
-        this._updateLoggedIn();
-
-        if (global.stage.get_key_focus() == this.actor)
-            this.actor.add_style_pseudo_class('focus');
-        else
-            this.actor.remove_style_pseudo_class('focus');
     },
 
     _updateLoggedIn: function() {
@@ -114,6 +87,10 @@ const UserListItem = new Lang.Class({
             this.actor.add_style_pseudo_class('logged-in');
         else
             this.actor.remove_style_pseudo_class('logged-in');
+    },
+
+    _onDestroy: function() {
+        this._user.disconnect(this._userChangedId);
     },
 
     _onClicked: function() {
@@ -194,7 +171,6 @@ const UserList = new Lang.Class({
         for (let userName in this._items) {
             let item = this._items[userName];
             item.actor.sync_hover();
-            item.syncStyleClasses();
         }
     },
 
@@ -314,10 +290,6 @@ const SessionMenuButton = new Lang.Class({
                                     this._button.remove_style_pseudo_class('active');
                            }));
 
-        let subtitle = new PopupMenu.PopupMenuItem(_("Session"), { style_class: 'popup-subtitle-menu-item',
-                                                                   reactive: false });
-        this._menu.addMenuItem(subtitle);
-
         this._manager = new PopupMenu.PopupMenuManager({ actor: this._button });
         this._manager.addMenu(this._menu);
 
@@ -393,6 +365,7 @@ const LoginDialog = new Lang.Class({
 
     _init: function(parentActor) {
         this.actor = new St.Widget({ accessible_role: Atk.Role.WINDOW,
+                                     layout_manager: new Clutter.BinLayout(),
                                      style_class: 'login-dialog',
                                      visible: false });
 
@@ -406,16 +379,15 @@ const LoginDialog = new Lang.Class({
         if (GLib.getenv('GDM_GREETER_TEST') != '1') {
             this._greeter = gdmClient.get_greeter_sync(null);
 
-            this._greeter.connect('default-session-name-changed',
-                                  Lang.bind(this, this._onDefaultSessionChanged));
-
-            this._greeter.connect('session-opened',
-                                  Lang.bind(this, this._onSessionOpened));
-            this._greeter.connect('timed-login-requested',
-                                  Lang.bind(this, this._onTimedLoginRequested));
+            this._defaultSessionChangedId = this._greeter.connect('default-session-name-changed',
+                                                                  Lang.bind(this, this._onDefaultSessionChanged));
+            this._sessionOpenedId = this._greeter.connect('session-opened',
+                                                          Lang.bind(this, this._onSessionOpened));
+            this._timedLoginRequestedId = this._greeter.connect('timed-login-requested',
+                                                                Lang.bind(this, this._onTimedLoginRequested));
         }
 
-        this._settings = new Gio.Settings({ schema: GdmUtil.LOGIN_SCREEN_SCHEMA });
+        this._settings = new Gio.Settings({ schema_id: GdmUtil.LOGIN_SCREEN_SCHEMA });
 
         this._settings.connect('changed::' + GdmUtil.BANNER_MESSAGE_KEY,
                                Lang.bind(this, this._updateBanner));
@@ -427,15 +399,16 @@ const LoginDialog = new Lang.Class({
                                Lang.bind(this, this._updateLogo));
 
         this._textureCache = St.TextureCache.get_default();
-        this._textureCache.connect('texture-file-changed',
-                                   Lang.bind(this, this._updateLogoTexture));
+        this._updateLogoTextureId = this._textureCache.connect('texture-file-changed',
+                                                               Lang.bind(this, this._updateLogoTexture));
 
         this._userSelectionBox = new St.BoxLayout({ style_class: 'login-dialog-user-selection-box',
+                                                    x_align: Clutter.ActorAlign.CENTER,
+                                                    y_align: Clutter.ActorAlign.CENTER,
+                                                    x_expand: true,
+                                                    y_expand: true,
                                                     vertical: true,
                                                     visible: false });
-        this._userSelectionBox.add_constraint(new Clutter.AlignConstraint({ source: this.actor,
-                                                                            align_axis: Clutter.AlignAxis.BOTH,
-                                                                            factor: 0.5 }));
         this.actor.add_child(this._userSelectionBox);
 
         this._bannerLabel = new St.Label({ style_class: 'login-dialog-banner',
@@ -453,14 +426,7 @@ const LoginDialog = new Lang.Class({
         this._authPrompt.connect('prompted', Lang.bind(this, this._onPrompted));
         this._authPrompt.connect('reset', Lang.bind(this, this._onReset));
         this._authPrompt.hide();
-
-        this._authPrompt.actor.add_constraint(new Clutter.AlignConstraint({ source: this.actor,
-                                                                            align_axis: Clutter.AlignAxis.BOTH,
-                                                                            factor: 0.5 }));
-
         this.actor.add_child(this._authPrompt.actor);
-        this._userList.actor.add_constraint(new Clutter.BindConstraint({ source: this._authPrompt.actor,
-                                                                         coordinate: Clutter.BindCoordinate.WIDTH }));
 
         // translators: this message is shown below the user list on the
         // login screen. It can be activated to reveal an entry for
@@ -484,28 +450,13 @@ const LoginDialog = new Lang.Class({
                                      x_align: St.Align.START,
                                      x_fill: true });
 
-        this._logoBin = new St.Bin({ style_class: 'login-dialog-logo-bin', y_expand: true });
-        this._logoBin.set_y_align(Clutter.ActorAlign.END);
-        this._logoBin.add_constraint(new Clutter.AlignConstraint({ source: this.actor,
-                                                                   align_axis: Clutter.AlignAxis.X_AXIS,
-                                                                   factor: 0.5 }));
-        this._logoBin.add_constraint(new Clutter.AlignConstraint({ source: this.actor,
-                                                                   align_axis: Clutter.AlignAxis.Y_AXIS,
-                                                                   factor: 1.0 }));
+        this._logoBin = new St.Widget({ style_class: 'login-dialog-logo-bin',
+                                        x_align: Clutter.ActorAlign.CENTER,
+                                        y_align: Clutter.ActorAlign.END,
+                                        x_expand: true,
+                                        y_expand: true });
         this.actor.add_child(this._logoBin);
         this._updateLogo();
-
-        if (!this._userManager.is_loaded)
-            this._userManagerLoadedId = this._userManager.connect('notify::is-loaded',
-                                                                  Lang.bind(this, function() {
-                                                                      if (this._userManager.is_loaded) {
-                                                                          this._loadUserList();
-                                                                          this._userManager.disconnect(this._userManagerLoadedId);
-                                                                          this._userManagerLoadedId = 0;
-                                                                      }
-                                                                  }));
-        else
-            this._loadUserList();
 
         this._userList.connect('activate',
                                Lang.bind(this, function(userList, item) {
@@ -522,7 +473,33 @@ const LoginDialog = new Lang.Class({
         this._sessionMenuButton.actor.show();
         this._authPrompt.addActorToDefaultButtonWell(this._sessionMenuButton.actor);
 
-   },
+        this._disableUserList = undefined;
+        this._userListLoaded = false;
+
+        LoginManager.getLoginManager().getCurrentSessionProxy(Lang.bind(this, this._gotGreeterSessionProxy));
+
+        // If the user list is enabled, it should take key focus; make sure the
+        // screen shield is initialized first to prevent it from stealing the
+        // focus later
+        this._startupCompleteId = Main.layoutManager.connect('startup-complete',
+                                                             Lang.bind(this, this._updateDisableUserList));
+    },
+
+    _ensureUserListLoaded: function() {
+        if (!this._userManager.is_loaded) {
+            this._userManagerLoadedId = this._userManager.connect('notify::is-loaded',
+                                                                  Lang.bind(this, function() {
+                                                                      if (this._userManager.is_loaded) {
+                                                                          this._loadUserList();
+                                                                          this._userManager.disconnect(this._userManagerLoadedId);
+                                                                          this._userManagerLoadedId = 0;
+                                                                      }
+                                                                  }));
+        } else {
+            let id = GLib.idle_add(GLib.PRIORITY_DEFAULT, Lang.bind(this, this._loadUserList));
+            GLib.Source.set_name_by_id(id, '[gnome-shell] _loadUserList');
+        }
+    },
 
     _updateDisableUserList: function() {
         let disableUserList = this._settings.get_boolean(GdmUtil.DISABLE_USER_LIST_KEY);
@@ -560,22 +537,24 @@ const LoginDialog = new Lang.Class({
         }
     },
 
-    _updateLogoTexture: function(cache, uri) {
-        if (this._logoFileUri != uri)
+    _updateLogoTexture: function(cache, file) {
+        if (this._logoFile && !this._logoFile.equal(file))
             return;
 
-        let icon = null;
-        if (this._logoFileUri)
-            icon = this._textureCache.load_uri_async(this._logoFileUri,
-                                                     -1, _LOGO_ICON_HEIGHT);
-        this._logoBin.set_child(icon);
+        this._logoBin.destroy_all_children();
+        if (this._logoFile) {
+            let scaleFactor = St.ThemeContext.get_for_stage(global.stage).scale_factor;
+            this._logoBin.add_child(this._textureCache.load_file_async(this._logoFile,
+                                                                       -1, _LOGO_ICON_HEIGHT,
+                                                                       scaleFactor));
+        }
     },
 
     _updateLogo: function() {
         let path = this._settings.get_string(GdmUtil.LOGO_KEY);
 
-        this._logoFileUri = path ? Gio.file_new_for_path(path).get_uri() : null;
-        this._updateLogoTexture(this._textureCache, this._logoFileUri);
+        this._logoFile = path ? Gio.file_new_for_path(path) : null;
+        this._updateLogoTexture(this._textureCache, this._logoFile);
     },
 
     _onPrompted: function() {
@@ -591,11 +570,14 @@ const LoginDialog = new Lang.Class({
 
         this._user = null;
 
-        if (!this._disableUserList &&
-            beginRequest == AuthPrompt.BeginRequestType.PROVIDE_USERNAME)
-            this._showUserList();
-        else
+        if (beginRequest == AuthPrompt.BeginRequestType.PROVIDE_USERNAME) {
+            if (!this._disableUserList)
+                this._showUserList();
+            else
+                this._hideUserListAskForUsernameAndBeginVerification();
+        } else {
             this._hideUserListAndBeginVerification();
+        }
     },
 
     _onDefaultSessionChanged: function(client, sessionId) {
@@ -603,10 +585,11 @@ const LoginDialog = new Lang.Class({
     },
 
     _shouldShowSessionMenuButton: function() {
-        if (this._authPrompt.verificationStatus != AuthPrompt.AuthPromptStatus.VERIFYING)
+        if (this._authPrompt.verificationStatus != AuthPrompt.AuthPromptStatus.VERIFYING &&
+            this._authPrompt.verificationStatus != AuthPrompt.AuthPromptStatus.VERIFICATION_FAILED)
           return false;
 
-        if (this._user && this._user.is_logged_in())
+        if (this._user && this._user.is_loaded && this._user.is_logged_in())
           return false;
 
         return true;
@@ -633,7 +616,7 @@ const LoginDialog = new Lang.Class({
 
         // Translators: this message is shown below the username entry field
         // to clue the user in on how to login to the local network realm
-        this._authPrompt.setMessage(_("(e.g., user or %s)").format(hint), AuthPrompt.MessageType.HINT);
+        this._authPrompt.setMessage(_("(e.g., user or %s)").format(hint), GdmUtil.MessageType.HINT);
     },
 
     _askForUsernameAndBeginVerification: function() {
@@ -650,6 +633,7 @@ const LoginDialog = new Lang.Class({
                                                         this._authPrompt.disconnect(nextSignalId);
                                                         this._authPrompt.updateSensitivity(false);
                                                         let answer = this._authPrompt.getAnswer();
+                                                        this._user = this._userManager.get_user(answer);
                                                         this._authPrompt.clear();
                                                         this._authPrompt.startSpinning();
                                                         this._authPrompt.begin({ userName: answer });
@@ -660,6 +644,38 @@ const LoginDialog = new Lang.Class({
                                                     }));
         this._updateCancelButton();
         this._showPrompt();
+    },
+
+    _loginScreenSessionActivated: function() {
+        if (this._authPrompt.verificationStatus != AuthPrompt.AuthPromptStatus.VERIFICATION_SUCCEEDED)
+            return;
+
+        Tweener.addTween(this.actor,
+                         { opacity: 255,
+                           time: _FADE_ANIMATION_TIME,
+                           transition: 'easeOutQuad',
+                           onUpdate: function() {
+                               let children = Main.layoutManager.uiGroup.get_children();
+
+                               for (let i = 0; i < children.length; i++) {
+                                   if (children[i] != Main.layoutManager.screenShieldGroup)
+                                       children[i].opacity = this.actor.opacity;
+                               }
+                           },
+                           onUpdateScope: this,
+                           onComplete: function() {
+                               this._authPrompt.reset();
+                           },
+                           onCompleteScope: this });
+    },
+
+    _gotGreeterSessionProxy: function(proxy) {
+        this._greeterSessionProxy = proxy;
+        this._greeterSessionProxyChangedId =
+            proxy.connect('g-properties-changed', Lang.bind(this, function() {
+                if (proxy.Active)
+                    this._loginScreenSessionActivated();
+            }));
     },
 
     _startSession: function(serviceName) {
@@ -677,10 +693,11 @@ const LoginDialog = new Lang.Class({
                            },
                            onUpdateScope: this,
                            onComplete: function() {
-                               Mainloop.idle_add(Lang.bind(this, function() {
+                               let id = Mainloop.idle_add(Lang.bind(this, function() {
                                    this._greeter.call_start_session_when_ready_sync(serviceName, true, null);
-                                   return false;
+                                   return GLib.SOURCE_REMOVE;
                                }));
+                               GLib.Source.set_name_by_id(id, '[gnome-shell] this._greeter.call_start_session_when_ready_sync');
                            },
                            onCompleteScope: this });
     },
@@ -734,7 +751,9 @@ const LoginDialog = new Lang.Class({
                                                                      function() {
                                                                          this._timedLoginAnimationTime -= _TIMED_LOGIN_IDLE_THRESHOLD;
                                                                          hold.release();
+                                                                         return GLib.SOURCE_REMOVE;
                                                                      });
+        GLib.Source.set_name_by_id(this._timedLoginIdleTimeOutId, '[gnome-shell] this._timedLoginAnimationTime');
         return hold;
     },
 
@@ -798,7 +817,7 @@ const LoginDialog = new Lang.Class({
         global.stage.connect('captured-event',
                              Lang.bind(this, function(actor, event) {
                                 if (this._timedLoginDelay == undefined)
-                                    return false;
+                                    return Clutter.EVENT_PROPAGATE;
 
                                 if (event.type() == Clutter.EventType.KEY_PRESS ||
                                     event.type() == Clutter.EventType.BUTTON_PRESS) {
@@ -811,7 +830,7 @@ const LoginDialog = new Lang.Class({
                                     this._resetTimedLogin();
                                 }
 
-                                return false;
+                                return Clutter.EVENT_PROPAGATE;
                              }));
     },
 
@@ -837,6 +856,7 @@ const LoginDialog = new Lang.Class({
     },
 
     _showUserList: function() {
+        this._ensureUserListLoaded();
         this._authPrompt.hide();
         this._sessionMenuButton.close();
         this._setUserListExpanded(true);
@@ -877,26 +897,55 @@ const LoginDialog = new Lang.Class({
             this._userManager.disconnect(this._userManagerLoadedId);
             this._userManagerLoadedId = 0;
         }
+        if (this._userAddedId) {
+            this._userManager.disconnect(this._userAddedId);
+            this._userAddedId = 0;
+        }
+        if (this._userRemovedId) {
+            this._userManager.disconnect(this._userRemovedId);
+            this._userRemovedId = 0;
+        }
+        this._textureCache.disconnect(this._updateLogoTextureId);
+        Main.layoutManager.disconnect(this._startupCompleteId);
+        if (this._settings) {
+            this._settings.run_dispose();
+            this._settings = null;
+        }
+        if (this._greeter) {
+            this._greeter.disconnect(this._defaultSessionChangedId);
+            this._greeter.disconnect(this._sessionOpenedId);
+            this._greeter.disconnect(this._timedLoginRequestedId);
+            this._greeter = null;
+        }
+        if (this._greeterSessionProxy) {
+            this._greeterSessionProxy.disconnect(this._greeterSessionProxyChangedId);
+            this._greeterSessionProxy = null;
+        }
     },
 
     _loadUserList: function() {
+        if (this._userListLoaded)
+            return GLib.SOURCE_REMOVE;
+
+        this._userListLoaded = true;
+
         let users = this._userManager.list_users();
 
         for (let i = 0; i < users.length; i++) {
             this._userList.addUser(users[i]);
         }
 
-        this._updateDisableUserList();
+        this._userAddedId = this._userManager.connect('user-added',
+                                                      Lang.bind(this, function(userManager, user) {
+                                                          this._userList.addUser(user);
+                                                      }));
 
-        this._userManager.connect('user-added',
-                                  Lang.bind(this, function(userManager, user) {
-                                      this._userList.addUser(user);
-                                  }));
+        this._userRemovedId = this._userManager.connect('user-removed',
+                                                        Lang.bind(this, function(userManager, user) {
+                                                            this._userList.removeUser(user);
+                                                        }));
 
-        this._userManager.connect('user-removed',
-                                  Lang.bind(this, function(userManager, user) {
-                                      this._userList.removeUser(user);
-                                  }));
+        return GLib.SOURCE_REMOVE;
     },
 
     open: function() {
@@ -906,16 +955,33 @@ const LoginDialog = new Lang.Class({
                                         { sortGroup: CtrlAltTab.SortGroup.MIDDLE });
         this._userList.actor.grab_key_focus();
         this.actor.show();
+        this.actor.opacity = 0;
+
+        Main.pushModal(this.actor, { keybindingMode: Shell.KeyBindingMode.LOGIN_SCREEN });
+
+        Tweener.addTween(this.actor,
+                         { opacity: 255,
+                           time: 1,
+                           transition: 'easeInQuad' });
 
         return true;
     },
 
     close: function() {
-        Main.ctrlAltTabManager.removeGroup(this.dialogLayout);
+        Main.popModal(this.actor);
+        Main.ctrlAltTabManager.removeGroup(this.actor);
+    },
+
+    cancel: function() {
+        this._authPrompt.cancel();
     },
 
     addCharacter: function(unichar) {
         this._authPrompt.addCharacter(unichar);
+    },
+
+    finish: function(onComplete) {
+        this._authPrompt.finish(onComplete);
     },
 });
 Signals.addSignalMethods(LoginDialog.prototype);

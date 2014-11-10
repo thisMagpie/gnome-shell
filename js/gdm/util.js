@@ -10,6 +10,7 @@ const St = imports.gi.St;
 
 const Batch = imports.gdm.batch;
 const Fprint = imports.gdm.fingerprint;
+const OVirt = imports.gdm.oVirt;
 const Main = imports.ui.main;
 const Params = imports.misc.params;
 const ShellEntry = imports.ui.shellEntry;
@@ -19,6 +20,7 @@ const Tweener = imports.ui.tweener;
 const PASSWORD_SERVICE_NAME = 'gdm-password';
 const FINGERPRINT_SERVICE_NAME = 'gdm-fingerprint';
 const SMARTCARD_SERVICE_NAME = 'gdm-smartcard';
+const OVIRT_SERVICE_NAME = 'gdm-ovirtcred';
 const FADE_ANIMATION_TIME = 0.16;
 const CLONE_FADE_ANIMATION_TIME = 0.25;
 
@@ -126,7 +128,7 @@ const ShellUserVerifier = new Lang.Class({
 
         this._client = client;
 
-        this._settings = new Gio.Settings({ schema: LOGIN_SCREEN_SCHEMA });
+        this._settings = new Gio.Settings({ schema_id: LOGIN_SCREEN_SCHEMA });
         this._settings.connect('changed',
                                Lang.bind(this, this._updateDefaultService));
         this._updateDefaultService();
@@ -140,10 +142,10 @@ const ShellUserVerifier = new Lang.Class({
         // after a user has been picked.
         this._checkForSmartcard();
 
-        this._smartcardManager.connect('smartcard-inserted',
-                                       Lang.bind(this, this._checkForSmartcard));
-        this._smartcardManager.connect('smartcard-removed',
-                                       Lang.bind(this, this._checkForSmartcard));
+        this._smartcardInsertedId = this._smartcardManager.connect('smartcard-inserted',
+                                                                   Lang.bind(this, this._checkForSmartcard));
+        this._smartcardRemovedId = this._smartcardManager.connect('smartcard-removed',
+                                                                  Lang.bind(this, this._checkForSmartcard));
 
         this._messageQueue = [];
         this._messageQueueTimeoutId = 0;
@@ -151,6 +153,14 @@ const ShellUserVerifier = new Lang.Class({
         this.reauthenticating = false;
 
         this._failCounter = 0;
+
+        this._oVirtCredentialsManager = OVirt.getOVirtCredentialsManager();
+
+        if (this._oVirtCredentialsManager.hasToken())
+            this._oVirtUserAuthenticated(this._oVirtCredentialsManager.getToken());
+
+        this._oVirtUserAuthenticatedId = this._oVirtCredentialsManager.connect('user-authenticated',
+                                                                               Lang.bind(this, this._oVirtUserAuthenticated));
     },
 
     begin: function(userName, hold) {
@@ -181,18 +191,35 @@ const ShellUserVerifier = new Lang.Class({
         }
     },
 
+    _clearUserVerifier: function() {
+        if (this._userVerifier) {
+            this._userVerifier.run_dispose();
+            this._userVerifier = null;
+        }
+    },
+
     clear: function() {
         if (this._cancellable) {
             this._cancellable.cancel();
             this._cancellable = null;
         }
 
-        if (this._userVerifier) {
-            this._userVerifier.run_dispose();
-            this._userVerifier = null;
-        }
-
+        this._clearUserVerifier();
         this._clearMessageQueue();
+    },
+
+    destroy: function() {
+        this.clear();
+
+        this._settings.run_dispose();
+        this._settings = null;
+
+        this._smartcardManager.disconnect(this._smartcardInsertedId);
+        this._smartcardManager.disconnect(this._smartcardRemovedId);
+        this._smartcardManager = null;
+
+        this._oVirtCredentialsManager.disconnect(this._oVirtUserAuthenticatedId);
+        this._oVirtCredentialsManager = null;
     },
 
     answerQuery: function(serviceName, answer) {
@@ -240,7 +267,9 @@ const ShellUserVerifier = new Lang.Class({
                                                        Lang.bind(this, function() {
                                                            this._messageQueueTimeoutId = 0;
                                                            this._queueMessageTimeout();
+                                                           return GLib.SOURCE_REMOVE;
                                                        }));
+        GLib.Source.set_name_by_id(this._messageQueueTimeoutId, '[gnome-shell] this._queueMessageTimeout');
     },
 
     _queueMessage: function(message, messageType) {
@@ -271,10 +300,16 @@ const ShellUserVerifier = new Lang.Class({
 
         this._fprintManager.GetDefaultDeviceRemote(Gio.DBusCallFlags.NONE, this._cancellable, Lang.bind(this,
             function(device, error) {
-                if (!error && device)
+                if (!error && device) {
                     this._haveFingerprintReader = true;
                     this._updateDefaultService();
+                }
             }));
+    },
+
+    _oVirtUserAuthenticated: function(token) {
+        this._preemptingService = OVIRT_SERVICE_NAME;
+        this.emit('ovirt-user-authenticated');
     },
 
     _checkForSmartcard: function() {
@@ -282,7 +317,7 @@ const ShellUserVerifier = new Lang.Class({
 
         if (!this._settings.get_boolean(SMARTCARD_AUTHENTICATION_KEY))
             smartcardDetected = false;
-        else if (this.reauthenticating)
+        else if (this._reauthOnly)
             smartcardDetected = this._smartcardManager.hasInsertedLoginToken();
         else
             smartcardDetected = this._smartcardManager.hasInsertedTokens();
@@ -309,6 +344,7 @@ const ShellUserVerifier = new Lang.Class({
 
     _reauthenticationChannelOpened: function(client, result) {
         try {
+            this._clearUserVerifier();
             this._userVerifier = client.open_reauthentication_channel_finish(result);
         } catch(e if e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) {
             return;
@@ -332,6 +368,7 @@ const ShellUserVerifier = new Lang.Class({
 
     _userVerifierGot: function(client, result) {
         try {
+            this._clearUserVerifier();
             this._userVerifier = client.get_user_verifier_finish(result);
         } catch(e if e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) {
             return;
@@ -455,6 +492,12 @@ const ShellUserVerifier = new Lang.Class({
         if (!this.serviceIsForeground(serviceName))
             return;
 
+        if (serviceName == OVIRT_SERVICE_NAME) {
+            // The only question asked by this service is "Token?"
+            this.answerQuery(serviceName, this._oVirtCredentialsManager.getToken());
+            return;
+        }
+
         this.emit('ask-question', serviceName, secretQuestion, '\u25cf');
     },
 
@@ -515,6 +558,16 @@ const ShellUserVerifier = new Lang.Class({
     },
 
     _onConversationStopped: function(client, serviceName) {
+        // If the login failed with the preauthenticated oVirt credentials
+        // then discard the credentials and revert to default authentication
+        // mechanism.
+        if (this.serviceIsForeground(OVIRT_SERVICE_NAME)) {
+            this._oVirtCredentialsManager.resetToken();
+            this._preemptingService = null;
+            this._verificationFailed(false);
+            return;
+        }
+
         // if the password service fails, then cancel everything.
         // But if, e.g., fingerprint fails, still give
         // password authentication a chance to succeed

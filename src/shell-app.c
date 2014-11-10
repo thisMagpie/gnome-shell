@@ -17,6 +17,12 @@
 #include "st.h"
 #include "gtkactionmuxer.h"
 
+#ifdef HAVE_SYSTEMD
+#include <systemd/sd-journal.h>
+#include <errno.h>
+#include <unistd.h>
+#endif
+
 typedef enum {
   MATCH_NONE,
   MATCH_SUBSTRING, /* Not prefix, substring */
@@ -36,8 +42,10 @@ typedef struct {
 
   GSList *windows;
 
+  guint interesting_windows;
+
   /* Whether or not we need to resort the windows; this is done on demand */
-  gboolean window_sort_stale : 1;
+  guint window_sort_stale : 1;
 
   /* DBus property notification subscription */
   guint properties_changed_id : 1;
@@ -53,7 +61,7 @@ typedef struct {
  * SECTION:shell-app
  * @short_description: Object representing an application
  *
- * This object wraps a #GMenuTreeEntry, providing methods and signals
+ * This object wraps a #GDesktopAppInfo, providing methods and signals
  * primarily useful for running applications.
  */
 struct _ShellApp
@@ -64,7 +72,7 @@ struct _ShellApp
 
   ShellAppState state;
 
-  GMenuTreeEntry *entry; /* If NULL, this app is backed by one or more
+  GDesktopAppInfo *info; /* If NULL, this app is backed by one or more
                           * MetaWindow.  For purposes of app title
                           * etc., we use the first window added,
                           * because it's most likely to be what we
@@ -75,12 +83,7 @@ struct _ShellApp
   ShellAppRunningState *running_state;
 
   char *window_id_string;
-
-  char *casefolded_name;
-  char *casefolded_generic_name;
   char *name_collation_key;
-  char *casefolded_exec;
-  char **casefolded_keywords;
 };
 
 enum {
@@ -137,15 +140,15 @@ shell_app_get_property (GObject    *gobject,
 const char *
 shell_app_get_id (ShellApp *app)
 {
-  if (app->entry)
-    return gmenu_tree_entry_get_desktop_file_id (app->entry);
+  if (app->info)
+    return g_app_info_get_id (G_APP_INFO (app->info));
   return app->window_id_string;
 }
 
 static MetaWindow *
 window_backed_app_get_window (ShellApp     *app)
 {
-  g_assert (app->entry == NULL);
+  g_assert (app->info == NULL);
   g_assert (app->running_state);
   g_assert (app->running_state->windows);
   return app->running_state->windows->data;
@@ -157,6 +160,15 @@ window_backed_app_get_icon (ShellApp *app,
 {
   MetaWindow *window;
   ClutterActor *actor;
+  gint scale;
+  ShellGlobal *global;
+  StThemeContext *context;
+
+  global = shell_global_get ();
+  context = st_theme_context_get_for_stage (shell_global_get_stage (global));
+  g_object_get (context, "scale-factor", &scale, NULL);
+
+  size *= scale;
 
   /* During a state transition from running to not-running for
    * window-backend apps, it's possible we get a request for the icon.
@@ -190,21 +202,27 @@ shell_app_create_icon_texture (ShellApp   *app,
                                int         size)
 {
   GIcon *icon;
+  gint scale;
   ClutterActor *ret;
+  ShellGlobal *global;
+  StThemeContext *context;
 
+  global = shell_global_get ();
+  context = st_theme_context_get_for_stage (shell_global_get_stage (global));
+  g_object_get (context, "scale-factor", &scale, NULL);
   ret = NULL;
 
-  if (app->entry == NULL)
+  if (app->info == NULL)
     return window_backed_app_get_icon (app, size);
 
-  icon = g_app_info_get_icon (G_APP_INFO (gmenu_tree_entry_get_app_info (app->entry)));
+  icon = g_app_info_get_icon (G_APP_INFO (app->info));
   if (icon != NULL)
-    ret = st_texture_cache_load_gicon (st_texture_cache_get_default (), NULL, icon, size);
+    ret = st_texture_cache_load_gicon (st_texture_cache_get_default (), NULL, icon, size, scale);
 
   if (ret == NULL)
     {
       icon = g_themed_icon_new ("application-x-executable");
-      ret = st_texture_cache_load_gicon (st_texture_cache_get_default (), NULL, icon, size);
+      ret = st_texture_cache_load_gicon (st_texture_cache_get_default (), NULL, icon, size, scale);
       g_object_unref (icon);
     }
 
@@ -214,6 +232,7 @@ shell_app_create_icon_texture (ShellApp   *app,
 typedef struct {
   ShellApp *app;
   int size;
+  int scale;
   ClutterTextDirection direction;
 } CreateFadedIconData;
 
@@ -223,10 +242,13 @@ shell_app_create_faded_icon_cpu (StTextureCache *cache,
                                  void           *datap,
                                  GError        **error)
 {
+  ClutterBackend *backend = clutter_get_default_backend ();
+  CoglContext *ctx = clutter_backend_get_cogl_context (backend);
   CreateFadedIconData *data = datap;
   ShellApp *app;
   GdkPixbuf *pixbuf;
   int size;
+  int scale;
   CoglHandle texture;
   gint width, height, rowstride;
   guint8 n_channels;
@@ -242,23 +264,24 @@ shell_app_create_faded_icon_cpu (StTextureCache *cache,
 
   app = data->app;
   size = data->size;
+  scale = data->scale;
 
   info = NULL;
 
-  icon = g_app_info_get_icon (G_APP_INFO (gmenu_tree_entry_get_app_info (app->entry)));
+  icon = g_app_info_get_icon (G_APP_INFO (app->info));
   if (icon != NULL)
     {
-      info = gtk_icon_theme_lookup_by_gicon (gtk_icon_theme_get_default (),
-                                             icon, size,
-                                             GTK_ICON_LOOKUP_FORCE_SIZE);
+      info = gtk_icon_theme_lookup_by_gicon_for_scale (gtk_icon_theme_get_default (),
+                                                       icon, size, scale,
+                                                       GTK_ICON_LOOKUP_FORCE_SIZE);
     }
 
   if (info == NULL)
     {
       icon = g_themed_icon_new ("application-x-executable");
-      info = gtk_icon_theme_lookup_by_gicon (gtk_icon_theme_get_default (),
-                                             icon, size,
-                                             GTK_ICON_LOOKUP_FORCE_SIZE);
+      info = gtk_icon_theme_lookup_by_gicon_for_scale (gtk_icon_theme_get_default (),
+                                                       icon, size, scale,
+                                                       GTK_ICON_LOOKUP_FORCE_SIZE);
       g_object_unref (icon);
     }
 
@@ -266,7 +289,7 @@ shell_app_create_faded_icon_cpu (StTextureCache *cache,
     return COGL_INVALID_HANDLE;
 
   pixbuf = gtk_icon_info_load_icon (info, NULL);
-  gtk_icon_info_free (info);
+  g_object_unref (info);
 
   if (pixbuf == NULL)
     return COGL_INVALID_HANDLE;
@@ -312,13 +335,11 @@ shell_app_create_faded_icon_cpu (StTextureCache *cache,
         }
     }
 
-  texture = cogl_texture_new_from_data (width,
-                                        height,
-                                        COGL_TEXTURE_NONE,
-                                        have_alpha ? COGL_PIXEL_FORMAT_RGBA_8888 : COGL_PIXEL_FORMAT_RGB_888,
-                                        COGL_PIXEL_FORMAT_ANY,
-                                        rowstride,
-                                        pixels);
+  texture = COGL_TEXTURE (cogl_texture_2d_new_from_data (ctx, width, height,
+                                                         have_alpha ? COGL_PIXEL_FORMAT_RGBA_8888 : COGL_PIXEL_FORMAT_RGB_888,
+                                                         rowstride,
+                                                         pixels,
+                                                         NULL));
   g_free (pixels);
   g_object_unref (pixbuf);
 
@@ -342,22 +363,30 @@ shell_app_get_faded_icon (ShellApp *app, int size, ClutterTextDirection directio
   ClutterActor *result;
   char *cache_key;
   CreateFadedIconData data;
+  gint scale;
+  ShellGlobal *global;
+  StThemeContext *context;
 
   /* Don't fade for window backed apps for now...easier to reuse the
    * property tracking bits, and this helps us visually distinguish
    * app-tracked from not.
    */
-  if (!app->entry)
+  if (!app->info)
     return window_backed_app_get_icon (app, size);
+
+  global = shell_global_get ();
+  context = st_theme_context_get_for_stage (shell_global_get_stage (global));
+  g_object_get (context, "scale-factor", &scale, NULL);
 
   /* Use icon: prefix so that we get evicted from the cache on
    * icon theme changes. */
-  cache_key = g_strdup_printf ("icon:%s,size=%d,faded-%s",
+  cache_key = g_strdup_printf ("icon:%s,size=%d,scale=%d,faded-%s",
                                shell_app_get_id (app),
-                               size,
+                               size, scale,
                                direction == CLUTTER_TEXT_DIRECTION_RTL ? "rtl" : "ltr");
   data.app = app;
   data.size = size;
+  data.scale = scale;
   data.direction = direction;
   texture = st_texture_cache_load (st_texture_cache_get_default (),
                                    cache_key,
@@ -375,7 +404,7 @@ shell_app_get_faded_icon (ShellApp *app, int size, ClutterTextDirection directio
   else
     {
       result = clutter_texture_new ();
-      g_object_set (result, "opacity", 0, "width", (float) size, "height", (float) size, NULL);
+      g_object_set (result, "opacity", 0, "width", (float) size * scale, "height", (float) size * scale, NULL);
 
     }
   return result;
@@ -384,8 +413,8 @@ shell_app_get_faded_icon (ShellApp *app, int size, ClutterTextDirection directio
 const char *
 shell_app_get_name (ShellApp *app)
 {
-  if (app->entry)
-    return g_app_info_get_name (G_APP_INFO (gmenu_tree_entry_get_app_info (app->entry)));
+  if (app->info)
+    return g_app_info_get_name (G_APP_INFO (app->info));
   else
     {
       MetaWindow *window = window_backed_app_get_window (app);
@@ -401,8 +430,8 @@ shell_app_get_name (ShellApp *app)
 const char *
 shell_app_get_description (ShellApp *app)
 {
-  if (app->entry)
-    return g_app_info_get_description (G_APP_INFO (gmenu_tree_entry_get_app_info (app->entry)));
+  if (app->info)
+    return g_app_info_get_description (G_APP_INFO (app->info));
   else
     return NULL;
 }
@@ -417,7 +446,7 @@ shell_app_get_description (ShellApp *app)
 gboolean
 shell_app_is_window_backed (ShellApp *app)
 {
-  return app->entry == NULL;
+  return app->info == NULL;
 }
 
 typedef struct {
@@ -487,7 +516,7 @@ find_most_recent_transient_on_same_workspace (MetaDisplay *display,
 /**
  * shell_app_activate_window:
  * @app: a #ShellApp
- * @window: (allow-none): Window to be focused
+ * @window: (nullable): Window to be focused
  * @timestamp: Event timestamp
  *
  * Bring all windows for the given app to the foreground,
@@ -582,9 +611,7 @@ shell_app_update_window_actions (ShellApp *app, MetaWindow *window)
           g_object_set_data_full (G_OBJECT (window), "actions", actions, g_object_unref);
         }
 
-      if (!app->running_state->muxer)
-        app->running_state->muxer = gtk_action_muxer_new ();
-
+      g_assert (app->running_state->muxer);
       gtk_action_muxer_insert (app->running_state->muxer, "win", actions);
       g_object_notify (G_OBJECT (app), "action-group");
     }
@@ -633,15 +660,10 @@ shell_app_activate_full (ShellApp      *app,
       case SHELL_APP_STATE_STOPPED:
         {
           GError *error = NULL;
-          if (!shell_app_launch (app,
-                                 timestamp,
-                                 NULL,
-                                 workspace,
-                                 NULL,
-                                 &error))
+          if (!shell_app_launch (app, timestamp, workspace, &error))
             {
               char *msg;
-              msg = g_strdup_printf (_("Failed to launch '%s'"), shell_app_get_name (app));
+              msg = g_strdup_printf (_("Failed to launch “%s”"), shell_app_get_name (app));
               shell_global_notify_error (global,
                                          msg,
                                          error->message);
@@ -653,6 +675,7 @@ shell_app_activate_full (ShellApp      *app,
       case SHELL_APP_STATE_STARTING:
         break;
       case SHELL_APP_STATE_RUNNING:
+      case SHELL_APP_STATE_BUSY:
         shell_app_activate_window (app, NULL, timestamp);
         break;
     }
@@ -669,7 +692,7 @@ void
 shell_app_open_new_window (ShellApp      *app,
                            int            workspace)
 {
-  g_return_if_fail (app->entry != NULL);
+  g_return_if_fail (app->info != NULL);
 
   /* Here we just always launch the application again, even if we know
    * it was already running.  For most applications this
@@ -679,12 +702,73 @@ shell_app_open_new_window (ShellApp      *app,
    * as say Pidgin.  Ideally, we have the application express to us
    * that it supports an explicit new-window action.
    */
-  shell_app_launch (app,
-                    0,
-                    NULL,
-                    workspace,
-                    NULL,
-                    NULL);
+  shell_app_launch (app, 0, workspace, NULL);
+}
+
+/**
+ * shell_app_can_open_new_window:
+ * @app: a #ShellApp
+ *
+ * Returns %TRUE if the app supports opening a new window through
+ * shell_app_open_new_window() (ie, if calling that function will
+ * result in actually opening a new window and not something else,
+ * like presenting the most recently active one)
+ */
+gboolean
+shell_app_can_open_new_window (ShellApp *app)
+{
+  ShellAppRunningState *state;
+
+  /* Apps that are not running can always open new windows, because
+     activating them would open the first one */
+  if (!app->running_state)
+    return TRUE;
+
+  state = app->running_state;
+
+  /* If the app has an explicit new-window action, then it can
+
+     (or it should be able to - we don't actually call the action
+     because we need to trigger startup notification, so it still
+     depends on what the app decides to do for Activate vs ActivateAction)
+  */
+  if (g_action_group_has_action (G_ACTION_GROUP (state->muxer), "app.new-window"))
+    return TRUE;
+
+  /* If the app doesn't have a desktop file, then nothing is possible */
+  if (!app->info)
+    return FALSE;
+
+  /* If the app is explicitly telling us, then we know for sure */
+  if (g_desktop_app_info_has_key (G_DESKTOP_APP_INFO (app->info),
+                                  "X-GNOME-SingleWindow"))
+    return !g_desktop_app_info_get_boolean (G_DESKTOP_APP_INFO (app->info),
+                                            "X-GNOME-SingleWindow");
+
+  /* If this is a unique GtkApplication, and we don't have a new-window, then
+     probably we can't
+
+     We don't consider non-unique GtkApplications here to handle cases like
+     evince, which don't export a new-window action because each window is in
+     a different process. In any case, in a non-unique GtkApplication each
+     Activate() knows nothing about the other instances, so it will show a
+     new window.
+  */
+  if (state->remote_menu)
+    {
+      const char *application_id;
+      application_id = meta_window_get_gtk_application_id (state->windows->data);
+      if (application_id != NULL)
+        return FALSE;
+      else
+        return TRUE;
+    }
+
+  /* In all other cases, we don't have a reliable source of information
+     or a decent heuristic, so we err on the compatibility side and say
+     yes.
+  */
+  return TRUE;
 }
 
 /**
@@ -738,10 +822,10 @@ shell_app_compare_windows (gconstpointer   a,
  * shell_app_get_windows:
  * @app:
  *
- * Get the toplevel, interesting windows which are associated with this
- * application.  The returned list will be sorted first by whether
- * they're on the active workspace, then by whether they're visible,
- * and finally by the time the user last interacted with them.
+ * Get the windows which are associated with this application. The
+ * returned list will be sorted first by whether they're on the
+ * active workspace, then by whether they're visible, and finally
+ * by the time the user last interacted with them.
  *
  * Returns: (transfer none) (element-type MetaWindow): List of windows
  */
@@ -769,25 +853,6 @@ shell_app_get_n_windows (ShellApp *app)
   if (app->running_state == NULL)
     return 0;
   return g_slist_length (app->running_state->windows);
-}
-
-static gboolean
-shell_app_has_visible_windows (ShellApp   *app)
-{
-  GSList *iter;
-
-  if (app->running_state == NULL)
-    return FALSE;
-
-  for (iter = app->running_state->windows; iter; iter = iter->next)
-    {
-      MetaWindow *window = iter->data;
-
-      if (meta_window_showing_on_its_workspace (window))
-        return TRUE;
-    }
-
-  return FALSE;
 }
 
 gboolean
@@ -841,31 +906,19 @@ shell_app_get_last_user_time (ShellApp *app)
  *
  * Compare one #ShellApp instance to another, in the following way:
  *   - Running applications sort before not-running applications.
- *   - If one of them has visible windows and the other does not, the one
- *     with visible windows is first.
- *   - Finally, the application which the user interacted with most recently
+ *   - The application which the user interacted with most recently
  *     compares earlier.
  */
 int
 shell_app_compare (ShellApp *app,
                    ShellApp *other)
 {
-  gboolean vis_app, vis_other;
-
   if (app->state != other->state)
     {
       if (app->state == SHELL_APP_STATE_RUNNING)
         return -1;
       return 1;
     }
-
-  vis_app = shell_app_has_visible_windows (app);
-  vis_other = shell_app_has_visible_windows (other);
-
-  if (vis_app && !vis_other)
-    return -1;
-  else if (!vis_app && vis_other)
-    return 1;
 
   if (app->state == SHELL_APP_STATE_RUNNING)
     {
@@ -895,25 +948,24 @@ _shell_app_new_for_window (MetaWindow      *window)
 }
 
 ShellApp *
-_shell_app_new (GMenuTreeEntry *info)
+_shell_app_new (GDesktopAppInfo *info)
 {
   ShellApp *app;
 
   app = g_object_new (SHELL_TYPE_APP, NULL);
 
-  _shell_app_set_entry (app, info);
+  _shell_app_set_app_info (app, info);
 
   return app;
 }
 
 void
-_shell_app_set_entry (ShellApp       *app,
-                      GMenuTreeEntry *entry)
+_shell_app_set_app_info (ShellApp        *app,
+                         GDesktopAppInfo *info)
 {
-  if (app->entry != NULL)
-    gmenu_tree_item_unref (app->entry);
-  app->entry = gmenu_tree_item_ref (entry);
-  
+  g_clear_object (&app->info);
+  app->info = g_object_ref (info);
+
   if (app->name_collation_key != NULL)
     g_free (app->name_collation_key);
   app->name_collation_key = g_utf8_collate_key (shell_app_get_name (app), -1);
@@ -928,12 +980,6 @@ shell_app_state_transition (ShellApp      *app,
   g_return_if_fail (!(app->state == SHELL_APP_STATE_RUNNING &&
                       state == SHELL_APP_STATE_STARTING));
   app->state = state;
-
-  if (app->state == SHELL_APP_STATE_STOPPED && app->running_state)
-    {
-      unref_running_state (app->running_state);
-      app->running_state = NULL;
-    }
 
   _shell_app_system_notify_app_state_changed (shell_app_system_get_default (), app);
 
@@ -965,6 +1011,37 @@ shell_app_on_user_time_changed (MetaWindow *window,
 }
 
 static void
+shell_app_sync_running_state (ShellApp *app)
+{
+  g_return_if_fail (app->running_state != NULL);
+
+  if (app->running_state->interesting_windows == 0)
+    shell_app_state_transition (app, SHELL_APP_STATE_STOPPED);
+  else if (app->state != SHELL_APP_STATE_STARTING)
+    shell_app_state_transition (app, SHELL_APP_STATE_RUNNING);
+}
+
+
+static void
+shell_app_on_skip_taskbar_changed (MetaWindow *window,
+                                   GParamSpec *pspec,
+                                   ShellApp   *app)
+{
+  g_assert (app->running_state != NULL);
+
+  /* we rely on MetaWindow:skip-taskbar only being notified
+   * when it actually changes; when that assumption breaks,
+   * we'll have to track the "interesting" windows themselves
+   */
+  if (meta_window_is_skip_taskbar (window))
+    app->running_state->interesting_windows--;
+  else
+    app->running_state->interesting_windows++;
+
+  shell_app_sync_running_state (app);
+}
+
+static void
 shell_app_on_ws_switch (MetaScreen         *screen,
                         int                 from,
                         int                 to,
@@ -991,10 +1068,8 @@ application_properties_changed (GDBusConnection *connection,
 {
   ShellApp *app = user_data;
   GVariant *changed_properties;
-  GVariantIter iter;
   gboolean busy = FALSE;
-  const gchar *key, *interface_name_for_signal;
-  GVariant *value;
+  const gchar *interface_name_for_signal;
 
   g_variant_get (parameters,
                  "(&s@a{sv}as)",
@@ -1005,19 +1080,7 @@ application_properties_changed (GDBusConnection *connection,
   if (g_strcmp0 (interface_name_for_signal, "org.gtk.Application") != 0)
     return;
 
-  g_variant_iter_init (&iter, changed_properties);
-  while (g_variant_iter_next (&iter, "{&sv}", &key, &value))
-    {
-      if (g_strcmp0 (key, "Busy") != 0)
-        {
-          g_variant_unref (value);
-          continue;
-        }
-
-      busy = g_variant_get_boolean (value);
-      g_variant_unref (value);
-      break;
-    }
+  g_variant_lookup (changed_properties, "Busy", "b", &busy);
 
   if (busy)
     shell_app_state_transition (app, SHELL_APP_STATE_BUSY);
@@ -1074,12 +1137,14 @@ _shell_app_add_window (ShellApp        *app,
   app->running_state->windows = g_slist_prepend (app->running_state->windows, g_object_ref (window));
   g_signal_connect (window, "unmanaged", G_CALLBACK(shell_app_on_unmanaged), app);
   g_signal_connect (window, "notify::user-time", G_CALLBACK(shell_app_on_user_time_changed), app);
+  g_signal_connect (window, "notify::skip-taskbar", G_CALLBACK(shell_app_on_skip_taskbar_changed), app);
 
   shell_app_update_app_menu (app, window);
   shell_app_ensure_busy_watch (app);
 
-  if (app->state != SHELL_APP_STATE_STARTING)
-    shell_app_state_transition (app, SHELL_APP_STATE_RUNNING);
+  if (!meta_window_is_skip_taskbar (window))
+    app->running_state->interesting_windows++;
+  shell_app_sync_running_state (app);
 
   g_object_thaw_notify (G_OBJECT (app));
 
@@ -1097,11 +1162,16 @@ _shell_app_remove_window (ShellApp   *app,
 
   g_signal_handlers_disconnect_by_func (window, G_CALLBACK(shell_app_on_unmanaged), app);
   g_signal_handlers_disconnect_by_func (window, G_CALLBACK(shell_app_on_user_time_changed), app);
+  g_signal_handlers_disconnect_by_func (window, G_CALLBACK(shell_app_on_skip_taskbar_changed), app);
   g_object_unref (window);
   app->running_state->windows = g_slist_remove (app->running_state->windows, window);
 
-  if (app->running_state->windows == NULL)
-    shell_app_state_transition (app, SHELL_APP_STATE_STOPPED);
+  if (!meta_window_is_skip_taskbar (window))
+    app->running_state->interesting_windows--;
+  shell_app_sync_running_state (app);
+
+  if (app->running_state && app->running_state->windows == NULL)
+    g_clear_pointer (&app->running_state, unref_running_state);
 
   g_signal_emit (app, shell_app_signals[WINDOWS_CHANGED], 0);
 }
@@ -1190,7 +1260,7 @@ shell_app_request_quit (ShellApp   *app)
     {
       MetaWindow *win = iter->data;
 
-      if (!shell_window_tracker_is_window_interesting (win))
+      if (meta_window_is_skip_taskbar (win))
         continue;
 
       meta_window_delete (win, shell_global_get_current_time (shell_global_get ()));
@@ -1216,68 +1286,94 @@ _gather_pid_callback (GDesktopAppInfo   *gapp,
                                                app);
 }
 
+#ifdef HAVE_SYSTEMD
+/* This sets up the launched application to log to the journal
+ * using its own identifier, instead of just "gnome-session".
+ */
+static void
+app_child_setup (gpointer user_data)
+{
+  const char *appid = user_data;
+  int res;
+  int journalfd = sd_journal_stream_fd (appid, LOG_INFO, FALSE);
+  if (journalfd >= 0)
+    {
+      do
+        res = dup2 (journalfd, 1);
+      while (G_UNLIKELY (res == -1 && errno == EINTR));
+      do
+        res = dup2 (journalfd, 2);
+      while (G_UNLIKELY (res == -1 && errno == EINTR));
+      (void) close (journalfd);
+    }
+}
+#endif
+
 /**
  * shell_app_launch:
  * @timestamp: Event timestamp, or 0 for current event timestamp
- * @uris: (element-type utf8): List of uris to pass to application
  * @workspace: Start on this workspace, or -1 for default
- * @startup_id: (out): Returned startup notification ID, or %NULL if none
  * @error: A #GError
  */
 gboolean
 shell_app_launch (ShellApp     *app,
                   guint         timestamp,
-                  GList        *uris,
                   int           workspace,
-                  char        **startup_id,
                   GError      **error)
 {
-  GDesktopAppInfo *gapp;
-  GdkAppLaunchContext *context;
-  gboolean ret;
   ShellGlobal *global;
-  MetaScreen *screen;
-  GdkDisplay *gdisplay;
+  GAppLaunchContext *context;
+  gboolean ret;
 
-  if (startup_id)
-    *startup_id = NULL;
-
-  if (app->entry == NULL)
+  if (app->info == NULL)
     {
       MetaWindow *window = window_backed_app_get_window (app);
-      /* We can't pass URIs into a window; shouldn't hit this
-       * code path.  If we do, fix the caller to disallow it.
-       */
-      g_return_val_if_fail (uris == NULL, TRUE);
-
       meta_window_activate (window, timestamp);
       return TRUE;
     }
 
   global = shell_global_get ();
-  screen = shell_global_get_screen (global);
-  gdisplay = gdk_screen_get_display (shell_global_get_gdk_screen (global));
+  context = shell_global_create_app_launch_context (global, timestamp, workspace);
 
-  if (timestamp == 0)
-    timestamp = shell_global_get_current_time (global);
-
-  if (workspace < 0)
-    workspace = meta_screen_get_active_workspace_index (screen);
-
-  context = gdk_display_get_app_launch_context (gdisplay);
-  gdk_app_launch_context_set_timestamp (context, timestamp);
-  gdk_app_launch_context_set_desktop (context, workspace);
-
-  gapp = gmenu_tree_entry_get_app_info (app->entry);
-  ret = g_desktop_app_info_launch_uris_as_manager (gapp, uris,
-                                                   G_APP_LAUNCH_CONTEXT (context),
+  ret = g_desktop_app_info_launch_uris_as_manager (app->info, NULL,
+                                                   context,
                                                    G_SPAWN_SEARCH_PATH | G_SPAWN_DO_NOT_REAP_CHILD,
+#ifdef HAVE_SYSTEMD
+                                                   app_child_setup, (gpointer)shell_app_get_id (app),
+#else
                                                    NULL, NULL,
+#endif
                                                    _gather_pid_callback, app,
                                                    error);
   g_object_unref (context);
 
   return ret;
+}
+
+/**
+ * shell_app_launch_action:
+ * @app: the #ShellApp
+ * @action_name: the name of the action to launch (as obtained by
+ *               g_desktop_app_info_list_actions())
+ * @timestamp: Event timestamp, or 0 for current event timestamp
+ * @workspace: Start on this workspace, or -1 for default
+ */
+void
+shell_app_launch_action (ShellApp        *app,
+                         const char      *action_name,
+                         guint            timestamp,
+                         int              workspace)
+{
+  ShellGlobal *global;
+  GAppLaunchContext *context;
+
+  global = shell_global_get ();
+  context = shell_global_create_app_launch_context (global, timestamp, workspace);
+
+  g_desktop_app_info_launch_action (G_DESKTOP_APP_INFO (app->info),
+                                    action_name, context);
+
+  g_object_unref (context);
 }
 
 /**
@@ -1289,21 +1385,7 @@ shell_app_launch (ShellApp     *app,
 GDesktopAppInfo *
 shell_app_get_app_info (ShellApp *app)
 {
-  if (app->entry)
-    return gmenu_tree_entry_get_app_info (app->entry);
-  return NULL;
-}
-
-/**
- * shell_app_get_tree_entry:
- * @app: a #ShellApp
- *
- * Returns: (transfer none): The #GMenuTreeEntry for this app, or %NULL if backed by a window
- */
-GMenuTreeEntry *
-shell_app_get_tree_entry (ShellApp *app)
-{
-  return app->entry;
+  return app->info;
 }
 
 static void
@@ -1391,70 +1473,6 @@ unref_running_state (ShellAppRunningState *state)
   g_slice_free (ShellAppRunningState, state);
 }
 
-static char *
-trim_exec_line (const char *str)
-{
-  const char *start, *end, *pos;
-
-  if (str == NULL)
-    return NULL;
-
-  end = strchr (str, ' ');
-  if (end == NULL)
-    end = str + strlen (str);
-
-  start = str;
-  while ((pos = strchr (start, '/')) && pos < end)
-    start = ++pos;
-
-  return g_strndup (start, end - start);
-}
-
-static void
-shell_app_init_search_data (ShellApp *app)
-{
-  const char *name;
-  const char *generic_name;
-  const char *exec;
-  const char * const *keywords;
-  char *normalized_exec;
-  GDesktopAppInfo *appinfo;
-
-  appinfo = gmenu_tree_entry_get_app_info (app->entry);
-  name = g_app_info_get_name (G_APP_INFO (appinfo));
-  app->casefolded_name = shell_util_normalize_casefold_and_unaccent (name);
-
-  generic_name = g_desktop_app_info_get_generic_name (appinfo);
-  if (generic_name)
-    app->casefolded_generic_name = shell_util_normalize_casefold_and_unaccent (generic_name);
-  else
-    app->casefolded_generic_name = NULL;
-
-  exec = g_app_info_get_executable (G_APP_INFO (appinfo));
-  normalized_exec = shell_util_normalize_casefold_and_unaccent (exec);
-  app->casefolded_exec = trim_exec_line (normalized_exec);
-  g_free (normalized_exec);
-
-  keywords = g_desktop_app_info_get_keywords (appinfo);
-
-  if (keywords)
-    {
-      int i;
-
-      app->casefolded_keywords = g_new0 (char*, g_strv_length ((char **)keywords) + 1);
-
-      i = 0;
-      while (keywords[i])
-        {
-          app->casefolded_keywords[i] = shell_util_normalize_casefold_and_unaccent (keywords[i]);
-          ++i;
-        }
-      app->casefolded_keywords[i] = NULL;
-    }
-  else
-    app->casefolded_keywords = NULL;
-}
-
 /**
  * shell_app_compare_by_name:
  * @app: One app
@@ -1471,118 +1489,6 @@ shell_app_compare_by_name (ShellApp *app, ShellApp *other)
   return strcmp (app->name_collation_key, other->name_collation_key);
 }
 
-static ShellAppSearchMatch
-_shell_app_match_search_terms (ShellApp  *app,
-                               GSList    *terms)
-{
-  GSList *iter;
-  ShellAppSearchMatch match;
-
-  if (G_UNLIKELY (!app->casefolded_name))
-    shell_app_init_search_data (app);
-
-  match = MATCH_NONE;
-  for (iter = terms; iter; iter = iter->next)
-    {
-      ShellAppSearchMatch current_match;
-      const char *term = iter->data;
-      const char *p;
-
-      current_match = MATCH_NONE;
-
-      p = strstr (app->casefolded_name, term);
-      if (p != NULL)
-        {
-          if (p == app->casefolded_name || *(p - 1) == ' ')
-            current_match = MATCH_PREFIX;
-          else
-            current_match = MATCH_SUBSTRING;
-        }
-
-      if (app->casefolded_generic_name)
-        {
-          p = strstr (app->casefolded_generic_name, term);
-          if (p != NULL)
-            {
-              if (p == app->casefolded_generic_name || *(p - 1) == ' ')
-                current_match = MATCH_PREFIX;
-              else if (current_match < MATCH_PREFIX)
-                current_match = MATCH_SUBSTRING;
-            }
-        }
-
-      if (app->casefolded_exec)
-        {
-          p = strstr (app->casefolded_exec, term);
-          if (p != NULL)
-            {
-              if (p == app->casefolded_exec || *(p - 1) == '-')
-                current_match = MATCH_PREFIX;
-              else if (current_match < MATCH_PREFIX)
-                current_match = MATCH_SUBSTRING;
-            }
-        }
-
-      if (app->casefolded_keywords)
-        {
-          int i = 0;
-          while (app->casefolded_keywords[i] && current_match < MATCH_PREFIX)
-            {
-              p = strstr (app->casefolded_keywords[i], term);
-              if (p != NULL)
-                {
-                  if (p == app->casefolded_keywords[i])
-                    current_match = MATCH_PREFIX;
-                  else
-                    current_match = MATCH_SUBSTRING;
-                }
-              ++i;
-            }
-        }
-
-      if (current_match == MATCH_NONE)
-        return current_match;
-
-      if (current_match > match)
-        match = current_match;
-    }
-  return match;
-}
-
-void
-_shell_app_do_match (ShellApp         *app,
-                     GSList           *terms,
-                     GSList          **prefix_results,
-                     GSList          **substring_results)
-{
-  ShellAppSearchMatch match;
-  GAppInfo *appinfo;
-
-  g_assert (app != NULL);
-
-  /* Skip window-backed apps */ 
-  appinfo = (GAppInfo*)shell_app_get_app_info (app);
-  if (appinfo == NULL)
-    return;
-  /* Skip not-visible apps */ 
-  if (!g_app_info_should_show (appinfo))
-    return;
-
-  match = _shell_app_match_search_terms (app, terms);
-  switch (match)
-    {
-      case MATCH_NONE:
-        break;
-      case MATCH_PREFIX:
-        *prefix_results = g_slist_prepend (*prefix_results, app);
-        break;
-      case MATCH_SUBSTRING:
-        *substring_results = g_slist_prepend (*substring_results, app);
-        break;
-    }
-}
-
-
 static void
 shell_app_init (ShellApp *self)
 {
@@ -1594,17 +1500,11 @@ shell_app_dispose (GObject *object)
 {
   ShellApp *app = SHELL_APP (object);
 
-  if (app->entry)
-    {
-      gmenu_tree_item_unref (app->entry);
-      app->entry = NULL;
-    }
+  g_clear_object (&app->info);
 
-  if (app->running_state)
-    {
-      while (app->running_state->windows)
-        _shell_app_remove_window (app, app->running_state->windows->data);
-    }
+  while (app->running_state)
+    _shell_app_remove_window (app, app->running_state->windows->data);
+
   /* We should have been transitioned when we removed all of our windows */
   g_assert (app->state == SHELL_APP_STATE_STOPPED);
   g_assert (app->running_state == NULL);
@@ -1619,11 +1519,7 @@ shell_app_finalize (GObject *object)
 
   g_free (app->window_id_string);
 
-  g_free (app->casefolded_name);
-  g_free (app->casefolded_generic_name);
   g_free (app->name_collation_key);
-  g_free (app->casefolded_exec);
-  g_strfreev (app->casefolded_keywords);
 
   G_OBJECT_CLASS(shell_app_parent_class)->finalize (object);
 }

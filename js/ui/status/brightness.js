@@ -11,9 +11,11 @@ const Slider = imports.ui.slider;
 const BUS_NAME = 'org.gnome.SettingsDaemon.Power';
 const OBJECT_PATH = '/org/gnome/SettingsDaemon/Power';
 
-const BrightnessInterface = <interface name="org.gnome.SettingsDaemon.Power.Screen">
-<property name='Brightness' type='i' access='readwrite'/>
-</interface>;
+const BrightnessInterface = '<node> \
+<interface name="org.gnome.SettingsDaemon.Power.Screen"> \
+<property name="Brightness" type="i" access="readwrite"/> \
+</interface> \
+</node>';
 
 const BrightnessProxy = Gio.DBusProxy.makeProxyWrapper(BrightnessInterface);
 
@@ -46,7 +48,7 @@ const Indicator = new Lang.Class({
         this._item.actor.add(icon);
         this._item.actor.add(this._slider.actor, { expand: true });
         this._item.actor.connect('button-press-event', Lang.bind(this, function(actor, event) {
-            this._slider.startDragging(event);
+            return this._slider.startDragging(event);
         }));
         this._item.actor.connect('key-press-event', Lang.bind(this, function(actor, event) {
             return this._slider.onKeyPressEvent(actor, event);

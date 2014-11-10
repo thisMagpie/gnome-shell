@@ -4,12 +4,15 @@
 data/50-gnome-shell-system.xml.in
 data/gnome-shell.desktop.in.in
 data/gnome-shell-extension-prefs.desktop.in.in
+data/gnome-shell-wayland.desktop.in.in
 data/org.gnome.shell.gschema.xml.in.in
+data/org.gnome.Shell.PortalHelper.desktop.in
 js/extensionPrefs/main.js
 js/gdm/authPrompt.js
 js/gdm/loginDialog.js
 js/gdm/util.js
 js/misc/util.js
+js/portalHelper/main.js
 js/ui/appDisplay.js
 js/ui/appFavorites.js
 js/ui/backgroundMenu.js
@@ -37,13 +40,14 @@ js/ui/panel.js
 js/ui/popupMenu.js
 js/ui/runDialog.js
 js/ui/screenShield.js
-js/ui/searchDisplay.js
+js/ui/search.js
 js/ui/shellEntry.js
 js/ui/shellMountOperation.js
 js/ui/status/accessibility.js
 js/ui/status/bluetooth.js
 js/ui/status/brightness.js
 js/ui/status/keyboard.js
+js/ui/status/location.js
 js/ui/status/network.js
 js/ui/status/power.js
 js/ui/status/rfkill.js
@@ -51,9 +55,9 @@ js/ui/status/system.js
 js/ui/status/volume.js
 js/ui/unlockDialog.js
 js/ui/viewSelector.js
-js/ui/wanda.js
 js/ui/windowAttentionHandler.js
 js/ui/windowManager.js
+js/ui/windowMenu.js
 src/calendar-server/evolution-calendar.desktop.in.in
 # Please do not remove this file from POTFILES.in. Run "git submodule init && git submodule update" to get it.
 src/gvc/gvc-mixer-control.c

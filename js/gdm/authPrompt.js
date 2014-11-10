@@ -1,6 +1,7 @@
 // -*- mode: js; js-indent-level: 4; indent-tabs-mode: nil -*-
 
 const Clutter = imports.gi.Clutter;
+const Gio = imports.gi.Gio;
 const Lang = imports.lang;
 const Signals = imports.signals;
 const St = imports.gi.St;
@@ -36,8 +37,6 @@ const BeginRequestType = {
     DONT_PROVIDE_USERNAME: 1
 };
 
-let _messageStyleMap;
-
 const AuthPrompt = new Lang.Class({
     Name: 'AuthPrompt',
 
@@ -61,6 +60,7 @@ const AuthPrompt = new Lang.Class({
         this._userVerifier.connect('verification-complete', Lang.bind(this, this._onVerificationComplete));
         this._userVerifier.connect('reset', Lang.bind(this, this._onReset));
         this._userVerifier.connect('smartcard-status-changed', Lang.bind(this, this._onSmartcardStatusChanged));
+        this._userVerifier.connect('ovirt-user-authenticated', Lang.bind(this, this._onOVirtUserAuthenticated));
         this.smartcardDetected = this._userVerifier.smartcardDetected;
 
         this.connect('next', Lang.bind(this, function() {
@@ -81,6 +81,7 @@ const AuthPrompt = new Lang.Class({
                                if (event.get_key_symbol() == Clutter.KEY_Escape) {
                                    this.cancel();
                                }
+                               return Clutter.EVENT_PROPAGATE;
                            }));
 
         this._userWell = new St.Bin({ x_fill: true,
@@ -94,7 +95,7 @@ const AuthPrompt = new Lang.Class({
 
         this.actor.add(this._label,
                        { expand: true,
-                         x_fill: true,
+                         x_fill: false,
                          y_fill: true,
                          x_align: St.Align.START });
         this._entry = new St.Entry({ style_class: 'login-dialog-prompt-entry',
@@ -109,9 +110,10 @@ const AuthPrompt = new Lang.Class({
 
         this._entry.grab_key_focus();
 
-        this._message = new St.Label({ opacity: 0 });
+        this._message = new St.Label({ opacity: 0,
+                                       styleClass: 'login-dialog-message' });
         this._message.clutter_text.line_wrap = true;
-        this.actor.add(this._message, { x_fill: true, y_align: St.Align.START });
+        this.actor.add(this._message, { x_fill: false, x_align: St.Align.START, y_align: St.Align.START });
 
         this._buttonBox = new St.BoxLayout({ style_class: 'login-dialog-button-box',
                                              vertical: false });
@@ -120,12 +122,12 @@ const AuthPrompt = new Lang.Class({
                          x_align: St.Align.MIDDLE,
                          y_align: St.Align.END });
 
-        this._defaultButtonWell = new St.Widget();
+        this._defaultButtonWell = new St.Widget({ layout_manager: new Clutter.BinLayout() });
         this._defaultButtonWellActor = null;
 
         this._initButtons();
 
-        let spinnerIcon = global.datadir + '/theme/process-working.svg';
+        let spinnerIcon = Gio.File.new_for_uri('resource:///org/gnome/shell/theme/process-working.svg');
         this._spinner = new Animation.AnimatedIcon(spinnerIcon, DEFAULT_BUTTON_WELL_ICON_SIZE);
         this._spinner.actor.opacity = 0;
         this._spinner.actor.show();
@@ -133,8 +135,7 @@ const AuthPrompt = new Lang.Class({
     },
 
     _onDestroy: function() {
-        this._userVerifier.clear();
-        this._userVerifier.disconnectAll();
+        this._userVerifier.destroy();
         this._userVerifier = null;
     },
 
@@ -220,6 +221,11 @@ const AuthPrompt = new Lang.Class({
         this.emit('prompted');
     },
 
+    _onOVirtUserAuthenticated: function() {
+        if (this.verificationStatus != AuthPromptStatus.VERIFICATION_SUCCEEDED)
+            this.reset();
+    },
+
     _onSmartcardStatusChanged: function() {
         this.smartcardDetected = this._userVerifier.smartcardDetected;
 
@@ -245,6 +251,7 @@ const AuthPrompt = new Lang.Class({
     },
 
     _onVerificationFailed: function() {
+        this._queryingService = null;
         this.clear();
 
         this.updateSensitivity(true);
@@ -257,18 +264,12 @@ const AuthPrompt = new Lang.Class({
     },
 
     _onReset: function() {
-        if (this.verificationStatus != AuthPromptStatus.VERIFICATION_SUCCEEDED) {
-            this.verificationStatus = AuthPromptStatus.NOT_VERIFYING;
-            this.reset();
-        }
+        this.verificationStatus = AuthPromptStatus.NOT_VERIFYING;
+        this.reset();
     },
 
     addActorToDefaultButtonWell: function(actor) {
         this._defaultButtonWell.add_child(actor);
-
-        actor.add_constraint(new Clutter.AlignConstraint({ source: this._spinner.actor,
-                                                           align_axis: Clutter.AlignAxis.BOTH,
-                                                           factor: 0.5 }));
     },
 
     setActorInDefaultButtonWell: function(actor, animate) {
@@ -375,27 +376,22 @@ const AuthPrompt = new Lang.Class({
                          });
     },
 
-    _initMessageStyleMap: function() {
-        if (_messageStyleMap)
-            return;
-
-        _messageStyleMap = {};
-        _messageStyleMap[GdmUtil.MessageType.NONE] = '';
-        _messageStyleMap[GdmUtil.MessageType.ERROR] = 'login-dialog-message-warning';
-        _messageStyleMap[GdmUtil.MessageType.INFO] = 'login-dialog-message-info';
-        _messageStyleMap[GdmUtil.MessageType.HINT] = 'login-dialog-message-hint';
-
-    },
-
     setMessage: function(message, type) {
-        this._initMessageStyleMap();
+        if (type == GdmUtil.MessageType.ERROR)
+            this._message.add_style_class_name('login-dialog-message-warning');
+        else
+            this._message.remove_style_class_name('login-dialog-message-warning');
+
+        if (type == GdmUtil.MessageType.HINT)
+            this._message.add_style_class_name('login-dialog-message-hint');
+        else
+            this._message.remove_style_class_name('login-dialog-message-hint');
+
         if (message) {
             Tweener.removeTweens(this._message);
             this._message.text = message;
-            this._message.styleClass = _messageStyleMap[type];
             this._message.opacity = 255;
         } else {
-            this._message.styleClass = null;
             this._message.opacity = 0;
         }
     },
@@ -423,11 +419,13 @@ const AuthPrompt = new Lang.Class({
     },
 
     setUser: function(user) {
+        let oldChild = this._userWell.get_child();
+        if (oldChild)
+            oldChild.destroy();
+
         if (user) {
             let userWidget = new UserWidget.UserWidget(user);
             this._userWell.set_child(userWidget.actor);
-        } else {
-            this._userWell.set_child(null);
         }
     },
 
@@ -453,10 +451,10 @@ const AuthPrompt = new Lang.Class({
             // The user is constant at the unlock screen, so it will immediately
             // respond to the request with the username
             beginRequestType = BeginRequestType.PROVIDE_USERNAME;
-        } else if (this.smartcardDetected &&
+        } else if (this._userVerifier.serviceIsForeground(GdmUtil.OVIRT_SERVICE_NAME) ||
                    this._userVerifier.serviceIsForeground(GdmUtil.SMARTCARD_SERVICE_NAME)) {
             // We don't need to know the username if the user preempted the login screen
-            // with a smartcard.
+            // with a smartcard or with preauthenticated oVirt credentials
             beginRequestType = BeginRequestType.DONT_PROVIDE_USERNAME;
         } else {
             // In all other cases, we should get the username up front.

@@ -38,6 +38,7 @@ const connect = Lang.bind(_signals, _signals.connect);
 const disconnect = Lang.bind(_signals, _signals.disconnect);
 
 const ENABLED_EXTENSIONS_KEY = 'enabled-extensions';
+const EXTENSION_DISABLE_VERSION_CHECK_KEY = 'disable-extension-version-validation';
 
 var initted = false;
 var enabled;
@@ -73,10 +74,14 @@ function disableExtension(uuid) {
 
     if (extension.stylesheet) {
         let theme = St.ThemeContext.get_for_stage(global.stage).get_theme();
-        theme.unload_stylesheet(extension.stylesheet.get_path());
+        theme.unload_stylesheet(extension.stylesheet);
     }
 
-    extension.stateObj.disable();
+    try {
+        extension.stateObj.disable();
+    } catch(e) {
+        logExtensionError(uuid, e);
+    }
 
     for (let i = 0; i < order.length; i++) {
         let uuid = order[i];
@@ -89,8 +94,10 @@ function disableExtension(uuid) {
 
     extensionOrder.splice(orderIdx, 1);
 
-    extension.state = ExtensionState.DISABLED;
-    _signals.emit('extension-state-changed', extension);
+    if ( extension.state != ExtensionState.ERROR ) {
+        extension.state = ExtensionState.DISABLED;
+        _signals.emit('extension-state-changed', extension);
+    }
 }
 
 function enableExtension(uuid) {
@@ -111,16 +118,21 @@ function enableExtension(uuid) {
         let stylesheetFile = extension.dir.get_child(stylesheetNames[i]);
         if (stylesheetFile.query_exists(null)) {
             let theme = St.ThemeContext.get_for_stage(global.stage).get_theme();
-            theme.load_stylesheet(stylesheetFile.get_path());
+            theme.load_stylesheet(stylesheetFile);
             extension.stylesheet = stylesheetFile;
             break;
         }
     }
 
-    extension.stateObj.enable();
-
-    extension.state = ExtensionState.ENABLED;
-    _signals.emit('extension-state-changed', extension);
+    try {
+        extension.stateObj.enable();
+        extension.state = ExtensionState.ENABLED;
+        _signals.emit('extension-state-changed', extension);
+        return;
+    } catch(e) {
+        logExtensionError(uuid, e);
+        return;
+    }
 }
 
 function logExtensionError(uuid, error) {
@@ -145,12 +157,15 @@ function loadExtension(extension) {
     // Default to error, we set success as the last step
     extension.state = ExtensionState.ERROR;
 
-    if (ExtensionUtils.isOutOfDate(extension)) {
+    let checkVersion = !global.settings.get_boolean(EXTENSION_DISABLE_VERSION_CHECK_KEY);
+
+    if (checkVersion && ExtensionUtils.isOutOfDate(extension)) {
         extension.state = ExtensionState.OUT_OF_DATE;
     } else {
         let enabled = enabledExtensions.indexOf(extension.uuid) != -1;
         if (enabled) {
-            initExtension(extension.uuid);
+            if (!initExtension(extension.uuid))
+                return;
             if (extension.state == ExtensionState.DISABLED)
                 enableExtension(extension.uuid);
         } else {
@@ -205,7 +220,12 @@ function initExtension(uuid) {
     extensionModule = extension.imports.extension;
 
     if (extensionModule.init) {
-        extensionState = extensionModule.init(extension);
+        try {
+            extensionState = extensionModule.init(extension);
+        } catch(e) {
+            logExtensionError(uuid, e);
+            return false;
+        }
     }
 
     if (!extensionState)
@@ -214,6 +234,7 @@ function initExtension(uuid) {
 
     extension.state = ExtensionState.DISABLED;
     _signals.emit('extension-loaded', uuid);
+    return true;
 }
 
 function getEnabledExtensions() {
@@ -235,11 +256,7 @@ function onEnabledExtensionsChanged() {
     newEnabledExtensions.filter(function(uuid) {
         return enabledExtensions.indexOf(uuid) == -1;
     }).forEach(function(uuid) {
-        try {
-            enableExtension(uuid);
-        } catch(e) {
-            logExtensionError(uuid, e);
-        }
+        enableExtension(uuid);
     });
 
     // Find and disable all the newly disabled extensions: UUIDs found in the
@@ -247,27 +264,37 @@ function onEnabledExtensionsChanged() {
     enabledExtensions.filter(function(item) {
         return newEnabledExtensions.indexOf(item) == -1;
     }).forEach(function(uuid) {
-        try {
-            disableExtension(uuid);
-        } catch(e) {
-            logExtensionError(uuid, e);
-        }
+        disableExtension(uuid);
     });
 
     enabledExtensions = newEnabledExtensions;
 }
 
+function _onVersionValidationChanged() {
+    // we want to reload all extensions, but only enable
+    // extensions when allowed by the sessionMode, so
+    // temporarily disable them all
+    enabledExtensions = [];
+    for (let uuid in ExtensionUtils.extensions)
+        reloadExtension(ExtensionUtils.extensions[uuid]);
+    enabledExtensions = getEnabledExtensions();
+
+    if (Main.sessionMode.allowExtensions) {
+        enabledExtensions.forEach(function(uuid) {
+            enableExtension(uuid);
+        });
+    }
+}
+
 function _loadExtensions() {
     global.settings.connect('changed::' + ENABLED_EXTENSIONS_KEY, onEnabledExtensionsChanged);
+    global.settings.connect('changed::' + EXTENSION_DISABLE_VERSION_CHECK_KEY, _onVersionValidationChanged);
+
     enabledExtensions = getEnabledExtensions();
 
     let finder = new ExtensionUtils.ExtensionFinder();
-    finder.connect('extension-found', function(signals, extension) {
-        try {
-            loadExtension(extension);
-        } catch(e) {
-            logExtensionError(extension.uuid, e);
-        }
+    finder.connect('extension-found', function(finder, extension) {
+        loadExtension(extension);
     });
     finder.scanExtensions();
 }

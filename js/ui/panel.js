@@ -14,7 +14,6 @@ const St = imports.gi.St;
 const Signals = imports.signals;
 const Atk = imports.gi.Atk;
 
-
 const Animation = imports.ui.animation;
 const Config = imports.misc.config;
 const CtrlAltTab = imports.ui.ctrlAltTab;
@@ -213,9 +212,7 @@ const AppMenuButton = new Lang.Class({
         this._label = new TextShadower();
         this._label.actor.y_align = Clutter.ActorAlign.CENTER;
         this._hbox.add_actor(this._label.actor);
-        this._arrow = new St.Label({ text: '\u25BE',
-                                     y_expand: true,
-                                     y_align: Clutter.ActorAlign.CENTER });
+        this._arrow = PopupMenu.arrowIcon(St.Side.BOTTOM);
         this._hbox.add_actor(this._arrow);
 
         this._iconBottomClip = 0;
@@ -249,6 +246,7 @@ const AppMenuButton = new Lang.Class({
         this._visible = true;
         this.actor.reactive = true;
         this.actor.show();
+        Tweener.removeTweens(this.actor);
         Tweener.addTween(this.actor,
                          { opacity: 255,
                            time: Overview.ANIMATION_TIME,
@@ -261,6 +259,7 @@ const AppMenuButton = new Lang.Class({
 
         this._visible = false;
         this.actor.reactive = false;
+        Tweener.removeTweens(this.actor);
         Tweener.addTween(this.actor,
                          { opacity: 0,
                            time: Overview.ANIMATION_TIME,
@@ -274,7 +273,7 @@ const AppMenuButton = new Lang.Class({
     _onStyleChanged: function(actor) {
         let node = actor.get_theme_node();
         let [success, icon] = node.lookup_url('spinner-image', false);
-        if (!success || this._spinnerIcon == icon)
+        if (!success || (this._spinnerIcon && this._spinnerIcon.equal(icon)))
             return;
         this._spinnerIcon = icon;
         this._spinner = new Animation.AnimatedIcon(this._spinnerIcon, PANEL_ICON_SIZE);
@@ -572,7 +571,6 @@ const ActivitiesButton = new Lang.Class({
         this.actor.label_actor = this._label;
 
         this.actor.connect('captured-event', Lang.bind(this, this._onCapturedEvent));
-        this.actor.connect_after('button-release-event', Lang.bind(this, this._onButtonRelease));
         this.actor.connect_after('key-release-event', Lang.bind(this, this._onKeyRelease));
 
         Main.overview.connect('showing', Lang.bind(this, function() {
@@ -595,20 +593,28 @@ const ActivitiesButton = new Lang.Class({
             Mainloop.source_remove(this._xdndTimeOut);
         this._xdndTimeOut = Mainloop.timeout_add(BUTTON_DND_ACTIVATION_TIMEOUT,
                                                  Lang.bind(this, this._xdndToggleOverview, actor));
+        GLib.Source.set_name_by_id(this._xdndTimeOut, '[gnome-shell] this._xdndToggleOverview');
 
         return DND.DragMotionResult.CONTINUE;
     },
 
     _onCapturedEvent: function(actor, event) {
-        if (event.type() == Clutter.EventType.BUTTON_PRESS) {
+        if (event.type() == Clutter.EventType.BUTTON_PRESS ||
+            event.type() == Clutter.EventType.TOUCH_BEGIN) {
             if (!Main.overview.shouldToggleByCornerOrButton())
-                return true;
+                return Clutter.EVENT_STOP;
         }
-        return false;
+        return Clutter.EVENT_PROPAGATE;
     },
 
-    _onButtonRelease: function() {
-        Main.overview.toggle();
+    _onEvent: function(actor, event) {
+        this.parent(actor, event);
+
+        if (event.type() == Clutter.EventType.TOUCH_END ||
+            event.type() == Clutter.EventType.BUTTON_RELEASE)
+            Main.overview.toggle();
+
+        return Clutter.EVENT_PROPAGATE;
     },
 
     _onKeyRelease: function(actor, event) {
@@ -616,6 +622,7 @@ const ActivitiesButton = new Lang.Class({
         if (symbol == Clutter.KEY_Return || symbol == Clutter.KEY_space) {
             Main.overview.toggle();
         }
+        return Clutter.EVENT_PROPAGATE;
     },
 
     _xdndToggleOverview: function(actor) {
@@ -627,6 +634,7 @@ const ActivitiesButton = new Lang.Class({
 
         Mainloop.source_remove(this._xdndTimeOut);
         this._xdndTimeOut = 0;
+        return GLib.SOURCE_REMOVE;
     }
 });
 
@@ -802,36 +810,54 @@ const AggregateMenu = new Lang.Class({
     Extends: PanelMenu.Button,
 
     _init: function() {
-        this.parent(0.0, _("Settings Menu"), false);
+        this.parent(0.0, _("Settings"), false);
         this.menu.actor.add_style_class_name('aggregate-menu');
 
         this._indicators = new St.BoxLayout({ style_class: 'panel-status-indicators-box' });
         this.actor.add_child(this._indicators);
 
-        this._network = new imports.ui.status.network.NMApplet();
-        this._bluetooth = new imports.ui.status.bluetooth.Indicator();
+        if (Config.HAVE_NETWORKMANAGER) {
+            this._network = new imports.ui.status.network.NMApplet();
+        } else {
+            this._network = null;
+        }
+        if (Config.HAVE_BLUETOOTH) {
+            this._bluetooth = new imports.ui.status.bluetooth.Indicator();
+        } else {
+            this._bluetooth = null;
+        }
+
         this._power = new imports.ui.status.power.Indicator();
         this._rfkill = new imports.ui.status.rfkill.Indicator();
         this._volume = new imports.ui.status.volume.Indicator();
         this._brightness = new imports.ui.status.brightness.Indicator();
         this._system = new imports.ui.status.system.Indicator();
         this._screencast = new imports.ui.status.screencast.Indicator();
+        this._location = new imports.ui.status.location.Indicator();
 
         this._indicators.add_child(this._screencast.indicators);
-        this._indicators.add_child(this._network.indicators);
-        this._indicators.add_child(this._bluetooth.indicators);
+        this._indicators.add_child(this._location.indicators);
+        if (this._network) {
+            this._indicators.add_child(this._network.indicators);
+        }
+        if (this._bluetooth) {
+            this._indicators.add_child(this._bluetooth.indicators);
+        }
         this._indicators.add_child(this._rfkill.indicators);
         this._indicators.add_child(this._volume.indicators);
         this._indicators.add_child(this._power.indicators);
-        this._indicators.add_child(new St.Label({ text: '\u25BE',
-                                                  y_expand: true,
-                                                  y_align: Clutter.ActorAlign.CENTER }));
+        this._indicators.add_child(PopupMenu.arrowIcon(St.Side.BOTTOM));
 
         this.menu.addMenuItem(this._volume.menu);
         this.menu.addMenuItem(this._brightness.menu);
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        this.menu.addMenuItem(this._network.menu);
-        this.menu.addMenuItem(this._bluetooth.menu);
+        if (this._network) {
+            this.menu.addMenuItem(this._network.menu);
+        }
+        if (this._bluetooth) {
+            this.menu.addMenuItem(this._bluetooth.menu);
+        }
+        this.menu.addMenuItem(this._location.menu);
         this.menu.addMenuItem(this._rfkill.menu);
         this.menu.addMenuItem(this._power.menu);
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
@@ -975,32 +1001,32 @@ const Panel = new Lang.Class({
 
     _onButtonPress: function(actor, event) {
         if (Main.modalCount > 0)
-            return false;
+            return Clutter.EVENT_PROPAGATE;
 
         if (event.get_source() != actor)
-            return false;
+            return Clutter.EVENT_PROPAGATE;
 
         let button = event.get_button();
         if (button != 1)
-            return false;
+            return Clutter.EVENT_PROPAGATE;
 
         let focusWindow = global.display.focus_window;
         if (!focusWindow)
-            return false;
+            return Clutter.EVENT_PROPAGATE;
 
         let dragWindow = focusWindow.is_attached_dialog() ? focusWindow.get_transient_for()
                                                           : focusWindow;
         if (!dragWindow)
-            return false;
+            return Clutter.EVENT_PROPAGATE;
 
-        let rect = dragWindow.get_outer_rect();
+        let rect = dragWindow.get_frame_rect();
         let [stageX, stageY] = event.get_coords();
 
         let allowDrag = dragWindow.maximized_vertically &&
                         stageX > rect.x && stageX < rect.x + rect.width;
 
         if (!allowDrag)
-            return false;
+            return Clutter.EVENT_PROPAGATE;
 
         global.display.begin_grab_op(global.screen,
                                      dragWindow,
@@ -1012,7 +1038,7 @@ const Panel = new Lang.Class({
                                      event.get_time(),
                                      stageX, stageY);
 
-        return true;
+        return Clutter.EVENT_STOP;
     },
 
     toggleAppMenu: function() {

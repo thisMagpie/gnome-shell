@@ -22,15 +22,19 @@
 #include <clutter/x11/clutter-x11.h>
 #include <gdk/gdkx.h>
 #include <gio/gio.h>
-#include <gjs/gjs-module.h>
 #include <girepository.h>
 #include <meta/display.h>
 #include <meta/util.h>
 #include <meta/meta-shaped-texture.h>
+#include <meta/meta-cursor-tracker.h>
 
 /* Memory report bits */
 #ifdef HAVE_MALLINFO
 #include <malloc.h>
+#endif
+
+#ifdef __OpenBSD__
+#include <sys/sysctl.h>
 #endif
 
 #include "shell-enum-types.h"
@@ -42,16 +46,12 @@
 
 static ShellGlobal *the_object = NULL;
 
-static void grab_notify (GtkWidget *widget, gboolean is_grab, gpointer user_data);
-static void shell_global_on_gc (GjsContext   *context,
-                                ShellGlobal  *global);
-
 struct _ShellGlobal {
   GObject parent;
 
   ClutterStage *stage;
   Window stage_xwindow;
-  GdkWindow *stage_gdk_window;
+  GdkWindow *ibus_window;
 
   MetaDisplay *meta_display;
   GdkDisplay *gdk_display;
@@ -60,15 +60,6 @@ struct _ShellGlobal {
   GdkScreen *gdk_screen;
 
   char *session_mode;
-
-  /* We use this window to get a notification from GTK+ when
-   * a widget in our process does a GTK+ grab.  See
-   * http://bugzilla.gnome.org/show_bug.cgi?id=570641
-   * 
-   * This window is never mapped or shown.
-   */
-  GtkWindow *grab_notifier;
-  gboolean gtk_grab_active;
 
   XserverRegion input_region;
 
@@ -79,9 +70,10 @@ struct _ShellGlobal {
   const char *datadir;
   const char *imagedir;
   const char *userdatadir;
-  StFocusManager *focus_manager;
-
+  GFile *userdatadir_path;
   GFile *runtime_state_path;
+
+  StFocusManager *focus_manager;
 
   guint work_count;
   GSList *leisure_closures;
@@ -92,9 +84,9 @@ struct _ShellGlobal {
 
   guint32 xdnd_timestamp;
 
-  gint64 last_gc_end_time;
-
   gboolean has_modal;
+  gboolean frame_timestamps;
+  gboolean frame_finish_timestamp;
 };
 
 enum {
@@ -115,6 +107,8 @@ enum {
   PROP_IMAGEDIR,
   PROP_USERDATADIR,
   PROP_FOCUS_MANAGER,
+  PROP_FRAME_TIMESTAMPS,
+  PROP_FRAME_FINISH_TIMESTAMP,
 };
 
 /* Signals */
@@ -144,6 +138,12 @@ shell_global_set_property(GObject         *object,
     case PROP_SESSION_MODE:
       g_clear_pointer (&global->session_mode, g_free);
       global->session_mode = g_ascii_strdown (g_value_get_string (value), -1);
+      break;
+    case PROP_FRAME_TIMESTAMPS:
+      global->frame_timestamps = g_value_get_boolean (value);
+      break;
+    case PROP_FRAME_FINISH_TIMESTAMP:
+      global->frame_finish_timestamp = g_value_get_boolean (value);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -216,6 +216,12 @@ shell_global_get_property(GObject         *object,
     case PROP_FOCUS_MANAGER:
       g_value_set_object (value, global->focus_manager);
       break;
+    case PROP_FRAME_TIMESTAMPS:
+      g_value_set_boolean (value, global->frame_timestamps);
+      break;
+    case PROP_FRAME_FINISH_TIMESTAMP:
+      g_value_set_boolean (value, global->frame_finish_timestamp);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -251,6 +257,7 @@ shell_global_init (ShellGlobal *global)
   /* Ensure config dir exists for later use */
   global->userdatadir = g_build_filename (g_get_user_data_dir (), "gnome-shell", NULL);
   g_mkdir_with_parents (global->userdatadir, 0700);
+  global->userdatadir_path = g_file_new_for_path (global->userdatadir);
 
 #if G_BYTE_ORDER == G_LITTLE_ENDIAN
   byteorder_string = "LE";
@@ -267,10 +274,6 @@ shell_global_init (ShellGlobal *global)
   global->runtime_state_path = g_file_new_for_path (path);
 
   global->settings = g_settings_new ("org.gnome.shell");
-  
-  global->grab_notifier = GTK_WINDOW (gtk_window_new (GTK_WINDOW_TOPLEVEL));
-  g_signal_connect (global->grab_notifier, "grab-notify", G_CALLBACK (grab_notify), global);
-  global->gtk_grab_active = FALSE;
 
   global->sound_context = ca_gtk_context_get ();
   ca_context_change_props (global->sound_context,
@@ -281,15 +284,45 @@ shell_global_init (ShellGlobal *global)
                            NULL);
   ca_context_open (global->sound_context);
 
-  if (!shell_js)
-    shell_js = JSDIR;
-  search_path = g_strsplit (shell_js, ":", -1);
+  if (shell_js)
+    {
+      int i, j;
+      search_path = g_strsplit (shell_js, ":", -1);
+
+      /* The naive g_strsplit above will split 'resource:///foo/bar' into 'resource',
+       * '///foo/bar'. Combine these back together by looking for a literal 'resource'
+       * in the array. */
+      for (i = 0, j = 0; search_path[i];)
+        {
+          char *out;
+
+          if (strcmp (search_path[i], "resource") == 0 && search_path[i + 1] != NULL)
+            {
+              out = g_strconcat (search_path[i], ":", search_path[i + 1], NULL);
+              g_free (search_path[i]);
+              g_free (search_path[i + 1]);
+              i += 2;
+            }
+          else
+            {
+              out = search_path[i];
+              i += 1;
+            }
+
+          search_path[j++] = out;
+        }
+
+      search_path[j] = NULL; /* NULL-terminate the now possibly shorter array */
+    }
+  else
+    {
+      search_path = g_malloc0 (2 * sizeof (char *));
+      search_path[0] = g_strdup ("resource:///org/gnome/shell");
+    }
+
   global->js_context = g_object_new (GJS_TYPE_CONTEXT,
                                      "search-path", search_path,
-                                     "js-version", "1.8",
-                                     "gc-notifications", TRUE,
                                      NULL);
-  g_signal_connect (global->js_context, "gc", G_CALLBACK (shell_global_on_gc), global);
 
   g_strfreev (search_path);
 }
@@ -300,11 +333,11 @@ shell_global_finalize (GObject *object)
   ShellGlobal *global = SHELL_GLOBAL (object);
 
   g_object_unref (global->js_context);
-  gtk_widget_destroy (GTK_WIDGET (global->grab_notifier));
   g_object_unref (global->settings);
 
   the_object = NULL;
 
+  g_clear_object (&global->userdatadir_path);
   g_clear_object (&global->runtime_state_path);
 
   G_OBJECT_CLASS(shell_global_parent_class)->finalize (object);
@@ -467,14 +500,28 @@ shell_global_class_init (ShellGlobalClass *klass)
                                                         "The shell's StFocusManager",
                                                         ST_TYPE_FOCUS_MANAGER,
                                                         G_PARAM_READABLE));
+  g_object_class_install_property (gobject_class,
+                                   PROP_FRAME_TIMESTAMPS,
+                                   g_param_spec_boolean ("frame-timestamps",
+                                                         "Frame Timestamps",
+                                                         "Whether to log frame timestamps in the performance log",
+                                                         FALSE,
+                                                         G_PARAM_READWRITE));
+  g_object_class_install_property (gobject_class,
+                                   PROP_FRAME_FINISH_TIMESTAMP,
+                                   g_param_spec_boolean ("frame-finish-timestamp",
+                                                         "Frame Finish Timestamps",
+                                                         "Whether at the end of a frame to call glFinish and log paintCompletedTimestamp",
+                                                         FALSE,
+                                                         G_PARAM_READWRITE));
 }
 
-/**•
- * _shell_global_init: (skip)•
+/*
+ * _shell_global_init: (skip)
  * @first_property_name: the name of the first property
  * @...: the value of the first property, followed optionally by more
  *  name/value pairs, followed by %NULL
- *•
+ *
  * Initializes the shell global singleton with the construction-time
  * properties.
  *
@@ -591,97 +638,10 @@ sync_input_region (ShellGlobal *global)
 {
   MetaScreen *screen = global->meta_screen;
 
-  if (global->gtk_grab_active)
-    meta_empty_stage_input_region (screen);
-  else if (global->has_modal)
+  if (global->has_modal)
     meta_set_stage_input_region (screen, None);
   else
     meta_set_stage_input_region (screen, global->input_region);
-}
-
-/**
- * shell_global_set_cursor:
- * @global: A #ShellGlobal
- * @type: the type of the cursor
- *
- * Set the cursor on the stage window.
- */
-void
-shell_global_set_cursor (ShellGlobal *global,
-                         ShellCursor type)
-{
-  const char *name;
-  GdkCursor *cursor;
-
-  switch (type)
-    {
-    case SHELL_CURSOR_DND_IN_DRAG:
-      name = "dnd-none";
-      break;
-    case SHELL_CURSOR_DND_MOVE:
-      name = "dnd-move";
-      break;
-    case SHELL_CURSOR_DND_COPY:
-      name = "dnd-copy";
-      break;
-    case SHELL_CURSOR_DND_UNSUPPORTED_TARGET:
-      name = "dnd-none";
-      break;
-    case SHELL_CURSOR_POINTING_HAND:
-      name = "hand";
-      break;
-    case SHELL_CURSOR_CROSSHAIR:
-      name = "crosshair";
-      break;
-    default:
-      g_return_if_reached ();
-    }
-
-  cursor = gdk_cursor_new_from_name (global->gdk_display, name);
-  if (!cursor)
-    {
-      GdkCursorType cursor_type;
-      switch (type)
-        {
-        case SHELL_CURSOR_DND_IN_DRAG:
-          cursor_type = GDK_FLEUR;
-          break;
-        case SHELL_CURSOR_DND_MOVE:
-          cursor_type = GDK_TARGET;
-          break;
-        case SHELL_CURSOR_DND_COPY:
-          cursor_type = GDK_PLUS;
-          break;
-        case SHELL_CURSOR_POINTING_HAND:
-          cursor_type = GDK_HAND2;
-          break;
-        case SHELL_CURSOR_CROSSHAIR:
-          cursor_type = GDK_CROSSHAIR;
-          break;
-        case SHELL_CURSOR_DND_UNSUPPORTED_TARGET:
-          cursor_type = GDK_X_CURSOR;
-          break;
-        default:
-          g_return_if_reached ();
-        }
-      cursor = gdk_cursor_new (cursor_type);
-    }
-
-  gdk_window_set_cursor (global->stage_gdk_window, cursor);
-
-  g_object_unref (cursor);
-}
-
-/**
- * shell_global_unset_cursor:
- * @global: A #ShellGlobal
- *
- * Unset the cursor on the stage window.
- */
-void
-shell_global_unset_cursor (ShellGlobal  *global)
-{
-  gdk_window_set_cursor (global->stage_gdk_window, NULL);
 }
 
 /**
@@ -775,14 +735,21 @@ shell_global_get_display (ShellGlobal  *global)
  *
  * Gets the list of #MetaWindowActor for the plugin's screen
  *
- * Return value: (element-type Meta.WindowActor) (transfer none): the list of windows
+ * Return value: (element-type Meta.WindowActor) (transfer container): the list of windows
  */
 GList *
 shell_global_get_window_actors (ShellGlobal *global)
 {
+  GList *filtered = NULL;
+  GList *l;
+
   g_return_val_if_fail (SHELL_IS_GLOBAL (global), NULL);
 
-  return meta_get_window_actors (global->meta_screen);
+  for (l = meta_get_window_actors (global->meta_screen); l; l = l->next)
+    if (!meta_window_actor_is_destroyed (l->data))
+      filtered = g_list_prepend (filtered, l->data);
+
+  return g_list_reverse (filtered);
 }
 
 static void
@@ -808,19 +775,98 @@ global_stage_notify_height (GObject    *gobject,
 static gboolean
 global_stage_before_paint (gpointer data)
 {
-  shell_perf_log_event (shell_perf_log_get_default (),
-                        "clutter.stagePaintStart");
+  ShellGlobal *global = SHELL_GLOBAL (data);
+
+  if (global->frame_timestamps)
+    shell_perf_log_event (shell_perf_log_get_default (),
+                          "clutter.stagePaintStart");
 
   return TRUE;
 }
 
 static gboolean
-global_stage_after_paint (gpointer data)
+load_gl_symbol (const char  *name,
+                void       **func)
 {
-  shell_perf_log_event (shell_perf_log_get_default (),
-                        "clutter.stagePaintDone");
+  *func = cogl_get_proc_address (name);
+  if (!*func)
+    {
+      g_warning ("failed to resolve required GL symbol \"%s\"\n", name);
+      return FALSE;
+    }
+  return TRUE;
+}
+
+static void
+global_stage_after_paint (ClutterStage *stage,
+                          ShellGlobal  *global)
+{
+  /* At this point, we've finished all layout and painting, but haven't
+   * actually flushed or swapped */
+
+  if (global->frame_timestamps && global->frame_finish_timestamp)
+    {
+      /* It's interesting to find out when the paint actually finishes
+       * on the GPU. We could wait for this asynchronously with
+       * ARB_timer_query (see https://bugzilla.gnome.org/show_bug.cgi?id=732350
+       * for an implementation of this), but what we actually would
+       * find out then is the latency for drawing a frame, not how much
+       * GPU work was needed, since frames can overlap. Calling glFinish()
+       * is a fairly reliable way to separate out adjacent frames
+       * and measure the amount of GPU work. This is turned on with a
+       * separate property from ::frame-timestamps, since it should not
+       * be turned on if we're trying to actual measure latency or frame
+       * rate.
+       */
+      static void (*finish) (void);
+
+      if (!finish)
+        load_gl_symbol ("glFinish", (void **)&finish);
+
+      cogl_flush ();
+      finish ();
+
+      shell_perf_log_event (shell_perf_log_get_default (),
+                            "clutter.paintCompletedTimestamp");
+    }
+}
+
+static gboolean
+global_stage_after_swap (gpointer data)
+{
+  /* Everything is done, we're ready for a new frame */
+
+  ShellGlobal *global = SHELL_GLOBAL (data);
+
+  if (global->frame_timestamps)
+    shell_perf_log_event (shell_perf_log_get_default (),
+                          "clutter.stagePaintDone");
 
   return TRUE;
+}
+
+
+static void
+update_scale_factor (GtkSettings *settings,
+                     GParamSpec *pspec,
+                     gpointer data)
+{
+  ShellGlobal *global = SHELL_GLOBAL (data);
+  ClutterStage *stage = CLUTTER_STAGE (global->stage);
+  StThemeContext *context = st_theme_context_get_for_stage (stage);
+  GValue value = G_VALUE_INIT;
+
+  g_value_init (&value, G_TYPE_INT);
+  if (gdk_screen_get_setting (global->gdk_screen, "gdk-window-scaling-factor", &value))
+    {
+      g_object_set (context, "scale-factor", g_value_get_int (&value), NULL);
+      if (meta_is_wayland_compositor ())
+        g_object_set (clutter_settings_get_default (), "font-dpi", 96 * 1024 * g_value_get_int (&value), NULL);
+    }
+
+  /* Make sure clutter and gdk scaling stays disabled */
+  g_object_set (clutter_settings_get_default (), "window-scaling-factor", 1, NULL);
+  gdk_x11_display_set_window_scale (gdk_display_get_default (), 1);
 }
 
 /* This is an IBus workaround. The flow of events with IBus is that every time
@@ -877,23 +923,19 @@ gnome_shell_gdk_event_handler (GdkEvent *event_gdk,
 {
   if (event_gdk->type == GDK_KEY_PRESS || event_gdk->type == GDK_KEY_RELEASE)
     {
-      ClutterActor *stage;
-      Window stage_xwindow;
+      ShellGlobal *global = data;
 
-      stage = CLUTTER_ACTOR (data);
-      stage_xwindow = clutter_x11_get_stage_window (CLUTTER_STAGE (stage));
-
-      if (GDK_WINDOW_XID (event_gdk->key.window) == stage_xwindow)
+      if (event_gdk->key.window == global->ibus_window)
         {
           ClutterDeviceManager *device_manager = clutter_device_manager_get_default ();
-          ClutterInputDevice *keyboard = clutter_device_manager_get_core_device (device_manager,
-                                                                                 CLUTTER_KEYBOARD_DEVICE);
+          ClutterInputDevice *keyboard = clutter_device_manager_get_device (device_manager,
+                                                                            META_VIRTUAL_CORE_KEYBOARD_ID);
 
           ClutterEvent *event_clutter = clutter_event_new ((event_gdk->type == GDK_KEY_PRESS) ?
                                                            CLUTTER_KEY_PRESS : CLUTTER_KEY_RELEASE);
           event_clutter->key.time = event_gdk->key.time;
           event_clutter->key.flags = CLUTTER_EVENT_NONE;
-          event_clutter->key.stage = CLUTTER_STAGE (stage);
+          event_clutter->key.stage = CLUTTER_STAGE (global->stage);
           event_clutter->key.source = NULL;
 
           /* This depends on ClutterModifierType and GdkModifierType being
@@ -916,6 +958,16 @@ gnome_shell_gdk_event_handler (GdkEvent *event_gdk,
   gtk_main_do_event (event_gdk);
 }
 
+static void
+entry_cursor_func (StEntry  *entry,
+                   gboolean  use_ibeam,
+                   gpointer  user_data)
+{
+  ShellGlobal *global = user_data;
+
+  meta_screen_set_cursor (global->meta_screen, use_ibeam ? META_CURSOR_IBEAM : META_CURSOR_DEFAULT);
+}
+
 void
 _shell_global_set_plugin (ShellGlobal *global,
                           MetaPlugin  *plugin)
@@ -935,9 +987,36 @@ _shell_global_set_plugin (ShellGlobal *global,
                                                meta_screen_get_screen_number (global->meta_screen));
 
   global->stage = CLUTTER_STAGE (meta_get_stage_for_screen (global->meta_screen));
-  global->stage_xwindow = clutter_x11_get_stage_window (global->stage);
-  global->stage_gdk_window = gdk_x11_window_foreign_new_for_display (global->gdk_display,
-                                                                     global->stage_xwindow);
+
+  if (meta_is_wayland_compositor ())
+    {
+      /* When Mutter is acting as its own display server then the
+         stage does not have a window, so create a different window
+         which we use to communicate with IBus, and leave stage_xwindow
+         as None.
+      */
+
+      GdkWindowAttr attributes;
+
+      attributes.wclass = GDK_INPUT_OUTPUT;
+      attributes.width = 100;
+      attributes.height = 100;
+      attributes.window_type = GDK_WINDOW_TOPLEVEL;
+
+      global->ibus_window = gdk_window_new (NULL,
+                                            &attributes,
+                                            0 /* attributes_mask */);
+      global->stage_xwindow = None;
+    }
+  else
+    {
+      global->stage_xwindow = clutter_x11_get_stage_window (global->stage);
+      global->ibus_window = gdk_x11_window_foreign_new_for_display (global->gdk_display,
+                                                                    global->stage_xwindow);
+    }
+
+  st_im_text_set_event_window (global->ibus_window);
+  st_entry_set_cursor_func (entry_cursor_func, global);
 
   g_signal_connect (global->stage, "notify::width",
                     G_CALLBACK (global_stage_notify_width), global);
@@ -946,19 +1025,26 @@ _shell_global_set_plugin (ShellGlobal *global,
 
   clutter_threads_add_repaint_func_full (CLUTTER_REPAINT_FLAGS_PRE_PAINT,
                                          global_stage_before_paint,
-                                         NULL, NULL);
+                                         global, NULL);
+
+  g_signal_connect (global->stage, "after-paint",
+                    G_CALLBACK (global_stage_after_paint), global);
 
   clutter_threads_add_repaint_func_full (CLUTTER_REPAINT_FLAGS_POST_PAINT,
-                                         global_stage_after_paint,
-                                         NULL, NULL);
+                                         global_stage_after_swap,
+                                         global, NULL);
 
   shell_perf_log_define_event (shell_perf_log_get_default(),
                                "clutter.stagePaintStart",
                                "Start of stage page repaint",
                                "");
   shell_perf_log_define_event (shell_perf_log_get_default(),
+                               "clutter.paintCompletedTimestamp",
+                               "Paint completion on GPU",
+                               "");
+  shell_perf_log_define_event (shell_perf_log_get_default(),
                                "clutter.stagePaintDone",
-                               "End of stage page repaint",
+                               "End of frame, possibly including swap time",
                                "");
 
   g_signal_connect (global->stage, "notify::key-focus",
@@ -966,9 +1052,18 @@ _shell_global_set_plugin (ShellGlobal *global,
   g_signal_connect (global->meta_display, "notify::focus-window",
                     G_CALLBACK (focus_window_changed), global);
 
-  gdk_event_handler_set (gnome_shell_gdk_event_handler, global->stage, NULL);
+  /* gdk-window-scaling-factor is not exported to gtk-settings
+   * because it is handled inside gdk, so we use gtk-xft-dpi instead
+   * which also changes when the scale factor changes.
+   */
+  g_signal_connect (gtk_settings_get_default (), "notify::gtk-xft-dpi",
+                    G_CALLBACK (update_scale_factor), global);
+
+  gdk_event_handler_set (gnome_shell_gdk_event_handler, global, NULL);
 
   global->focus_manager = st_focus_manager_get_for_stage (global->stage);
+
+  update_scale_factor (gtk_settings_get_default (), NULL, global);
 }
 
 GjsContext *
@@ -1018,8 +1113,6 @@ void
 shell_global_end_modal (ShellGlobal *global,
                         guint32      timestamp)
 {
-  ClutterActor *actor;
-
   if (!global->has_modal)
     return;
 
@@ -1037,13 +1130,6 @@ shell_global_end_modal (ShellGlobal *global,
                                       get_current_time_maybe_roundtrip (global));
 
   sync_input_region (global);
-}
-
-void
-shell_global_freeze_keyboard (ShellGlobal *global,
-                              guint32      timestamp)
-{
-  meta_display_freeze_keyboard (global->meta_display, global->stage_xwindow, timestamp);
 }
 
 /* Code to close all file descriptors before we exec; copied from gspawn.c in GLib.
@@ -1146,25 +1232,50 @@ shell_global_reexec_self (ShellGlobal *global)
 {
   GPtrArray *arr;
   gsize len;
+
+#if defined __linux__
   char *buf;
   char *buf_p;
   char *buf_end;
   GError *error = NULL;
-  
-  /* Linux specific (I think, anyways). */
+
   if (!g_file_get_contents ("/proc/self/cmdline", &buf, &len, &error))
     {
       g_warning ("failed to get /proc/self/cmdline: %s", error->message);
       return;
     }
-      
+
   buf_end = buf+len;
   arr = g_ptr_array_new ();
   /* The cmdline file is NUL-separated */
   for (buf_p = buf; buf_p < buf_end; buf_p = buf_p + strlen (buf_p) + 1)
     g_ptr_array_add (arr, buf_p);
-  
+
   g_ptr_array_add (arr, NULL);
+#elif defined __OpenBSD__
+  gchar **args, **args_p;
+  gint mib[] = { CTL_KERN, KERN_PROC_ARGS, getpid(), KERN_PROC_ARGV };
+
+  if (sysctl (mib, G_N_ELEMENTS (mib), NULL, &len, NULL, 0) == -1)
+    return;
+
+  args = g_malloc0 (len);
+
+  if (sysctl (mib, G_N_ELEMENTS (mib), args, &len, NULL, 0) == -1) {
+    g_warning ("failed to get command line args: %d", errno);
+    g_free (args);
+    return;
+  }
+
+  arr = g_ptr_array_new ();
+  for (args_p = args; *args_p != NULL; args_p++) {
+    g_ptr_array_add (arr, *args_p);
+  }
+
+  g_ptr_array_add (arr, NULL);
+#else
+  return;
+#endif
 
   /* Close all file descriptors other than stdin/stdout/stderr, otherwise
    * they will leak and stay open after the exec. In particular, this is
@@ -1180,52 +1291,12 @@ shell_global_reexec_self (ShellGlobal *global)
   execvp (arr->pdata[0], (char**)arr->pdata);
   g_warning ("failed to reexec: %s", g_strerror (errno));
   g_ptr_array_free (arr, TRUE);
-}
-
-static void
-shell_global_on_gc (GjsContext   *context,
-                    ShellGlobal  *global)
-{
-  global->last_gc_end_time = g_get_monotonic_time ();
-}
-
-/**
- * shell_global_get_memory_info:
- * @global:
- * @meminfo: (out caller-allocates): Output location for memory information
- *
- * Load process-global data about memory usage.
- */
-void
-shell_global_get_memory_info (ShellGlobal        *global,
-                              ShellMemoryInfo    *meminfo)
-{
-  JSContext *context;
-  gint64 now;
-
-#ifdef HAVE_MALLINFO
-  {
-    struct mallinfo info = mallinfo ();
-    meminfo->glibc_uordblks = info.uordblks;
-  }
-#else
-  meminfo->glibc_uordblks = 0;
+#if defined __linux__
+  g_free (buf);
+#elif defined __OpenBSD__
+  g_free (args);
 #endif
-
-  context = gjs_context_get_native_context (global->js_context);
-
-  meminfo->js_bytes = JS_GetGCParameter (JS_GetRuntime (context), JSGC_BYTES);
-
-  meminfo->gjs_boxed = (unsigned int) gjs_counter_boxed.value;
-  meminfo->gjs_gobject = (unsigned int) gjs_counter_object.value;
-  meminfo->gjs_function = (unsigned int) gjs_counter_function.value;
-  meminfo->gjs_closure = (unsigned int) gjs_counter_closure.value;
-
-  now = g_get_monotonic_time ();
-
-  meminfo->last_gc_seconds_ago = (now - global->last_gc_end_time) / G_TIME_SPAN_SECOND;
 }
-
 
 /**
  * shell_global_notify_error:
@@ -1244,17 +1315,6 @@ shell_global_notify_error (ShellGlobal  *global,
                            const char   *details)
 {
   g_signal_emit_by_name (global, "notify-error", msg, details);
-}
-
-static void
-grab_notify (GtkWidget *widget, gboolean was_grabbed, gpointer user_data)
-{
-  ShellGlobal *global = SHELL_GLOBAL (user_data);
-  
-  global->gtk_grab_active = !was_grabbed;
-
-  /* Update for the new setting of gtk_grab_active */
-  sync_input_region (global);
 }
 
 /**
@@ -1293,9 +1353,6 @@ void shell_global_init_xdnd (ShellGlobal *global)
  * @mods: (out): the current set of modifier keys that are pressed down
  *
  * Gets the pointer coordinates and current modifier key state.
- * This is a wrapper around gdk_display_get_pointer() that strips
- * out any un-declared modifier flags, to make gjs happy; see
- * https://bugzilla.gnome.org/show_bug.cgi?id=597292.
  */
 void
 shell_global_get_pointer (ShellGlobal         *global,
@@ -1303,18 +1360,13 @@ shell_global_get_pointer (ShellGlobal         *global,
                           int                 *y,
                           ClutterModifierType *mods)
 {
-  GdkDeviceManager *gmanager;
-  GdkDevice *gdevice;
-  GdkScreen *gscreen;
-  GdkModifierType raw_mods;
+  ClutterModifierType raw_mods;
+  MetaCursorTracker *tracker;
 
-  gmanager = gdk_display_get_device_manager (global->gdk_display);
-  gdevice = gdk_device_manager_get_client_pointer (gmanager);
-  gdk_device_get_position (gdevice, &gscreen, x, y);
-  gdk_device_get_state (gdevice,
-                        gdk_screen_get_root_window (gscreen),
-                        NULL, &raw_mods);
-  *mods = raw_mods & GDK_MODIFIER_MASK;
+  tracker = meta_cursor_tracker_get_for_screen (global->meta_screen);
+  meta_cursor_tracker_get_pointer (tracker, x, y, &raw_mods);
+
+  *mods = raw_mods & CLUTTER_MODIFIER_MASK;
 }
 
 /**
@@ -1329,19 +1381,10 @@ void
 shell_global_sync_pointer (ShellGlobal *global)
 {
   int x, y;
-  GdkModifierType mods;
-  GdkDeviceManager *gmanager;
-  GdkDevice *gdevice;
-  GdkScreen *gscreen;
+  ClutterModifierType mods;
   ClutterMotionEvent event;
 
-  gmanager = gdk_display_get_device_manager (global->gdk_display);
-  gdevice = gdk_device_manager_get_client_pointer (gmanager);
-
-  gdk_device_get_position (gdevice, &gscreen, &x, &y);
-  gdk_device_get_state (gdevice,
-                        gdk_screen_get_root_window (gscreen),
-                        NULL, &mods);
+  shell_global_get_pointer (global, &x, &y, &mods);
 
   event.type = CLUTTER_MOTION;
   event.time = shell_global_get_current_time (global);
@@ -1351,8 +1394,8 @@ shell_global_sync_pointer (ShellGlobal *global)
   event.y = y;
   event.modifier_state = mods;
   event.axes = NULL;
-  event.device = clutter_device_manager_get_core_device (clutter_device_manager_get_default (),
-                                                         CLUTTER_POINTER_DEVICE);
+  event.device = clutter_device_manager_get_device (clutter_device_manager_get_default (),
+                                                    META_VIRTUAL_CORE_POINTER_ID);
 
   /* Leaving event.source NULL will force clutter to look it up, which
    * will generate enter/leave events as a side effect, if they are
@@ -1376,6 +1419,37 @@ GSettings *
 shell_global_get_settings (ShellGlobal *global)
 {
   return global->settings;
+}
+
+/**
+ * shell_global_get_overrides_settings:
+ * @global: A #ShellGlobal
+ *
+ * Get the session overrides GSettings instance.
+ *
+ * Return value: (transfer none): The GSettings object
+ */
+GSettings *
+shell_global_get_overrides_settings (ShellGlobal *global)
+{
+  static GSettings *settings = NULL;
+  const char *schema;
+
+  g_return_val_if_fail (SHELL_IS_GLOBAL (global), NULL);
+
+  if (!settings)
+    {
+      if (strcmp (global->session_mode, "classic") == 0)
+        schema = "org.gnome.shell.extensions.classic-overrides";
+      else if (strcmp (global->session_mode, "user") == 0)
+        schema = "org.gnome.shell.overrides";
+      else
+        return NULL;
+
+      settings = g_settings_new (schema);
+    }
+
+  return settings;
 }
 
 /**
@@ -1419,6 +1493,8 @@ shell_global_get_current_time (ShellGlobal *global)
 /**
  * shell_global_create_app_launch_context:
  * @global: A #ShellGlobal
+ * @timestamp: the timestamp for the launch (or 0 for current time)
+ * @workspace: a workspace index, or -1 to indicate the current one
  *
  * Create a #GAppLaunchContext set up with the correct timestamp, and
  * targeted to activate on the current workspace.
@@ -1426,16 +1502,21 @@ shell_global_get_current_time (ShellGlobal *global)
  * Return value: (transfer full): A new #GAppLaunchContext
  */
 GAppLaunchContext *
-shell_global_create_app_launch_context (ShellGlobal *global)
+shell_global_create_app_launch_context (ShellGlobal *global,
+                                        int          timestamp,
+                                        int          workspace)
 {
   GdkAppLaunchContext *context;
 
   context = gdk_display_get_app_launch_context (global->gdk_display);
-  gdk_app_launch_context_set_timestamp (context, shell_global_get_current_time (global));
 
-  // Make sure that the app is opened on the current workspace even if
-  // the user switches before it starts
-  gdk_app_launch_context_set_desktop (context, meta_screen_get_active_workspace_index (global->meta_screen));
+  if (timestamp == 0)
+    timestamp = shell_global_get_current_time (global);
+  gdk_app_launch_context_set_timestamp (context, timestamp);
+
+  if (workspace < 0)
+    workspace = meta_screen_get_active_workspace_index (global->meta_screen);
+  gdk_app_launch_context_set_desktop (context, workspace);
 
   return (GAppLaunchContext *)context;
 }
@@ -1495,9 +1576,12 @@ schedule_leisure_functions (ShellGlobal *global)
    * in another thread.
    */
   if (!global->leisure_function_id)
-    global->leisure_function_id = g_idle_add_full (G_PRIORITY_LOW,
-                                                   run_leisure_functions,
-                                                   global, NULL);
+    {
+      global->leisure_function_id = g_idle_add_full (G_PRIORITY_LOW,
+                                                     run_leisure_functions,
+                                                     global, NULL);
+      g_source_set_name_by_id (global->leisure_function_id, "[gnome-shell] run_leisure_functions");
+    }
 }
 
 /**
@@ -1615,7 +1699,7 @@ build_ca_proplist_for_event (ca_proplist  *props,
  * @global: the #ShellGlobal
  * @id: an id, used to cancel later (0 if not needed)
  * @name: the sound name
- * @for_event: (allow-none): a #ClutterEvent in response to which the sound is played
+ * @for_event: (nullable): a #ClutterEvent in response to which the sound is played
  *
  * Plays a simple sound picked according to Freedesktop sound theme.
  * Really just a workaround for libcanberra not being introspected.
@@ -1643,7 +1727,7 @@ shell_global_play_theme_sound (ShellGlobal  *global,
  * @id: an id, used to cancel later (0 if not needed)
  * @name: the sound name
  * @description: the localized description of the event that triggered this alert
- * @for_event: (allow-none): a #ClutterEvent in response to which the sound is played
+ * @for_event: (nullable): a #ClutterEvent in response to which the sound is played
  * @application_id: application on behalf of which the sound is played
  * @application_name:
  *
@@ -1677,7 +1761,7 @@ shell_global_play_theme_sound_full (ShellGlobal  *global,
  * @id: an id, used to cancel later (0 if not needed)
  * @file_name: the file name to play
  * @description: the localized description of the event that triggered this alert
- * @for_event: (allow-none): a #ClutterEvent in response to which the sound is played
+ * @for_event: (nullable): a #ClutterEvent in response to which the sound is played
  * @application_id: application on behalf of which the sound is played
  * @application_name:
  *
@@ -1711,7 +1795,7 @@ shell_global_play_sound_file_full  (ShellGlobal  *global,
  * @id: an id, used to cancel later (0 if not needed)
  * @file_name: the file name to play
  * @description: the localized description of the event that triggered this alert
- * @for_event: (allow-none): a #ClutterEvent in response to which the sound is played
+ * @for_event: (nullable): a #ClutterEvent in response to which the sound is played
  *
  * Like shell_global_play_theme_sound(), but with an explicit path
  * instead of a themed sound.
@@ -1813,31 +1897,14 @@ shell_global_get_session_mode (ShellGlobal *global)
   return global->session_mode;
 }
 
-static GFile *
-get_runtime_state_path (ShellGlobal  *global,
-                        const char   *property_name)
+static void
+save_variant (GFile      *dir,
+              const char *property_name,
+              GVariant   *variant)
 {
-  return g_file_get_child (global->runtime_state_path, property_name);
-}
+  GFile *path = g_file_get_child (dir, property_name);
 
-/**
- * shell_global_set_runtime_state:
- * @global: a #ShellGlobal
- * @property_name: Name of the property
- * @variant: (allow-none): A #GVariant, or %NULL to unset
- *
- * Change the value of serialized runtime state.
- */
-void
-shell_global_set_runtime_state (ShellGlobal  *global,
-                                const char   *property_name,
-                                GVariant     *variant)
-{
-  GFile *path;
-
-  path = get_runtime_state_path (global, property_name);
-
-  if (variant == NULL)
+  if (variant == NULL || g_variant_get_data (variant) == NULL)
     (void) g_file_delete (path, NULL, NULL);
   else
     {
@@ -1846,31 +1913,21 @@ shell_global_set_runtime_state (ShellGlobal  *global,
                                NULL, FALSE, G_FILE_CREATE_REPLACE_DESTINATION,
                                NULL, NULL, NULL);
     }
+
+  g_object_unref (path);
 }
 
-/**
- * shell_global_get_runtime_state:
- * @global: a #ShellGlobal
- * @property_type: Expected data type
- * @property_name: Name of the property
- *
- * The shell maintains "runtime" state which does not persist across
- * logout or reboot.
- *
- * Returns: The value of a serialized property, or %NULL if none stored
- */
-GVariant *
-shell_global_get_runtime_state (ShellGlobal  *global,
-                                const char   *property_type,
-                                const char   *property_name)
+static GVariant *
+load_variant (GFile      *dir,
+              const char *property_type,
+              const char *property_name)
 {
   GVariant *res = NULL;
   GMappedFile *mfile;
-  GFile *path;
+  GFile *path = g_file_get_child (dir, property_name);
   char *pathstr;
   GError *local_error = NULL;
 
-  path = get_runtime_state_path (global, property_name);
   pathstr = g_file_get_path (path);
   mfile = g_mapped_file_new (pathstr, FALSE, &local_error);
   if (!mfile)
@@ -1884,10 +1941,83 @@ shell_global_get_runtime_state (ShellGlobal  *global,
   else
     {
       GBytes *bytes = g_mapped_file_get_bytes (mfile);
-      res = g_variant_new_from_bytes ((GVariantType*)property_type, bytes, TRUE);
+      res = g_variant_new_from_bytes (G_VARIANT_TYPE (property_type), bytes, TRUE);
       g_bytes_unref (bytes);
       g_mapped_file_unref (mfile);
     }
 
+  g_object_unref (path);
+  g_free (pathstr);
+
   return res;
+}
+
+/**
+ * shell_global_set_runtime_state:
+ * @global: a #ShellGlobal
+ * @property_name: Name of the property
+ * @variant: (nullable): A #GVariant, or %NULL to unset
+ *
+ * Change the value of serialized runtime state.
+ */
+void
+shell_global_set_runtime_state (ShellGlobal  *global,
+                                const char   *property_name,
+                                GVariant     *variant)
+{
+  save_variant (global->runtime_state_path, property_name, variant);
+}
+
+/**
+ * shell_global_get_runtime_state:
+ * @global: a #ShellGlobal
+ * @property_type: Expected data type
+ * @property_name: Name of the property
+ *
+ * The shell maintains "runtime" state which does not persist across
+ * logout or reboot.
+ *
+ * Returns: (transfer floating): The value of a serialized property, or %NULL if none stored
+ */
+GVariant *
+shell_global_get_runtime_state (ShellGlobal  *global,
+                                const char   *property_type,
+                                const char   *property_name)
+{
+  return load_variant (global->runtime_state_path, property_type, property_name);
+}
+
+/**
+ * shell_global_set_persistent_state:
+ * @global: a #ShellGlobal
+ * @property_name: Name of the property
+ * @variant: (nullable): A #GVariant, or %NULL to unset
+ *
+ * Change the value of serialized persistent state.
+ */
+void
+shell_global_set_persistent_state (ShellGlobal *global,
+                                   const char  *property_name,
+                                   GVariant    *variant)
+{
+  save_variant (global->userdatadir_path, property_name, variant);
+}
+
+/**
+ * shell_global_get_persistent_state:
+ * @global: a #ShellGlobal
+ * @property_type: Expected data type
+ * @property_name: Name of the property
+ *
+ * The shell maintains "persistent" state which will persist after
+ * logout or reboot.
+ *
+ * Returns: (transfer none): The value of a serialized property, or %NULL if none stored
+ */
+GVariant *
+shell_global_get_persistent_state (ShellGlobal  *global,
+                                   const char   *property_type,
+                                   const char   *property_name)
+{
+  return load_variant (global->userdatadir_path, property_type, property_name);
 }

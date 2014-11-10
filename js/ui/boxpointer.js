@@ -3,8 +3,9 @@
 const Clutter = imports.gi.Clutter;
 const Lang = imports.lang;
 const Meta = imports.gi.Meta;
-const St = imports.gi.St;
 const Shell = imports.gi.Shell;
+const Signals = imports.signals;
+const St = imports.gi.St;
 
 const Main = imports.ui.main;
 const Tweener = imports.ui.tweener;
@@ -61,10 +62,14 @@ const BoxPointer = new Lang.Class({
         this._muteInput();
     },
 
+    get arrowSide() {
+        return this._arrowSide;
+    },
+
     _muteInput: function() {
         if (this._capturedEventId == 0)
             this._capturedEventId = this.actor.connect('captured-event',
-                                                       function() { return true; });
+                                                       function() { return Clutter.EVENT_STOP; });
     },
 
     _unmuteInput: function() {
@@ -116,6 +121,9 @@ const BoxPointer = new Lang.Class({
     },
 
     hide: function(animate, onComplete) {
+        if (!this.actor.visible)
+            return;
+
         let xOffset = 0;
         let yOffset = 0;
         let themeNode = this.actor.get_theme_node();
@@ -180,7 +188,9 @@ const BoxPointer = new Lang.Class({
     },
 
     _getPreferredHeight: function(actor, forWidth, alloc) {
-        let [minSize, naturalSize] = this.bin.get_preferred_height(forWidth);
+        let themeNode = this.actor.get_theme_node();
+        let borderWidth = themeNode.get_length('-arrow-border-width');
+        let [minSize, naturalSize] = this.bin.get_preferred_height(forWidth - 2 * borderWidth);
         alloc.min_size = minSize;
         alloc.natural_size = naturalSize;
         this._adjustAllocationForArrow(false, alloc);
@@ -277,38 +287,40 @@ const BoxPointer = new Lang.Class({
         let skipBottomLeft = false;
         let skipBottomRight = false;
 
-        switch (this._arrowSide) {
-        case St.Side.TOP:
-            if (this._arrowOrigin == x1)
-                skipTopLeft = true;
-            else if (this._arrowOrigin == x2)
-                skipTopRight = true;
-            break;
+        if (rise) {
+            switch (this._arrowSide) {
+            case St.Side.TOP:
+                if (this._arrowOrigin == x1)
+                    skipTopLeft = true;
+                else if (this._arrowOrigin == x2)
+                    skipTopRight = true;
+                break;
 
-        case St.Side.RIGHT:
-            if (this._arrowOrigin == y1)
-                skipTopRight = true;
-            else if (this._arrowOrigin == y2)
-                skipBottomRight = true;
-            break;
+            case St.Side.RIGHT:
+                if (this._arrowOrigin == y1)
+                    skipTopRight = true;
+                else if (this._arrowOrigin == y2)
+                    skipBottomRight = true;
+                break;
 
-        case St.Side.BOTTOM:
-            if (this._arrowOrigin == x1)
-                skipBottomLeft = true;
-            else if (this._arrowOrigin == x2)
-                skipBottomRight = true;
-            break;
+            case St.Side.BOTTOM:
+                if (this._arrowOrigin == x1)
+                    skipBottomLeft = true;
+                else if (this._arrowOrigin == x2)
+                    skipBottomRight = true;
+                break;
 
-        case St.Side.LEFT:
-            if (this._arrowOrigin == y1)
-                skipTopLeft = true;
-            else if (this._arrowOrigin == y2)
-                skipBottomLeft = true;
-            break;
+            case St.Side.LEFT:
+                if (this._arrowOrigin == y1)
+                    skipTopLeft = true;
+                else if (this._arrowOrigin == y2)
+                    skipBottomLeft = true;
+                break;
+            }
         }
 
         cr.moveTo(x1 + borderRadius, y1);
-        if (this._arrowSide == St.Side.TOP) {
+        if (this._arrowSide == St.Side.TOP && rise) {
             if (skipTopLeft) {
                 cr.moveTo(x1, y2 - borderRadius);
                 cr.lineTo(x1, y1 - rise);
@@ -330,7 +342,7 @@ const BoxPointer = new Lang.Class({
                    3*Math.PI/2, Math.PI*2);
         }
 
-        if (this._arrowSide == St.Side.RIGHT) {
+        if (this._arrowSide == St.Side.RIGHT && rise) {
             if (skipTopRight) {
                 cr.lineTo(x2 + rise, y1);
                 cr.lineTo(x2 + rise, y1 + halfBase);
@@ -351,7 +363,7 @@ const BoxPointer = new Lang.Class({
                    0, Math.PI/2);
         }
 
-        if (this._arrowSide == St.Side.BOTTOM) {
+        if (this._arrowSide == St.Side.BOTTOM && rise) {
             if (skipBottomLeft) {
                 cr.lineTo(x1 + halfBase, y2);
                 cr.lineTo(x1, y2 + rise);
@@ -372,7 +384,7 @@ const BoxPointer = new Lang.Class({
                    Math.PI/2, Math.PI);
         }
 
-        if (this._arrowSide == St.Side.LEFT) {
+        if (this._arrowSide == St.Side.LEFT && rise) {
             if (skipTopLeft) {
                 cr.lineTo(x1, y1 + halfBase);
                 cr.lineTo(x1 - rise, y1);
@@ -612,6 +624,8 @@ const BoxPointer = new Lang.Class({
                 this._container.queue_relayout();
                 return false;
             }));
+
+            this.emit('arrow-side-changed');
         }
     },
 
@@ -639,5 +653,21 @@ const BoxPointer = new Lang.Class({
 
     get opacity() {
         return this.actor.opacity;
+    },
+
+    updateArrowSide: function(side) {
+        this._arrowSide = side;
+        this._border.queue_repaint();
+
+        this.emit('arrow-side-changed');
+    },
+
+    getPadding: function(side) {
+        return this.bin.get_theme_node().get_padding(side);
+    },
+
+    getArrowHeight: function() {
+        return this.actor.get_theme_node().get_length('-arrow-rise');
     }
 });
+Signals.addSignalMethods(BoxPointer.prototype);

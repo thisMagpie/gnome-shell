@@ -87,7 +87,7 @@ const CtrlAltTabManager = new Lang.Class({
         if (Main.sessionMode.hasWindows && !Main.overview.visible) {
             let screen = global.screen;
             let display = screen.get_display();
-            let windows = display.get_tab_list(Meta.TabList.DOCKS, screen, screen.get_active_workspace ());
+            let windows = display.get_tab_list(Meta.TabList.DOCKS, screen.get_active_workspace ());
             let windowTracker = Shell.WindowTracker.get_default();
             let textureCache = St.TextureCache.get_default();
             for (let i = 0; i < windows.length; i++) {
@@ -140,31 +140,25 @@ const CtrlAltTabPopup = new Lang.Class({
     Name: 'CtrlAltTabPopup',
     Extends: SwitcherPopup.SwitcherPopup,
 
-    _createSwitcher: function() {
+    _init: function(items) {
+        this.parent(items);
+
         this._switcherList = new CtrlAltTabSwitcher(this._items);
-        return true;
     },
 
-    _initialSelection: function(backward, binding) {
-        if (binding == 'switch-panels') {
-            if (backward)
-                this._selectedIndex = this._items.length - 1;
-        } else if (binding == 'switch-panels-backward') {
-            if (!backward)
-                this._selectedIndex = this._items.length - 1;
-        }
-        this._select(this._selectedIndex);
-    },
-
-    _keyPressHandler: function(keysym, backwards, action) {
+    _keyPressHandler: function(keysym, action) {
         if (action == Meta.KeyBindingAction.SWITCH_PANELS)
-            this._select(backwards ? this._previous() : this._next());
+            this._select(this._next());
         else if (action == Meta.KeyBindingAction.SWITCH_PANELS_BACKWARD)
-            this._select(backwards ? this._next() : this._previous());
+            this._select(this._previous());
         else if (keysym == Clutter.Left)
             this._select(this._previous());
         else if (keysym == Clutter.Right)
             this._select(this._next());
+        else
+            return Clutter.EVENT_PROPAGATE;
+
+        return Clutter.EVENT_STOP;
     },
 
     _finish : function(time) {

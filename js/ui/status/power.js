@@ -8,20 +8,22 @@ const Main = imports.ui.main;
 const PanelMenu = imports.ui.panelMenu;
 const PopupMenu = imports.ui.popupMenu;
 
-const BUS_NAME = 'org.gnome.SettingsDaemon.Power';
-const OBJECT_PATH = '/org/gnome/SettingsDaemon/Power';
+const BUS_NAME = 'org.freedesktop.UPower';
+const OBJECT_PATH = '/org/freedesktop/UPower/devices/DisplayDevice';
 
-const PowerManagerInterface = <interface name="org.gnome.SettingsDaemon.Power">
-<method name="GetDevices">
-    <arg type="a(susdut)" direction="out" />
-</method>
-<method name="GetPrimaryDevice">
-    <arg type="(susdut)" direction="out" />
-</method>
-<property name="Icon" type="s" access="read" />
-</interface>;
+const DisplayDeviceInterface = '<node> \
+<interface name="org.freedesktop.UPower.Device"> \
+  <property name="Type" type="u" access="read"/> \
+  <property name="State" type="u" access="read"/> \
+  <property name="Percentage" type="d" access="read"/> \
+  <property name="TimeToEmpty" type="x" access="read"/> \
+  <property name="TimeToFull" type="x" access="read"/> \
+  <property name="IsPresent" type="b" access="read"/> \
+  <property name="IconName" type="s" access="read"/> \
+</interface> \
+</node>';
 
-const PowerManagerProxy = Gio.DBusProxy.makeProxyWrapper(PowerManagerInterface);
+const PowerManagerProxy = Gio.DBusProxy.makeProxyWrapper(DisplayDeviceInterface);
 
 const Indicator = new Lang.Class({
     Name: 'PowerIndicator',
@@ -32,7 +34,7 @@ const Indicator = new Lang.Class({
 
         this._indicator = this._addIndicator();
 
-        this._proxy = new PowerManagerProxy(Gio.DBus.session, BUS_NAME, OBJECT_PATH,
+        this._proxy = new PowerManagerProxy(Gio.DBus.system, BUS_NAME, OBJECT_PATH,
                                             Lang.bind(this, function(proxy, error) {
                                                 if (error) {
                                                     log(error.message);
@@ -43,7 +45,7 @@ const Indicator = new Lang.Class({
                                                 this._sync();
                                             }));
 
-        this._item = new PopupMenu.PopupSubMenuMenuItem(_("Battery"), true);
+        this._item = new PopupMenu.PopupSubMenuMenuItem("", true);
         this._item.menu.addSettingsAction(_("Power Settings"), 'gnome-power-panel.desktop');
         this.menu.addMenuItem(this._item);
 
@@ -56,11 +58,18 @@ const Indicator = new Lang.Class({
         this.menu.setSensitive(sensitive);
     },
 
-    _statusForDevice: function(device) {
-        let [device_id, device_type, icon, percentage, state, seconds] = device;
+    _getStatus: function() {
+        let seconds = 0;
 
-        if (state == UPower.DeviceState.FULLY_CHARGED)
+        if (this._proxy.State == UPower.DeviceState.FULLY_CHARGED)
             return _("Fully Charged");
+        else if (this._proxy.State == UPower.DeviceState.CHARGING)
+            seconds = this._proxy.TimeToFull;
+        else if (this._proxy.State == UPower.DeviceState.DISCHARGING)
+            seconds = this._proxy.TimeToEmpty;
+        // state is one of PENDING_CHARGING, PENDING_DISCHARGING
+        else
+            return _("Estimating…");
 
         let time = Math.round(seconds / 60);
         if (time == 0) {
@@ -72,52 +81,43 @@ const Indicator = new Lang.Class({
         let minutes = time % 60;
         let hours = Math.floor(time / 60);
 
-        if (state == UPower.DeviceState.DISCHARGING) {
+        if (this._proxy.State == UPower.DeviceState.DISCHARGING) {
             // Translators: this is <hours>:<minutes> Remaining (<percentage>)
-            return _("%d\u2236%02d Remaining (%d%%)".format(hours, minutes, percentage));
+            return _("%d\u2236%02d Remaining (%d%%)").format(hours, minutes, this._proxy.Percentage);
         }
 
-        if (state == UPower.DeviceState.CHARGING) {
+        if (this._proxy.State == UPower.DeviceState.CHARGING) {
             // Translators: this is <hours>:<minutes> Until Full (<percentage>)
-            return _("%d\u2236%02d Until Full (%d%%)".format(hours, minutes, percentage));
+            return _("%d\u2236%02d Until Full (%d%%)").format(hours, minutes, this._proxy.Percentage);
         }
 
-        // state is one of PENDING_CHARGING, PENDING_DISCHARGING
-        return _("Estimating…");
-    },
-
-    _syncStatusLabel: function() {
-        this._proxy.GetPrimaryDeviceRemote(Lang.bind(this, function(result, error) {
-            if (error) {
-                this._item.actor.hide();
-                return;
-            }
-
-            let [device] = result;
-            let [device_id, device_type] = device;
-            if (device_type == UPower.DeviceKind.BATTERY) {
-                this._item.status.text = this._statusForDevice(device);
-                this._item.actor.show();
-            } else {
-                this._item.actor.hide();
-            }
-        }));
-    },
-
-    _syncIcon: function() {
-        let icon = this._proxy.Icon;
-        if (icon) {
-            let gicon = Gio.icon_new_for_string(icon);
-            this._indicator.gicon = gicon;
-            this._item.icon.gicon = gicon;
-        } else {
-            // If there's no battery, then we use the power icon.
-            this._indicator.icon_name = 'system-shutdown-symbolic';
-        }
+        return null;
     },
 
     _sync: function() {
-        this._syncIcon();
-        this._syncStatusLabel();
-    }
+        // Do we have batteries or a UPS?
+        let visible = this._proxy.IsPresent;
+        if (visible) {
+            this._item.actor.show();
+        } else {
+            // If there's no battery, then we use the power icon.
+            this._item.actor.hide();
+            this._indicator.icon_name = 'system-shutdown-symbolic';
+            return;
+        }
+
+        // The icons
+        let icon = this._proxy.IconName;
+        this._indicator.icon_name = icon;
+        this._item.icon.icon_name = icon;
+
+        // The status label
+        this._item.status.text = this._getStatus();
+
+        // The sub-menu heading
+        if (this._proxy.Type == UPower.DeviceKind.UPS)
+            this._item.label.text = _("UPS");
+        else
+            this._item.label.text = _("Battery");
+    },
 });

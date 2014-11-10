@@ -36,10 +36,6 @@
  *  <listitem>
  *   <para>indeterminate: the widget is showing the hint text</para>
  *  </listitem>
- *  <listitem>
- *   <para>hover: the widget is showing the hint text and is underneath the
- *                pointer</para>
- *  </listitem>
  * </itemizedlist>
  */
 
@@ -64,10 +60,6 @@
 #include "st-texture-cache.h"
 #include "st-clipboard.h"
 #include "st-private.h"
-
-#include <clutter/x11/clutter-x11.h>
-#include <X11/Xlib.h>
-#include <X11/cursorfont.h>
 
 #include "st-widget-accessible.h"
 
@@ -416,6 +408,18 @@ st_entry_allocate (ClutterActor          *actor,
   ClutterActorBox content_box, child_box, icon_box;
   gfloat icon_w, icon_h;
   gfloat entry_h, min_h, pref_h, avail_h;
+  ClutterActor *left_icon, *right_icon;
+
+  if (clutter_actor_get_text_direction (actor) == CLUTTER_TEXT_DIRECTION_RTL)
+    {
+      right_icon = priv->primary_icon;
+      left_icon = priv->secondary_icon;
+    }
+  else
+    {
+      left_icon = priv->primary_icon;
+      right_icon = priv->secondary_icon;
+    }
 
   clutter_actor_set_allocation (actor, box, flags);
 
@@ -426,12 +430,10 @@ st_entry_allocate (ClutterActor          *actor,
   child_box.x1 = content_box.x1;
   child_box.x2 = content_box.x2;
 
-  if (priv->primary_icon)
+  if (left_icon)
     {
-      clutter_actor_get_preferred_width (priv->primary_icon,
-                                         -1, NULL, &icon_w);
-      clutter_actor_get_preferred_height (priv->primary_icon,
-                                          -1, NULL, &icon_h);
+      clutter_actor_get_preferred_width (left_icon, -1, NULL, &icon_w);
+      clutter_actor_get_preferred_height (left_icon, -1, NULL, &icon_h);
 
       icon_box.x1 = content_box.x1;
       icon_box.x2 = icon_box.x1 + icon_w;
@@ -439,20 +441,16 @@ st_entry_allocate (ClutterActor          *actor,
       icon_box.y1 = (int) (content_box.y1 + avail_h / 2 - icon_h / 2);
       icon_box.y2 = icon_box.y1 + icon_h;
 
-      clutter_actor_allocate (priv->primary_icon,
-                              &icon_box,
-                              flags);
+      clutter_actor_allocate (left_icon, &icon_box, flags);
 
       /* reduce the size for the entry */
       child_box.x1 += icon_w + priv->spacing;
     }
 
-  if (priv->secondary_icon)
+  if (right_icon)
     {
-      clutter_actor_get_preferred_width (priv->secondary_icon,
-                                         -1, NULL, &icon_w);
-      clutter_actor_get_preferred_height (priv->secondary_icon,
-                                          -1, NULL, &icon_h);
+      clutter_actor_get_preferred_width (right_icon, -1, NULL, &icon_w);
+      clutter_actor_get_preferred_height (right_icon, -1, NULL, &icon_h);
 
       icon_box.x2 = content_box.x2;
       icon_box.x1 = icon_box.x2 - icon_w;
@@ -460,12 +458,10 @@ st_entry_allocate (ClutterActor          *actor,
       icon_box.y1 = (int) (content_box.y1 + avail_h / 2 - icon_h / 2);
       icon_box.y2 = icon_box.y1 + icon_h;
 
-      clutter_actor_allocate (priv->secondary_icon,
-                              &icon_box,
-                              flags);
+      clutter_actor_allocate (right_icon, &icon_box, flags);
 
       /* reduce the size for the entry */
-      child_box.x2 -= icon_w - priv->spacing;
+      child_box.x2 -= icon_w + priv->spacing;
     }
 
   clutter_actor_get_preferred_height (priv->entry, child_box.x2 - child_box.x1,
@@ -603,8 +599,10 @@ st_entry_key_press_event (ClutterActor    *actor,
      didn't handle them */
 
   /* paste */
-  if ((event->modifier_state & CLUTTER_CONTROL_MASK)
-      && event->keyval == CLUTTER_v)
+  if (((event->modifier_state & CLUTTER_CONTROL_MASK)
+       && event->keyval == CLUTTER_KEY_v) ||
+      ((event->modifier_state & CLUTTER_SHIFT_MASK)
+       && event->keyval == CLUTTER_KEY_Insert))
     {
       StClipboard *clipboard;
 
@@ -664,6 +662,29 @@ st_entry_key_press_event (ClutterActor    *actor,
       return TRUE;
     }
 
+
+  /* delete to beginning of line */
+  if ((event->modifier_state & CLUTTER_CONTROL_MASK)
+      && event->keyval == CLUTTER_u)
+    {
+      int pos = clutter_text_get_cursor_position ((ClutterText *)priv->entry);
+      clutter_text_delete_text ((ClutterText *)priv->entry, 0, pos);
+
+      return TRUE;
+    }
+
+
+  /* delete to end of line */
+  if ((event->modifier_state & CLUTTER_CONTROL_MASK)
+      && event->keyval == CLUTTER_k)
+    {
+      ClutterTextBuffer *buffer = clutter_text_get_buffer ((ClutterText *)priv->entry);
+      int pos = clutter_text_get_cursor_position ((ClutterText *)priv->entry);
+      clutter_text_buffer_delete_text (buffer, pos, -1);
+
+      return TRUE;
+    }
+
   return CLUTTER_ACTOR_CLASS (st_entry_parent_class)->key_press_event (actor, event);
 }
 
@@ -677,45 +698,50 @@ st_entry_key_focus_in (ClutterActor *actor)
   clutter_actor_grab_key_focus (priv->entry);
 }
 
+static StEntryCursorFunc cursor_func;
+static gpointer          cursor_func_data;
+
+/**
+ * st_entry_set_cursor_func: (skip)
+ *
+ * This function is for private use by libgnome-shell.
+ * Do not ever use.
+ */
+void
+st_entry_set_cursor_func (StEntryCursorFunc func,
+                          gpointer          data)
+{
+  cursor_func = func;
+  cursor_func_data = data;
+}
+
 static void
 st_entry_set_cursor (StEntry  *entry,
                      gboolean  use_ibeam)
 {
-  Display *dpy;
-  ClutterActor *stage, *actor = CLUTTER_ACTOR (entry);
-  Window wid;
-  static Cursor ibeam = None;
-
-  dpy = clutter_x11_get_default_display ();
-  stage = clutter_actor_get_stage (actor);
-
-  if (stage == NULL)
-    {
-      g_warn_if_fail (!entry->priv->has_ibeam);
-      return;
-    }
-
-  wid = clutter_x11_get_stage_window (CLUTTER_STAGE (stage));
-
-  if (ibeam == None)
-    ibeam = XCreateFontCursor (dpy, XC_xterm);
-
-  if (use_ibeam)
-    XDefineCursor (dpy, wid, ibeam);
-  else
-    XUndefineCursor (dpy, wid);
+  cursor_func (entry, use_ibeam, cursor_func_data);
 
   entry->priv->has_ibeam = use_ibeam;
 }
 
 static gboolean
-st_entry_crossing_event (ClutterActor         *actor,
-                         ClutterCrossingEvent *event)
+st_entry_enter_event (ClutterActor         *actor,
+                      ClutterCrossingEvent *event)
 {
   if (event->source == ST_ENTRY (actor)->priv->entry && event->related != NULL)
-    st_entry_set_cursor (ST_ENTRY (actor), (event->type == CLUTTER_ENTER));
+    st_entry_set_cursor (ST_ENTRY (actor), TRUE);
 
-  return FALSE;
+  return CLUTTER_ACTOR_CLASS (st_entry_parent_class)->enter_event (actor, event);
+}
+
+static gboolean
+st_entry_leave_event (ClutterActor         *actor,
+                      ClutterCrossingEvent *event)
+{
+  if (event->source == ST_ENTRY (actor)->priv->entry && event->related != NULL)
+    st_entry_set_cursor (ST_ENTRY (actor), FALSE);
+
+  return CLUTTER_ACTOR_CLASS (st_entry_parent_class)->leave_event (actor, event);
 }
 
 static void
@@ -750,8 +776,8 @@ st_entry_class_init (StEntryClass *klass)
   actor_class->key_press_event = st_entry_key_press_event;
   actor_class->key_focus_in = st_entry_key_focus_in;
 
-  actor_class->enter_event = st_entry_crossing_event;
-  actor_class->leave_event = st_entry_crossing_event;
+  actor_class->enter_event = st_entry_enter_event;
+  actor_class->leave_event = st_entry_leave_event;
 
   widget_class->style_changed = st_entry_style_changed;
   widget_class->navigate_focus = st_entry_navigate_focus;
@@ -800,6 +826,8 @@ st_entry_class_init (StEntryClass *klass)
   /* signals */
   /**
    * StEntry::primary-icon-clicked:
+   * @self: the #StEntry
+   *
    *
    * Emitted when the primary icon is clicked
    */
@@ -812,6 +840,7 @@ st_entry_class_init (StEntryClass *klass)
                   G_TYPE_NONE, 0);
   /**
    * StEntry::secondary-icon-clicked:
+   * @self: the #StEntry
    *
    * Emitted when the secondary icon is clicked
    */
@@ -902,7 +931,7 @@ st_entry_get_text (StEntry *entry)
 /**
  * st_entry_set_text:
  * @entry: a #StEntry
- * @text: (allow-none): text to set the entry to
+ * @text: (nullable): text to set the entry to
  *
  * Sets the text displayed on the entry
  */
@@ -957,7 +986,7 @@ st_entry_get_clutter_text (StEntry *entry)
 /**
  * st_entry_set_hint_text:
  * @entry: a #StEntry
- * @text: (allow-none): text to set as the entry hint
+ * @text: (nullable): text to set as the entry hint
  *
  * Sets the text to display when the entry is empty and unfocused. When the
  * entry is displaying the hint, it has a pseudo class of "indeterminate".
@@ -1130,7 +1159,7 @@ _st_entry_set_icon (StEntry       *entry,
 /**
  * st_entry_set_primary_icon:
  * @entry: a #StEntry
- * @icon: (allow-none): a #ClutterActor
+ * @icon: (nullable): a #ClutterActor
  *
  * Set the primary icon of the entry to @icon
  */
@@ -1150,7 +1179,7 @@ st_entry_set_primary_icon (StEntry      *entry,
 /**
  * st_entry_set_secondary_icon:
  * @entry: a #StEntry
- * @icon: (allow-none): an #ClutterActor
+ * @icon: (nullable): an #ClutterActor
  *
  * Set the secondary icon of the entry to @icon
  */

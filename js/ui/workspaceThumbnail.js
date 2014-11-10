@@ -2,6 +2,7 @@
 
 const Clutter = imports.gi.Clutter;
 const Gio = imports.gi.Gio;
+const GLib = imports.gi.GLib;
 const Lang = imports.lang;
 const Mainloop = imports.mainloop;
 const Meta = imports.gi.Meta;
@@ -13,6 +14,7 @@ const Background = imports.ui.background;
 const DND = imports.ui.dnd;
 const Main = imports.ui.main;
 const Tweener = imports.ui.tweener;
+const WindowManager = imports.ui.windowManager;
 const Workspace = imports.ui.workspace;
 const WorkspacesView = imports.ui.workspacesView;
 
@@ -31,20 +33,49 @@ const WORKSPACE_KEEP_ALIVE_TIME = 100;
 
 const OVERRIDE_SCHEMA = 'org.gnome.shell.overrides';
 
+/* A layout manager that requests size only for primary_actor, but then allocates
+   all using a fixed layout */
+const PrimaryActorLayout = new Lang.Class({
+    Name: 'PrimaryActorLayout',
+    Extends: Clutter.FixedLayout,
+
+    _init: function(primaryActor) {
+        this.parent();
+
+        this.primaryActor = primaryActor;
+    },
+
+    vfunc_get_preferred_width: function(forHeight) {
+        return this.primaryActor.get_preferred_width(forHeight);
+    },
+
+    vfunc_get_preferred_height: function(forWidth) {
+        return this.primaryActor.get_preferred_height(forWidth);
+    },
+});
+
 const WindowClone = new Lang.Class({
     Name: 'WindowClone',
 
     _init : function(realWindow) {
-        this.actor = new Clutter.Clone({ source: realWindow.get_texture(),
+        this.clone = new Clutter.Clone({ source: realWindow });
+
+        /* Can't use a Shell.GenericContainer because of DND and reparenting... */
+        this.actor = new Clutter.Actor({ layout_manager: new PrimaryActorLayout(this.clone),
                                          reactive: true });
         this.actor._delegate = this;
+        this.actor.add_child(this.clone);
         this.realWindow = realWindow;
         this.metaWindow = realWindow.meta_window;
 
-        this._positionChangedId = this.realWindow.connect('position-changed',
-                                                          Lang.bind(this, this._onPositionChanged));
-        this._realWindowDestroyedId = this.realWindow.connect('destroy',
-                                                              Lang.bind(this, this._disconnectRealWindowSignals));
+        this.clone._updateId = this.metaWindow.connect('position-changed',
+                                                       Lang.bind(this, this._onPositionChanged));
+        this.clone._destroyId = this.realWindow.connect('destroy', Lang.bind(this, function() {
+            // First destroy the clone and then destroy everything
+            // This will ensure that we never see it in the _disconnectSignals loop
+            this.clone.destroy();
+            this.destroy();
+        }));
         this._onPositionChanged();
 
         this.actor.connect('button-release-event',
@@ -60,6 +91,21 @@ const WindowClone = new Lang.Class({
         this._draggable.connect('drag-cancelled', Lang.bind(this, this._onDragCancelled));
         this._draggable.connect('drag-end', Lang.bind(this, this._onDragEnd));
         this.inDrag = false;
+
+        let iter = Lang.bind(this, function(win) {
+            let actor = win.get_compositor_private();
+
+            if (!actor)
+                return false;
+            if (!win.is_attached_dialog())
+                return false;
+
+            this._doAddAttachedDialog(win, actor);
+            win.foreach_transient(iter);
+
+            return true;
+        });
+        this.metaWindow.foreach_transient(iter);
     },
 
     // Find the actor just below us, respecting reparenting done
@@ -97,25 +143,46 @@ const WindowClone = new Lang.Class({
         this.actor.destroy();
     },
 
+    addAttachedDialog: function(win) {
+        this._doAddAttachedDialog(win, win.get_compositor_private());
+    },
+
+    _doAddAttachedDialog: function(metaDialog, realDialog) {
+        let clone = new Clutter.Clone({ source: realDialog });
+        this._updateDialogPosition(realDialog, clone);
+
+        clone._updateId = metaDialog.connect('position-changed',
+                                             Lang.bind(this, this._updateDialogPosition, clone));
+        clone._destroyId = realDialog.connect('destroy', Lang.bind(this, function() {
+            clone.destroy();
+        }));
+        this.actor.add_child(clone);
+    },
+
+    _updateDialogPosition: function(realDialog, cloneDialog) {
+        let metaDialog = realDialog.meta_window;
+        let dialogRect = metaDialog.get_frame_rect();
+        let rect = this.metaWindow.get_frame_rect();
+
+        cloneDialog.set_position(dialogRect.x - rect.x, dialogRect.y - rect.y);
+    },
+
     _onPositionChanged: function() {
-        let rect = this.metaWindow.get_outer_rect();
+        let rect = this.metaWindow.get_frame_rect();
         this.actor.set_position(this.realWindow.x, this.realWindow.y);
     },
 
-    _disconnectRealWindowSignals: function() {
-        if (this._positionChangedId != 0) {
-            this.realWindow.disconnect(this._positionChangedId);
-            this._positionChangedId = 0;
-        }
+    _disconnectSignals: function() {
+        this.actor.get_children().forEach(function(child) {
+            let realWindow = child.source;
 
-        if (this._realWindowDestroyedId != 0) {
-            this.realWindow.disconnect(this._realWindowDestroyedId);
-            this._realWindowDestroyedId = 0;
-        }
+            realWindow.meta_window.disconnect(child._updateId);
+            realWindow.disconnect(child._destroyId);
+        });
     },
 
     _onDestroy: function() {
-        this._disconnectRealWindowSignals();
+        this._disconnectSignals();
 
         this.actor._delegate = null;
 
@@ -130,7 +197,7 @@ const WindowClone = new Lang.Class({
     _onButtonRelease : function (actor, event) {
         this.emit('selected', event.get_time());
 
-        return true;
+        return Clutter.EVENT_STOP;
     },
 
     _onDragBegin : function (draggable, time) {
@@ -239,7 +306,7 @@ const WorkspaceThumbnail = new Lang.Class({
     _createBackground: function() {
         this._bgManager = new Background.BackgroundManager({ monitorIndex: Main.layoutManager.primaryIndex,
                                                              container: this._contents,
-                                                             effects: Meta.BackgroundEffects.NONE });
+                                                             vignette: false });
     },
 
     setPorthole: function(x, y, width, height) {
@@ -265,7 +332,7 @@ const WorkspaceThumbnail = new Lang.Class({
             let clone = this._windows[i];
             let metaWindow = clone.metaWindow;
             if (i == 0) {
-                clone.setStackAbove(this._bgManager.background.actor);
+                clone.setStackAbove(this._bgManager.backgroundActor);
             } else {
                 let previousClone = this._windows[i - 1];
                 clone.setStackAbove(previousClone.actor);
@@ -300,10 +367,6 @@ const WorkspaceThumbnail = new Lang.Class({
         if (index == -1)
             return;
 
-        // Check if window still should be here
-        if (win && this._isMyWindow(win) && this._isOverviewWindow(win))
-            return;
-
         let clone = this._windows[index];
         this._windows.splice(index, 1);
 
@@ -319,14 +382,15 @@ const WorkspaceThumbnail = new Lang.Class({
         if (!win) {
             // Newly-created windows are added to a workspace before
             // the compositor finds out about them...
-            Mainloop.idle_add(Lang.bind(this,
-                                        function () {
+            let id = Mainloop.idle_add(Lang.bind(this,
+                                       function () {
                                             if (!this._removed &&
                                                 metaWin.get_compositor_private() &&
                                                 metaWin.get_workspace() == this.metaWorkspace)
                                                 this._doAddWindow(metaWin);
-                                            return false;
+                                            return GLib.SOURCE_REMOVE;
                                         }));
+            GLib.Source.set_name_by_id(id, '[gnome-shell] this._doAddWindow');
             return;
         }
 
@@ -343,10 +407,26 @@ const WorkspaceThumbnail = new Lang.Class({
         if (this._lookupIndex (metaWin) != -1)
             return;
 
-        if (!this._isMyWindow(win) || !this._isOverviewWindow(win))
+        if (!this._isMyWindow(win))
             return;
 
-        let clone = this._addWindowClone(win);
+        if (this._isOverviewWindow(win)) {
+            this._addWindowClone(win);
+        } else if (metaWin.is_attached_dialog()) {
+            let parent = metaWin.get_transient_for();
+            while (parent.is_attached_dialog())
+                parent = metaWin.get_transient_for();
+
+            let idx = this._lookupIndex (parent);
+            if (idx < 0) {
+                // parent was not created yet, it will take care
+                // of the dialog when created
+                return;
+            }
+
+            let clone = this._windows[idx];
+            clone.addAttachedDialog(metaWin);
+        }
     },
 
     _windowAdded : function(metaWorkspace, metaWin) {
@@ -424,8 +504,7 @@ const WorkspaceThumbnail = new Lang.Class({
 
     // Tests if @win should be shown in the Overview
     _isOverviewWindow : function (win) {
-        let tracker = Shell.WindowTracker.get_default();
-        return tracker.is_window_interesting(win.get_meta_window()) &&
+        return !win.get_meta_window().skip_taskbar &&
                win.get_meta_window().showing_on_its_workspace();
     },
 
@@ -438,21 +517,21 @@ const WorkspaceThumbnail = new Lang.Class({
                           this.activate(time);
                       }));
         clone.connect('drag-begin',
-                      Lang.bind(this, function(clone) {
-                          Main.overview.beginWindowDrag();
+                      Lang.bind(this, function() {
+                          Main.overview.beginWindowDrag(clone.metaWindow);
                       }));
         clone.connect('drag-cancelled',
-                      Lang.bind(this, function(clone) {
-                          Main.overview.cancelledWindowDrag();
+                      Lang.bind(this, function() {
+                          Main.overview.cancelledWindowDrag(clone.metaWindow);
                       }));
         clone.connect('drag-end',
-                      Lang.bind(this, function(clone) {
-                          Main.overview.endWindowDrag();
+                      Lang.bind(this, function() {
+                          Main.overview.endWindowDrag(clone.metaWindow);
                       }));
         this._contents.add_actor(clone.actor);
 
         if (this._windows.length == 0)
-            clone.setStackAbove(this._bgManager.background.actor);
+            clone.setStackAbove(this._bgManager.backgroundActor);
         else
             clone.setStackAbove(this._windows[this._windows.length - 1].actor);
 
@@ -507,9 +586,7 @@ const WorkspaceThumbnail = new Lang.Class({
             if (metaWindow.get_monitor() != this.monitorIndex)
                 metaWindow.move_to_monitor(this.monitorIndex);
 
-            metaWindow.change_workspace_by_index(this.metaWorkspace.index(),
-                                                 false, // don't create workspace
-                                                 time);
+            metaWindow.change_workspace_by_index(this.metaWorkspace.index(), false);
             return true;
         } else if (source.shellWorkspaceLaunch) {
             source.shellWorkspaceLaunch({ workspace: this.metaWorkspace ? this.metaWorkspace.index() : -1,
@@ -535,20 +612,6 @@ const ThumbnailsBox = new Lang.Class({
         this.actor.connect('get-preferred-height', Lang.bind(this, this._getPreferredHeight));
         this.actor.connect('allocate', Lang.bind(this, this._allocate));
         this.actor._delegate = this;
-
-        // When we animate the scale, we don't animate the requested size of the thumbnails, rather
-        // we ask for our final size and then animate within that size. This slightly simplifies the
-        // interaction with the main workspace windows (instead of constantly reallocating them
-        // to a new size, they get a new size once, then use the standard window animation code
-        // allocate the windows to their new positions), however it causes problems for drawing
-        // the background and border wrapped around the thumbnail as we animate - we can't just pack
-        // the container into a box and set style properties on the box since that box would wrap
-        // around the final size not the animating size. So instead we fake the background with
-        // an actor underneath the content and adjust the allocation of our children to leave space
-        // for the border and padding of the background actor.
-        this._background = new St.Bin({ style_class: 'workspace-thumbnails-background' });
-
-        this.actor.add_actor(this._background);
 
         let indicator = new St.Bin({ style_class: 'workspace-thumbnail-indicator' });
 
@@ -577,7 +640,7 @@ const ThumbnailsBox = new Lang.Class({
 
         this._thumbnails = [];
 
-        this.actor.connect('button-press-event', function() { return true; });
+        this.actor.connect('button-press-event', function() { return Clutter.EVENT_STOP; });
         this.actor.connect('button-release-event', Lang.bind(this, this._onButtonRelease));
 
         Main.overview.connect('showing',
@@ -598,7 +661,7 @@ const ThumbnailsBox = new Lang.Class({
         Main.overview.connect('window-drag-cancelled',
                               Lang.bind(this, this._onDragCancelled));
 
-        this._settings = new Gio.Settings({ schema: OVERRIDE_SCHEMA });
+        this._settings = new Gio.Settings({ schema_id: OVERRIDE_SCHEMA });
         this._settings.connect('changed::dynamic-workspaces',
             Lang.bind(this, this._updateSwitcherVisibility));
     },
@@ -622,7 +685,7 @@ const ThumbnailsBox = new Lang.Class({
             }
         }
 
-        return true;
+        return Clutter.EVENT_STOP;
     },
 
     _onDragBegin: function() {
@@ -738,30 +801,35 @@ const ThumbnailsBox = new Lang.Class({
             [newWorkspaceIndex, this._dropPlaceholderPos] = [this._dropPlaceholderPos, -1];
 
             // Nab all the windows below us.
-            let windows = global.get_window_actors().filter(function(win) {
+            let windows = global.get_window_actors().filter(function(winActor) {
                 // If the window is attached to an ancestor, we don't need/want to move it
-                if (!!win.meta_window.get_transient_for())
+                let window = winActor.meta_window;
+
+                if (window.get_transient_for() != null)
                     return false;
 
                 if (isWindow)
-                    return win.get_workspace() >= newWorkspaceIndex && win != source;
+                    return window.get_workspace().index() >= newWorkspaceIndex && winActor != source;
                 else
-                    return win.get_workspace() >= newWorkspaceIndex;
+                    return window.get_workspace().index() >= newWorkspaceIndex;
             });
 
             this._spliceIndex = newWorkspaceIndex;
 
             // ... move them down one.
-            windows.forEach(function(win) {
-                win.meta_window.change_workspace_by_index(win.get_workspace() + 1,
-                                                          true, time);
+            windows.forEach(function(winActor) {
+                let window = winActor.meta_window;
+                window.change_workspace_by_index(window.get_workspace().index() + 1, true);
             });
 
-            if (isWindow)
+            if (isWindow) {
                 // ... and bam, a workspace, good as new.
-                source.metaWindow.change_workspace_by_index(newWorkspaceIndex,
-                                                            true, time);
-            else if (source.shellWorkspaceLaunch) {
+                // Move the window to our monitor first if necessary.
+                let thumbMonitor = this._thumbnails[newWorkspaceIndex].monitorIndex;
+                if (source.metaWindow.get_monitor() != thumbMonitor)
+                    source.metaWindow.move_to_monitor(thumbMonitor);
+                source.metaWindow.change_workspace_by_index(newWorkspaceIndex, true);
+            } else if (source.shellWorkspaceLaunch) {
                 source.shellWorkspaceLaunch({ workspace: newWorkspaceIndex,
                                               timestamp: time });
                 // This new workspace will be automatically removed if the application fails
@@ -806,9 +874,6 @@ const ThumbnailsBox = new Lang.Class({
         for (let key in ThumbnailState)
             this._stateCounts[ThumbnailState[key]] = 0;
 
-        // The "porthole" is the portion of the screen that we show in the workspaces
-        this._porthole = Main.layoutManager.getWorkAreaForMonitor(Main.layoutManager.primaryIndex);
-
         this.addThumbnails(0, global.screen.n_workspaces);
 
         this._updateSwitcherVisibility();
@@ -832,10 +897,14 @@ const ThumbnailsBox = new Lang.Class({
         for (let w = 0; w < this._thumbnails.length; w++)
             this._thumbnails[w].destroy();
         this._thumbnails = [];
+        this._porthole = null;
     },
 
     _workspacesChanged: function() {
-        let oldNumWorkspaces = this._thumbnails.length;
+        let validThumbnails = this._thumbnails.filter(function(t) {
+            return t.state <= ThumbnailState.NORMAL;
+        });
+        let oldNumWorkspaces = validThumbnails.length;
         let newNumWorkspaces = global.screen.n_workspaces;
         let active = global.screen.get_active_workspace_index();
 
@@ -859,6 +928,7 @@ const ThumbnailsBox = new Lang.Class({
     },
 
     addThumbnails: function(start, count) {
+        this._ensurePorthole();
         for (let k = start; k < start + count; k++) {
             let metaWorkspace = global.screen.get_workspace_by_index(k);
             let thumbnail = new WorkspaceThumbnail(metaWorkspace);
@@ -1042,34 +1112,25 @@ const ThumbnailsBox = new Lang.Class({
     },
 
     _getPreferredHeight: function(actor, forWidth, alloc) {
-        // See comment about this._background in _init()
-        let themeNode = this._background.get_theme_node();
-
         // Note that for getPreferredWidth/Height we cheat a bit and skip propagating
         // the size request to our children because we know how big they are and know
         // that the actors aren't depending on the virtual functions being called.
 
-        if (this._thumbnails.length == 0)
-            return;
+        this._ensurePorthole();
+        let themeNode = this.actor.get_theme_node();
 
-        let spacing = this.actor.get_theme_node().get_length('spacing');
+        let spacing = themeNode.get_length('spacing');
         let nWorkspaces = global.screen.n_workspaces;
         let totalSpacing = (nWorkspaces - 1) * spacing;
 
-        [alloc.min_size, alloc.natural_size] =
-            themeNode.adjust_preferred_height(totalSpacing,
-                                              totalSpacing + nWorkspaces * this._porthole.height * MAX_THUMBNAIL_SCALE);
+        alloc.min_size = totalSpacing;
+        alloc.natural_size = totalSpacing + nWorkspaces * this._porthole.height * MAX_THUMBNAIL_SCALE;
     },
 
     _getPreferredWidth: function(actor, forHeight, alloc) {
-        // See comment about this._background in _init()
-        let themeNode = this._background.get_theme_node();
+        this._ensurePorthole();
 
-        if (this._thumbnails.length == 0)
-            return;
-
-        // We don't animate our preferred width, which is always reported according
-        // to the actual number of current workspaces, we just animate within that
+        let themeNode = this.actor.get_theme_node();
 
         let spacing = this.actor.get_theme_node().get_length('spacing');
         let nWorkspaces = global.screen.n_workspaces;
@@ -1081,28 +1142,33 @@ const ThumbnailsBox = new Lang.Class({
         scale = Math.min(scale, MAX_THUMBNAIL_SCALE);
 
         let width = Math.round(this._porthole.width * scale);
-        [alloc.min_size, alloc.natural_size] =
-            themeNode.adjust_preferred_width(width, width);
+        alloc.min_size = width;
+        alloc.natural_size = width;
+    },
+
+    // The "porthole" is the portion of the screen that we show in the
+    // workspaces
+    _ensurePorthole: function() {
+        if (!this._porthole)
+            this._porthole = Main.layoutManager.getWorkAreaForMonitor(Main.layoutManager.primaryIndex);
     },
 
     _allocate: function(actor, box, flags) {
         let rtl = (Clutter.get_default_text_direction () == Clutter.TextDirection.RTL);
 
-        // See comment about this._background in _init()
-        let themeNode = this._background.get_theme_node();
-        let contentBox = themeNode.get_content_box(box);
-
         if (this._thumbnails.length == 0) // not visible
             return;
 
+        let themeNode = this.actor.get_theme_node();
+
         let portholeWidth = this._porthole.width;
         let portholeHeight = this._porthole.height;
-        let spacing = this.actor.get_theme_node().get_length('spacing');
+        let spacing = themeNode.get_length('spacing');
 
         // Compute the scale we'll need once everything is updated
         let nWorkspaces = global.screen.n_workspaces;
         let totalSpacing = (nWorkspaces - 1) * spacing;
-        let avail = (contentBox.y2 - contentBox.y1) - totalSpacing;
+        let avail = (box.y2 - box.y1) - totalSpacing;
 
         let newScale = (avail / nWorkspaces) / portholeHeight;
         newScale = Math.min(newScale, MAX_THUMBNAIL_SCALE);
@@ -1131,21 +1197,6 @@ const ThumbnailsBox = new Lang.Class({
         else
             slideOffset = thumbnailWidth + themeNode.get_padding(St.Side.RIGHT);
 
-        let childBox = new Clutter.ActorBox();
-
-        // The background is horizontally restricted to correspond to the current thumbnail size
-        // but otherwise covers the entire allocation
-        if (rtl) {
-            childBox.x1 = box.x1;
-            childBox.x2 = box.x2 - ((contentBox.x2 - contentBox.x1) - thumbnailWidth);
-        } else {
-            childBox.x1 = box.x1 + ((contentBox.x2 - contentBox.x1) - thumbnailWidth);
-            childBox.x2 = box.x2;
-        }
-        childBox.y1 = box.y1;
-        childBox.y2 = box.y2;
-        this._background.allocate(childBox, flags);
-
         let indicatorY1 = this._indicatorY;
         let indicatorY2;
         // when not animating, the workspace position overrides this._indicatorY
@@ -1157,13 +1208,15 @@ const ThumbnailsBox = new Lang.Class({
         let indicatorLeftFullBorder = indicatorThemeNode.get_padding(St.Side.LEFT) + indicatorThemeNode.get_border_width(St.Side.LEFT);
         let indicatorRightFullBorder = indicatorThemeNode.get_padding(St.Side.RIGHT) + indicatorThemeNode.get_border_width(St.Side.RIGHT);
 
-        let y = contentBox.y1;
+        let y = box.y1;
 
         if (this._dropPlaceholderPos == -1) {
             Meta.later_add(Meta.LaterType.BEFORE_REDRAW, Lang.bind(this, function() {
                 this._dropPlaceholder.hide();
             }));
         }
+
+        let childBox = new Clutter.ActorBox();
 
         for (let i = 0; i < this._thumbnails.length; i++) {
             let thumbnail = this._thumbnails[i];
@@ -1173,10 +1226,10 @@ const ThumbnailsBox = new Lang.Class({
 
             let x1, x2;
             if (rtl) {
-                x1 = contentBox.x1 + slideOffset * thumbnail.slidePosition;
+                x1 = box.x1 + slideOffset * thumbnail.slidePosition;
                 x2 = x1 + thumbnailWidth;
             } else {
-                x1 = contentBox.x2 - thumbnailWidth + slideOffset * thumbnail.slidePosition;
+                x1 = box.x2 - thumbnailWidth + slideOffset * thumbnail.slidePosition;
                 x2 = x1 + thumbnailWidth;
             }
 
@@ -1223,11 +1276,11 @@ const ThumbnailsBox = new Lang.Class({
         }
 
         if (rtl) {
-            childBox.x1 = contentBox.x1;
-            childBox.x2 = contentBox.x1 + thumbnailWidth;
+            childBox.x1 = box.x1;
+            childBox.x2 = box.x1 + thumbnailWidth;
         } else {
-            childBox.x1 = contentBox.x2 - thumbnailWidth;
-            childBox.x2 = contentBox.x2;
+            childBox.x1 = box.x2 - thumbnailWidth;
+            childBox.x2 = box.x2;
         }
         childBox.x1 -= indicatorLeftFullBorder;
         childBox.x2 += indicatorRightFullBorder;

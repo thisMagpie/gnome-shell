@@ -64,7 +64,7 @@ function startAppForMount(app, mount) {
 
     try {
         retval = app.launch(files, 
-                            global.create_app_launch_context())
+                            global.create_app_launch_context(0, -1))
     } catch (e) {
         log('Unable to launch the application ' + app.get_name()
             + ': ' + e.toString());
@@ -75,12 +75,14 @@ function startAppForMount(app, mount) {
 
 /******************************************/
 
-const HotplugSnifferIface = <interface name="org.gnome.Shell.HotplugSniffer">
-<method name="SniffURI">
-    <arg type="s" direction="in" />
-    <arg type="as" direction="out" />
-</method>
-</interface>;
+const HotplugSnifferIface = '<node> \
+<interface name="org.gnome.Shell.HotplugSniffer"> \
+<method name="SniffURI"> \
+    <arg type="s" direction="in" /> \
+    <arg type="as" direction="out" /> \
+</method> \
+</interface> \
+</node>';
 
 const HotplugSnifferProxy = Gio.DBusProxy.makeProxyWrapper(HotplugSnifferIface);
 function HotplugSniffer() {
@@ -94,7 +96,7 @@ const ContentTypeDiscoverer = new Lang.Class({
 
     _init: function(callback) {
         this._callback = callback;
-        this._settings = new Gio.Settings({ schema: SETTINGS_SCHEMA });
+        this._settings = new Gio.Settings({ schema_id: SETTINGS_SCHEMA });
     },
 
     guessContentTypes: function(mount) {
@@ -439,7 +441,7 @@ const AutorunTransientDispatcher = new Lang.Class({
     _init: function(manager) {
         this._manager = manager;
         this._sources = [];
-        this._settings = new Gio.Settings({ schema: SETTINGS_SCHEMA });
+        this._settings = new Gio.Settings({ schema_id: SETTINGS_SCHEMA });
     },
 
     _getAutorunSettingForType: function(contentType) {

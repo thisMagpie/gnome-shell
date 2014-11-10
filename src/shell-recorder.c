@@ -17,16 +17,11 @@
 #include <cogl/cogl.h>
 #include <meta/screen.h>
 #include <meta/meta-cursor-tracker.h>
+#include <meta/compositor-mutter.h>
 
+#include "shell-global.h"
 #include "shell-recorder-src.h"
 #include "shell-recorder.h"
-
-#include <clutter/x11/clutter-x11.h>
-#include <X11/extensions/XInput.h>
-#include <X11/extensions/XInput2.h>
-
-/* This is also hard-coded in mutter and GDK */
-#define VIRTUAL_CORE_POINTER_ID 2
 
 #define A11Y_APPS_SCHEMA "org.gnome.desktop.a11y.applications"
 #define MAGNIFIER_ACTIVE_KEY "screen-magnifier-enabled"
@@ -63,7 +58,6 @@ struct _ShellRecorder {
 
   GdkScreen *gdk_screen;
 
-  gboolean have_pointer;
   int pointer_x;
   int pointer_y;
 
@@ -311,6 +305,7 @@ recorder_add_redraw_timeout (ShellRecorder *recorder)
       recorder->redraw_timeout = g_timeout_add (MAXIMUM_PAUSE_TIME,
                                                 recorder_redraw_timeout,
                                                 recorder);
+      g_source_set_name_by_id (recorder->redraw_timeout, "[gnome-shell] recorder_redraw_timeout");
     }
 }
 
@@ -533,8 +528,11 @@ recorder_queue_redraw (ShellRecorder *recorder)
    * we need to queue a "low priority redraw" after timeline updates
    */
   if (recorder->state == RECORDER_STATE_RECORDING && recorder->redraw_idle == 0)
-    recorder->redraw_idle = g_idle_add_full (CLUTTER_PRIORITY_REDRAW + 1,
-                                             recorder_idle_redraw, recorder, NULL);
+    {
+      recorder->redraw_idle = g_idle_add_full (CLUTTER_PRIORITY_REDRAW + 1,
+                                               recorder_idle_redraw, recorder, NULL);
+      g_source_set_name_by_id (recorder->redraw_idle, "[gnome-shell] recorder_idle_redraw");
+    }
 }
 
 static void
@@ -555,156 +553,18 @@ on_cursor_changed (MetaCursorTracker *tracker,
   recorder_queue_redraw (recorder);
 }
 
-/* We use an event filter on the stage to get the XFixesCursorNotifyEvent
- * and also to track cursor position (when the cursor is over the stage's
- * input area); tracking cursor position here rather than with ClutterEvent
- * allows us to avoid worrying about event propagation and competing
- * signal handlers.
- */
-static ClutterX11FilterReturn
-recorder_event_filter (XEvent        *xev,
-                       ClutterEvent  *cev,
-                       gpointer       data)
-{
-  ShellRecorder *recorder = data;
-  XIEvent *input_event = NULL;
-
-  if (xev->xany.window != clutter_x11_get_stage_window (recorder->stage))
-    return CLUTTER_X11_FILTER_CONTINUE;
-
-  if (xev->xany.type == GenericEvent &&
-      xev->xcookie.extension == recorder->xinput_opcode)
-    input_event = (XIEvent *) xev->xcookie.data;
-
-  if (input_event != NULL &&
-      input_event->evtype == XI_Motion)
-    {
-      XIDeviceEvent *device_event = (XIDeviceEvent *) input_event;
-      if (device_event->deviceid == VIRTUAL_CORE_POINTER_ID)
-        {
-          recorder->pointer_x = device_event->event_x;
-          recorder->pointer_y = device_event->event_y;
-
-          recorder_queue_redraw (recorder);
-        }
-    }
-  /* We want to track whether the pointer is over the stage
-   * window itself, and not in a child window. A "virtual"
-   * crossing is one that goes directly from ancestor to child.
-   */
-  else if (input_event != NULL &&
-           input_event->evtype == XI_Enter)
-    {
-      XIEnterEvent *enter_event = (XIEnterEvent *) input_event;
-
-      if (enter_event->deviceid == VIRTUAL_CORE_POINTER_ID &&
-          (enter_event->detail != XINotifyVirtual &&
-           enter_event->detail != XINotifyNonlinearVirtual))
-        {
-          recorder->have_pointer = TRUE;
-          recorder->pointer_x = enter_event->event_x;
-          recorder->pointer_y = enter_event->event_y;
-
-          recorder_queue_redraw (recorder);
-        }
-    }
-  else if (input_event != NULL &&
-           input_event->evtype == XI_Leave)
-    {
-      XILeaveEvent *leave_event = (XILeaveEvent *) input_event;
-
-      if (leave_event->deviceid == VIRTUAL_CORE_POINTER_ID &&
-          (leave_event->detail != XINotifyVirtual &&
-           leave_event->detail != XINotifyNonlinearVirtual))
-        {
-          recorder->have_pointer = FALSE;
-          recorder->pointer_x = leave_event->event_x;
-          recorder->pointer_y = leave_event->event_y;
-
-          recorder_queue_redraw (recorder);
-        }
-    }
-
-  return CLUTTER_X11_FILTER_CONTINUE;
-}
-
-/* We optimize out querying the server for the pointer position if the
- * pointer is in the input area of the ClutterStage. We track changes to
- * that with Enter/Leave events, but we need to 100% accurate about the
- * initial condition, which is a little involved.
- */
-static void
-recorder_get_initial_cursor_position (ShellRecorder *recorder)
-{
-  Display *xdisplay = clutter_x11_get_default_display ();
-  Window xwindow = clutter_x11_get_stage_window (recorder->stage);
-  XWindowAttributes xwa;
-  Window root, child, parent;
-  Window *children;
-  guint n_children;
-  int root_x,root_y;
-  int window_x, window_y;
-  guint mask;
-
-  XGrabServer(xdisplay);
-
-  XGetWindowAttributes (xdisplay, xwindow, &xwa);
-  XQueryTree (xdisplay, xwindow, &root, &parent, &children, &n_children);
-  XFree (children);
-
-  if (xwa.map_state == IsViewable &&
-      XQueryPointer (xdisplay, parent,
-                     &root, &child, &root_x, &root_y, &window_x, &window_y, &mask) &&
-      child == xwindow)
-    {
-      /* The point of this call is not actually to translate the coordinates -
-       * we could do that ourselves using xwa.{x,y} -  but rather to see if
-       * the pointer is in a child of the window, which we count as "not in
-       * window", because we aren't guaranteed to get pointer events.
-       */
-      XTranslateCoordinates(xdisplay, parent, xwindow,
-                            window_x, window_y,
-                            &window_x, &window_y, &child);
-      if (child == None)
-        {
-          recorder->have_pointer = TRUE;
-          recorder->pointer_x = window_x;
-          recorder->pointer_y = window_y;
-        }
-    }
-  else
-    recorder->have_pointer = FALSE;
-
-  XUngrabServer(xdisplay);
-  XFlush(xdisplay);
-}
-
-/* When the cursor is not over the stage's input area, we query for the
- * pointer position in a timeout.
- */
 static void
 recorder_update_pointer (ShellRecorder *recorder)
 {
-  Display *xdisplay = clutter_x11_get_default_display ();
-  Window xwindow = clutter_x11_get_stage_window (recorder->stage);
-  Window root, child;
-  int root_x,root_y;
-  int window_x, window_y;
-  guint mask;
+  int pointer_x, pointer_y;
 
-  if (recorder->have_pointer)
-    return;
+  meta_cursor_tracker_get_pointer (recorder->cursor_tracker, &pointer_x, &pointer_y, NULL);
 
-  if (XQueryPointer (xdisplay, xwindow,
-                     &root, &child, &root_x, &root_y, &window_x, &window_y, &mask))
+  if (pointer_x != recorder->pointer_x || pointer_y != recorder->pointer_y)
     {
-      if (window_x != recorder->pointer_x || window_y != recorder->pointer_y)
-        {
-          recorder->pointer_x = window_x;
-          recorder->pointer_y = window_y;
-
-          recorder_queue_redraw (recorder);
-        }
+      recorder->pointer_x = pointer_x;
+      recorder->pointer_y = pointer_y;
+      recorder_queue_redraw (recorder);
     }
 }
 
@@ -720,9 +580,12 @@ static void
 recorder_add_update_pointer_timeout (ShellRecorder *recorder)
 {
   if (!recorder->update_pointer_timeout)
-    recorder->update_pointer_timeout = g_timeout_add (UPDATE_POINTER_TIME,
-                                                      recorder_update_pointer_timeout,
-                                                      recorder);
+    {
+      recorder->update_pointer_timeout = g_timeout_add (UPDATE_POINTER_TIME,
+                                                        recorder_update_pointer_timeout,
+                                                        recorder);
+      g_source_set_name_by_id (recorder->update_pointer_timeout, "[gnome-shell] recorder_update_pointer_timeout");
+    }
 }
 
 static void
@@ -744,10 +607,8 @@ recorder_connect_stage_callbacks (ShellRecorder *recorder)
                           G_CALLBACK (recorder_on_stage_paint), recorder);
   g_signal_connect (recorder->stage, "notify::width",
                     G_CALLBACK (recorder_on_stage_notify_size), recorder);
-  g_signal_connect (recorder->stage, "notify::width",
+  g_signal_connect (recorder->stage, "notify::height",
                     G_CALLBACK (recorder_on_stage_notify_size), recorder);
-
-  clutter_x11_add_filter (recorder_event_filter, recorder);
 }
 
 static void
@@ -762,8 +623,6 @@ recorder_disconnect_stage_callbacks (ShellRecorder *recorder)
   g_signal_handlers_disconnect_by_func (recorder->stage,
                                         (void *)recorder_on_stage_notify_size,
                                         recorder);
-
-  clutter_x11_remove_filter (recorder_event_filter, recorder);
 
   /* We don't don't deselect for cursor changes in case someone else just
    * happened to be selecting for cursor events on the same window; sending
@@ -793,40 +652,7 @@ recorder_set_stage (ShellRecorder *recorder,
   recorder->stage = stage;
 
   if (recorder->stage)
-    {
-      int error_base, event_base;
-      int major = 2, minor = 3;
-
-      recorder->stage = stage;
-
-      recorder_update_size (recorder);
-
-      if (XQueryExtension (clutter_x11_get_default_display (),
-                           "XInputExtension",
-                           &recorder->xinput_opcode,
-                           &error_base,
-                           &event_base))
-        {
-          if (XIQueryVersion (clutter_x11_get_default_display (), &major, &minor) == Success)
-            {
-              int version = (major * 10) + minor;
-              if (version < 22)
-                g_warning("ShellRecorder: xinput version %d.%d is too old", major, minor);
-            }
-          else
-            {
-              g_warning("ShellRecorder: xinput version could not be queried");
-            }
-        }
-      else
-        {
-          g_warning("ShellRecorder: xinput extension unavailable");
-        }
-
-      clutter_stage_ensure_current (stage);
-
-      recorder_get_initial_cursor_position (recorder);
-    }
+    recorder_update_size (recorder);
 }
 
 static void
@@ -1052,8 +878,6 @@ recorder_pipeline_set_caps (RecorderPipeline *pipeline)
 #else
                               "format", G_TYPE_STRING, "xRGB",
 #endif
-                              "bpp", G_TYPE_INT, 32,
-                              "depth", G_TYPE_INT, 24,
                               "framerate", GST_TYPE_FRACTION, pipeline->recorder->framerate, 1,
                               "width", G_TYPE_INT, pipeline->recorder->area.width,
                               "height", G_TYPE_INT, pipeline->recorder->area.height,
@@ -1336,9 +1160,12 @@ recorder_pipeline_on_memory_used_changed (ShellRecorderSrc *src,
     return;
 
   if (recorder->update_memory_used_timeout == 0)
-    recorder->update_memory_used_timeout = g_timeout_add (UPDATE_MEMORY_USED_DELAY,
-                                                          recorder_update_memory_used_timeout,
-                                                          recorder);
+    {
+      recorder->update_memory_used_timeout = g_timeout_add (UPDATE_MEMORY_USED_DELAY,
+                                                            recorder_update_memory_used_timeout,
+                                                            recorder);
+      g_source_set_name_by_id (recorder->update_memory_used_timeout, "[gnome-shell] recorder_update_memory_used_timeout");
+    }
 }
 
 static void
@@ -1533,8 +1360,8 @@ recorder_close_pipeline (ShellRecorder *recorder)
        * is written. The bus watch for the pipeline will get it and do
        * final cleanup
        */
-      shell_recorder_src_close (SHELL_RECORDER_SRC (recorder->current_pipeline->src));
-
+      gst_element_send_event (recorder->current_pipeline->pipeline,
+          gst_event_new_eos());
       recorder->current_pipeline = NULL;
     }
 }
@@ -1619,7 +1446,7 @@ shell_recorder_set_draw_cursor (ShellRecorder *recorder,
 /**
  * shell_recorder_set_pipeline:
  * @recorder: the #ShellRecorder
- * @pipeline: (allow-none): the GStreamer pipeline used to encode recordings
+ * @pipeline: (nullable): the GStreamer pipeline used to encode recordings
  *            or %NULL for the default value.
  *
  * Sets the GStreamer pipeline used to encode recordings.
@@ -1671,7 +1498,7 @@ shell_recorder_set_area (ShellRecorder *recorder,
 /**
  * shell_recorder_record:
  * @recorder: the #ShellRecorder
- * @filename_used: (out) (allow-none): actual filename used for recording
+ * @filename_used: (out) (optional): actual filename used for recording
  *
  * Starts recording, Starting the recording may fail if the output file
  * cannot be opened, or if the output stream cannot be created
@@ -1707,7 +1534,11 @@ shell_recorder_record (ShellRecorder  *recorder,
   recorder->last_frame_time = 0;
 
   recorder->state = RECORDER_STATE_RECORDING;
+  recorder_update_pointer (recorder);
   recorder_add_update_pointer_timeout (recorder);
+
+  /* Disable unredirection while we are recoring */
+  meta_disable_unredirect_for_screen (shell_global_get_screen (shell_global_get ()));
 
   /* Set up repaint hook */
   recorder->repaint_hook_id = clutter_threads_add_repaint_func(recorder_repaint_hook, recorder->stage, NULL);
@@ -1756,6 +1587,9 @@ shell_recorder_close (ShellRecorder *recorder)
     }
 
   recorder->state = RECORDER_STATE_CLOSED;
+
+  /* Reenable after the recording */
+  meta_enable_unredirect_for_screen (shell_global_get_screen (shell_global_get ()));
 
   /* Release the refcount we took when we started recording */
   g_object_unref (recorder);

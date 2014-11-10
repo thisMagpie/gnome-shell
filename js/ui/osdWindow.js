@@ -1,6 +1,7 @@
 // -*- mode: js; js-indent-level: 4; indent-tabs-mode: nil -*-
 
 const Clutter = imports.gi.Clutter;
+const GLib = imports.gi.GLib;
 const St = imports.gi.St;
 
 const Lang = imports.lang;
@@ -65,19 +66,24 @@ const LevelBar = new Lang.Class({
         cr.arc(radius, h - radius, radius, 0.5 * Math.PI, Math.PI);
         cr.arc(radius, radius, radius, Math.PI, 1.5 * Math.PI);
         cr.fill();
+        cr.$dispose();
     }
 });
 
 const OsdWindow = new Lang.Class({
     Name: 'OsdWindow',
 
-    _init: function() {
+    _init: function(monitorIndex) {
         this._popupSize = 0;
         this.actor = new St.Widget({ x_expand: true,
                                      y_expand: true,
                                      x_align: Clutter.ActorAlign.CENTER,
                                      y_align: Clutter.ActorAlign.CENTER });
-        this.actor.add_constraint(new Layout.MonitorConstraint({ primary: true }));
+
+        this._monitorIndex = monitorIndex;
+        let constraint = new Layout.MonitorConstraint({ index: monitorIndex });
+        this.actor.add_constraint(constraint);
+
         this._box = new St.BoxLayout({ style_class: 'osd-window',
                                        vertical: true });
         this.actor.add_actor(this._box);
@@ -106,7 +112,6 @@ const OsdWindow = new Lang.Class({
         Main.layoutManager.connect('monitors-changed',
                                    Lang.bind(this, this._monitorsChanged));
         this._monitorsChanged();
-
         Main.uiGroup.add_child(this.actor);
     },
 
@@ -122,13 +127,15 @@ const OsdWindow = new Lang.Class({
 
     setLevel: function(level) {
         this._level.actor.visible = (level != undefined);
-        if (this.actor.visible)
-            Tweener.addTween(this._level,
-                             { level: level,
-                               time: LEVEL_ANIMATION_TIME,
-                               transition: 'easeOutQuad' });
-        else
-            this._level.level = level;
+        if (level != undefined) {
+            if (this.actor.visible)
+                Tweener.addTween(this._level,
+                                 { level: level,
+                                   time: LEVEL_ANIMATION_TIME,
+                                   transition: 'easeOutQuad' });
+            else
+                this._level.level = level;
+        }
     },
 
     show: function() {
@@ -151,6 +158,7 @@ const OsdWindow = new Lang.Class({
             Mainloop.source_remove(this._hideTimeoutId);
         this._hideTimeoutId = Mainloop.timeout_add(HIDE_TIMEOUT,
                                                    Lang.bind(this, this._hide));
+        GLib.Source.set_name_by_id(this._hideTimeoutId, '[gnome-shell] this._hide');
     },
 
     cancel: function() {
@@ -172,6 +180,7 @@ const OsdWindow = new Lang.Class({
                               Meta.enable_unredirect_for_screen(global.screen);
                            })
                          });
+        return GLib.SOURCE_REMOVE;
     },
 
     _reset: function() {
@@ -182,14 +191,18 @@ const OsdWindow = new Lang.Class({
 
     _monitorsChanged: function() {
         /* assume 110x110 on a 640x480 display and scale from there */
-        let monitor = Main.layoutManager.primaryMonitor;
+        let monitor = Main.layoutManager.monitors[this._monitorIndex];
+        if (!monitor)
+            return; // we are about to be removed
+
         let scalew = monitor.width / 640.0;
         let scaleh = monitor.height / 480.0;
         let scale = Math.min(scalew, scaleh);
         this._popupSize = 110 * Math.max(1, scale);
 
+        let scaleFactor = St.ThemeContext.get_for_stage(global.stage).scale_factor;
+        this._icon.icon_size = this._popupSize / (2 * scaleFactor);
         this._box.translation_y = monitor.height / 4;
-        this._icon.icon_size = this._popupSize / 2;
         this._box.style_changed();
     },
 
@@ -205,6 +218,60 @@ const OsdWindow = new Lang.Class({
         let minWidth = this._popupSize - verticalPadding - leftBorder - rightBorder;
         let minHeight = this._popupSize - horizontalPadding - topBorder - bottomBorder;
 
-        this._box.style = 'min-height: %dpx;'.format(Math.max(minWidth, minHeight));
+        // minWidth/minHeight here are in real pixels,
+        // but the theme takes measures in unscaled dimensions
+        let scaleFactor = St.ThemeContext.get_for_stage(global.stage).scale_factor;
+        this._box.style = 'min-height: %dpx;'.format(Math.max(minWidth, minHeight) / scaleFactor);
+    }
+});
+
+const OsdWindowManager = new Lang.Class({
+    Name: 'OsdWindowManager',
+
+    _init: function() {
+        this._osdWindows = [];
+        Main.layoutManager.connect('monitors-changed',
+                                    Lang.bind(this, this._monitorsChanged));
+        this._monitorsChanged();
+    },
+
+    _monitorsChanged: function() {
+        for (let i = 0; i < Main.layoutManager.monitors.length; i++) {
+            if (this._osdWindows[i] == undefined)
+                this._osdWindows[i] = new OsdWindow(i);
+        }
+
+        for (let i = Main.layoutManager.monitors.length; i < this._osdWindows.length; i++) {
+            this._osdWindows[i].actor.destroy();
+            this._osdWindows[i] = null;
+        }
+
+        this._osdWindows.length = Main.layoutManager.monitors.length;
+    },
+
+    _showOsdWindow: function(monitorIndex, icon, label, level) {
+        this._osdWindows[monitorIndex].setIcon(icon);
+        this._osdWindows[monitorIndex].setLabel(label);
+        this._osdWindows[monitorIndex].setLevel(level);
+        this._osdWindows[monitorIndex].show();
+    },
+
+    show: function(monitorIndex, icon, label, level) {
+        if (monitorIndex != -1) {
+            for (let i = 0; i < this._osdWindows.length; i++) {
+                if (i == monitorIndex)
+                    this._showOsdWindow(i, icon, label, level);
+                else
+                    this._osdWindows[i].cancel();
+            }
+        } else {
+            for (let i = 0; i < this._osdWindows.length; i++)
+                this._showOsdWindow(i, icon, label, level);
+        }
+    },
+
+    hideAll: function() {
+        for (let i = 0; i < this._osdWindows.length; i++)
+            this._osdWindows[i].cancel();
     }
 });

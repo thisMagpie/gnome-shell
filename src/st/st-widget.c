@@ -46,6 +46,9 @@
 #include <gtk/gtk.h>
 #include <atk/atk-enum-types.h>
 
+/* This is set in stone and also hard-coded in GDK. */
+#define VIRTUAL_CORE_POINTER_ID 2
+
 /*
  * Forward declaration for sake of StWidgetChild
  */
@@ -59,13 +62,12 @@ struct _StWidgetPrivate
 
   StThemeNodeTransition *transition_animation;
 
-  gboolean      is_stylable : 1;
-  gboolean      is_style_dirty : 1;
-  gboolean      draw_bg_color : 1;
-  gboolean      draw_border_internal : 1;
-  gboolean      track_hover : 1;
-  gboolean      hover : 1;
-  gboolean      can_focus : 1;
+  guint is_style_dirty : 1;
+  guint draw_bg_color : 1;
+  guint draw_border_internal : 1;
+  guint track_hover : 1;
+  guint hover : 1;
+  guint can_focus : 1;
 
   gulong texture_file_changed_id;
 
@@ -105,7 +107,6 @@ enum
   PROP_PSEUDO_CLASS,
   PROP_STYLE_CLASS,
   PROP_STYLE,
-  PROP_STYLABLE,
   PROP_TRACK_HOVER,
   PROP_HOVER,
   PROP_CAN_FOCUS,
@@ -162,14 +163,6 @@ st_widget_set_property (GObject      *gobject,
 
     case PROP_STYLE:
       st_widget_set_style (actor, g_value_get_string (value));
-      break;
-
-    case PROP_STYLABLE:
-      if (actor->priv->is_stylable != g_value_get_boolean (value))
-        {
-          actor->priv->is_stylable = g_value_get_boolean (value);
-          clutter_actor_queue_relayout ((ClutterActor *) gobject);
-        }
       break;
 
     case PROP_TRACK_HOVER:
@@ -229,10 +222,6 @@ st_widget_get_property (GObject    *gobject,
       g_value_set_string (value, priv->inline_style);
       break;
 
-    case PROP_STYLABLE:
-      g_value_set_boolean (value, priv->is_stylable);
-      break;
-
     case PROP_TRACK_HOVER:
       g_value_set_boolean (value, priv->track_hover);
       break;
@@ -288,26 +277,26 @@ current_paint_state (StWidget *widget)
 
 static void
 st_widget_texture_cache_changed (StTextureCache *cache,
-                                 const char     *uri,
+                                 GFile          *file,
                                  gpointer        user_data)
 {
   StWidget *actor = ST_WIDGET (user_data);
   StThemeNode *node = actor->priv->theme_node;
-  char *path;
   gboolean changed = FALSE;
+  GFile *theme_file;
 
   if (node == NULL)
     return;
 
-  path = g_filename_from_uri (uri, NULL, NULL);
-
-  if (g_strcmp0 (st_theme_node_get_background_image (node), path) == 0)
+  theme_file = st_theme_node_get_background_image (node);
+  if ((theme_file != NULL) && g_file_equal (theme_file, file))
     {
       st_theme_node_invalidate_background_image (node);
       changed = TRUE;
     }
 
-  if (g_strcmp0 (st_border_image_get_filename (st_theme_node_get_border_image (node)), path) == 0)
+  theme_file = st_border_image_get_file (st_theme_node_get_border_image (node));
+  if ((theme_file != NULL) && g_file_equal (theme_file, file))
     {
       st_theme_node_invalidate_border_image (node);
       changed = TRUE;
@@ -328,8 +317,6 @@ st_widget_texture_cache_changed (StTextureCache *cache,
       if (CLUTTER_ACTOR_IS_MAPPED (CLUTTER_ACTOR (actor)))
         clutter_actor_queue_redraw (CLUTTER_ACTOR (actor));
     }
-
-  g_free (path);
 }
 
 static void
@@ -338,31 +325,12 @@ st_widget_dispose (GObject *gobject)
   StWidget *actor = ST_WIDGET (gobject);
   StWidgetPrivate *priv = ST_WIDGET (actor)->priv;
 
-  if (priv->theme)
-    {
-      g_object_unref (priv->theme);
-      priv->theme = NULL;
-    }
-
-  if (priv->theme_node)
-    {
-      g_object_unref (priv->theme_node);
-      priv->theme_node = NULL;
-    }
+  g_clear_pointer (&priv->theme, g_object_unref);
+  g_clear_pointer (&priv->theme_node, g_object_unref);
 
   st_widget_remove_transition (actor);
 
-  /* The real dispose of this accessible is done on
-   * AtkGObjectAccessible weak ref callback
-   */
-  if (priv->accessible)
-    priv->accessible = NULL;
-
-  if (priv->label_actor)
-    {
-      g_object_unref (priv->label_actor);
-      priv->label_actor = NULL;
-    }
+  g_clear_pointer (&priv->label_actor, g_object_unref);
 
   if (priv->texture_file_changed_id != 0)
     {
@@ -456,7 +424,7 @@ st_widget_allocate (ClutterActor          *actor,
  * @widget: The #StWidget
  *
  * Paint the background of the widget. This is meant to be called by
- * subclasses of StWiget that need to paint the background without
+ * subclasses of StWidget that need to paint the background without
  * painting children.
  */
 void
@@ -551,12 +519,6 @@ notify_children_of_style_change (ClutterActor *self)
 static void
 st_widget_real_style_changed (StWidget *self)
 {
-  StWidgetPrivate *priv = ST_WIDGET (self)->priv;
-
-  /* application has request this widget is not stylable */
-  if (!priv->is_stylable)
-    return;
-
   clutter_actor_queue_redraw ((ClutterActor *) self);
   notify_children_of_style_change ((ClutterActor *) self);
 }
@@ -943,20 +905,6 @@ st_widget_class_init (StWidgetClass *klass)
                                                         ST_PARAM_READWRITE));
 
   /**
-   * StWidget:stylable:
-   *
-   * Enable or disable styling of the widget
-   */
-  pspec = g_param_spec_boolean ("stylable",
-                                "Stylable",
-                                "Whether the table should be styled",
-                                TRUE,
-                                ST_PARAM_READWRITE);
-  g_object_class_install_property (gobject_class,
-                                   PROP_STYLABLE,
-                                   pspec);
-
-  /**
    * StWidget:track-hover:
    *
    * Determines whether the widget tracks pointer hover state. If
@@ -1217,7 +1165,7 @@ remove_class_name (gchar       **class_list,
 /**
  * st_widget_set_style_class_name:
  * @actor: a #StWidget
- * @style_class_list: (allow-none): a new style class list string
+ * @style_class_list: (nullable): a new style class list string
  *
  * Set the style class name list. @style_class_list can either be
  * %NULL, for no classes, or a space-separated list of style class
@@ -1360,7 +1308,7 @@ st_widget_has_style_pseudo_class (StWidget    *actor,
 /**
  * st_widget_set_style_pseudo_class:
  * @actor: a #StWidget
- * @pseudo_class_list: (allow-none): a new pseudo class list string
+ * @pseudo_class_list: (nullable): a new pseudo class list string
  *
  * Set the style pseudo class list. @pseudo_class_list can either be
  * %NULL, for no classes, or a space-separated list of pseudo class
@@ -1426,7 +1374,7 @@ st_widget_remove_style_pseudo_class (StWidget    *actor,
 /**
  * st_widget_set_style:
  * @actor: a #StWidget
- * @style: (allow-none): a inline style string, or %NULL
+ * @style: (nullable): a inline style string, or %NULL
  *
  * Set the inline style string for this widget. The inline style string is an
  * optional ';'-separated list of CSS properties that override the style as
@@ -1487,6 +1435,9 @@ st_widget_reactive_notify (StWidget   *widget,
     st_widget_remove_style_pseudo_class (widget, "insensitive");
   else
     st_widget_add_style_pseudo_class (widget, "insensitive");
+
+  if (widget->priv->track_hover)
+    st_widget_sync_hover(widget);
 }
 
 static void
@@ -1546,7 +1497,6 @@ st_widget_init (StWidget *actor)
   int i;
 
   actor->priv = priv = ST_WIDGET_GET_PRIVATE (actor);
-  priv->is_stylable = TRUE;
   priv->transition_animation = NULL;
   priv->local_state_set = atk_state_set_new ();
 
@@ -1770,10 +1720,9 @@ st_widget_sync_hover (StWidget *widget)
   ClutterActor *pointer_actor;
 
   device_manager = clutter_device_manager_get_default ();
-  pointer = clutter_device_manager_get_core_device (device_manager,
-                                                    CLUTTER_POINTER_DEVICE);
+  pointer = clutter_device_manager_get_device (device_manager, VIRTUAL_CORE_POINTER_ID);
   pointer_actor = clutter_input_device_get_pointer_actor (pointer);
-  if (pointer_actor)
+  if (pointer_actor && clutter_actor_get_reactive (CLUTTER_ACTOR (widget)))
     st_widget_set_hover (widget, clutter_actor_contains (CLUTTER_ACTOR (widget), pointer_actor));
   else
     st_widget_set_hover (widget, FALSE);
@@ -1909,83 +1858,45 @@ filter_by_position (GList            *children,
 }
 
 
-typedef struct {
-  GtkDirectionType direction;
-  ClutterActorBox box;
-} StWidgetChildSortData;
+static void
+get_midpoint (ClutterActorBox *box,
+              int             *x,
+              int             *y)
+{
+  *x = (box->x1 + box->x2) / 2;
+  *y = (box->y1 + box->y2) / 2;
+}
+
+static double
+get_distance (ClutterActor    *actor,
+              ClutterActorBox *bbox)
+{
+  int ax, ay, bx, by, dx, dy;
+  ClutterActorBox abox;
+  ClutterVertex abs_vertices[4];
+
+  clutter_actor_get_abs_allocation_vertices (actor, abs_vertices);
+  clutter_actor_box_from_vertices (&abox, abs_vertices);
+
+  get_midpoint (&abox, &ax, &ay);
+  get_midpoint (bbox, &bx, &by);
+  dx = ax - bx;
+  dy = ay - by;
+
+  /* Not the exact distance, but good enough to sort by. */
+  return dx*dx + dy*dy;
+}
 
 static int
-sort_by_position (gconstpointer  a,
+sort_by_distance (gconstpointer  a,
                   gconstpointer  b,
                   gpointer       user_data)
 {
   ClutterActor *actor_a = (ClutterActor *)a;
   ClutterActor *actor_b = (ClutterActor *)b;
-  StWidgetChildSortData *sort_data = user_data;
-  GtkDirectionType direction = sort_data->direction;
-  ClutterActorBox abox, bbox;
-  ClutterVertex abs_vertices[4];
-  int ax, ay, bx, by;
-  int cmp, fmid;
+  ClutterActorBox *box = user_data;
 
-  /* Determine the relationship, relative to motion in @direction, of
-   * the center points of the two actors. Eg, for %GTK_DIR_UP, we
-   * return a negative number if @actor_a's center is below @actor_b's
-   * center, and postive if vice versa, which will result in an
-   * overall list sorted bottom-to-top.
-   */
-
-  clutter_actor_get_abs_allocation_vertices (actor_a, abs_vertices);
-  clutter_actor_box_from_vertices (&abox, abs_vertices);
-  ax = (int)(abox.x1 + abox.x2) / 2;
-  ay = (int)(abox.y1 + abox.y2) / 2;
-  clutter_actor_get_abs_allocation_vertices (actor_b, abs_vertices);
-  clutter_actor_box_from_vertices (&bbox, abs_vertices);
-  bx = (int)(bbox.x1 + bbox.x2) / 2;
-  by = (int)(bbox.y1 + bbox.y2) / 2;
-
-  switch (direction)
-    {
-    case GTK_DIR_UP:
-      cmp = by - ay;
-      break;
-    case GTK_DIR_DOWN:
-      cmp = ay - by;
-      break;
-    case GTK_DIR_LEFT:
-      cmp = bx - ax;
-      break;
-    case GTK_DIR_RIGHT:
-      cmp = ax - bx;
-      break;
-    default:
-      g_return_val_if_reached (0);
-    }
-
-  if (cmp)
-    return cmp;
-
-  /* If two actors have the same center on the axis being sorted,
-   * prefer the one that is closer to the center of the current focus
-   * actor on the other axis. Eg, for %GTK_DIR_UP, prefer whichever
-   * of @actor_a and @actor_b has a horizontal center closest to the
-   * current focus actor's horizontal center.
-   *
-   * (This matches GTK's behavior.)
-   */
-  switch (direction)
-    {
-    case GTK_DIR_UP:
-    case GTK_DIR_DOWN:
-      fmid = (int)(sort_data->box.x1 + sort_data->box.x2) / 2;
-      return abs (ax - fmid) - abs (bx - fmid);
-    case GTK_DIR_LEFT:
-    case GTK_DIR_RIGHT:
-      fmid = (int)(sort_data->box.y1 + sort_data->box.y2) / 2;
-      return abs (ay - fmid) - abs (by - fmid);
-    default:
-      g_return_val_if_reached (0);
-    }
+  return get_distance (actor_a, box) - get_distance (actor_b, box);
 }
 
 static gboolean
@@ -2064,7 +1975,7 @@ st_widget_real_navigate_focus (StWidget         *widget,
     }
   else /* direction is an arrow key, not tab */
     {
-      StWidgetChildSortData sort_data;
+      ClutterActorBox sort_box;
       ClutterVertex abs_vertices[4];
 
       /* Compute the allocation box of the previous focused actor. If there
@@ -2080,36 +1991,35 @@ st_widget_real_navigate_focus (StWidget         *widget,
       if (from)
         {
           clutter_actor_get_abs_allocation_vertices (from, abs_vertices);
-          clutter_actor_box_from_vertices (&sort_data.box, abs_vertices);
+          clutter_actor_box_from_vertices (&sort_box, abs_vertices);
         }
       else
         {
           clutter_actor_get_abs_allocation_vertices (widget_actor, abs_vertices);
-          clutter_actor_box_from_vertices (&sort_data.box, abs_vertices);
+          clutter_actor_box_from_vertices (&sort_box, abs_vertices);
           switch (direction)
             {
             case GTK_DIR_UP:
-              sort_data.box.y1 = sort_data.box.y2;
+              sort_box.y1 = sort_box.y2;
               break;
             case GTK_DIR_DOWN:
-              sort_data.box.y2 = sort_data.box.y1;
+              sort_box.y2 = sort_box.y1;
               break;
             case GTK_DIR_LEFT:
-              sort_data.box.x1 = sort_data.box.x2;
+              sort_box.x1 = sort_box.x2;
               break;
             case GTK_DIR_RIGHT:
-              sort_data.box.x2 = sort_data.box.x1;
+              sort_box.x2 = sort_box.x1;
               break;
             default:
               g_warn_if_reached ();
             }
         }
-      sort_data.direction = direction;
 
       if (from)
-        children = filter_by_position (children, &sort_data.box, direction);
+        children = filter_by_position (children, &sort_box, direction);
       if (children)
-        children = g_list_sort_with_data (children, sort_by_position, &sort_data);
+        children = g_list_sort_with_data (children, sort_by_distance, &sort_box);
     }
 
   /* Now try each child in turn */
@@ -2133,7 +2043,7 @@ st_widget_real_navigate_focus (StWidget         *widget,
 /**
  * st_widget_navigate_focus:
  * @widget: the "top level" container
- * @from: (allow-none): the actor that the focus is coming from
+ * @from: (nullable): the actor that the focus is coming from
  * @direction: the direction focus is moving in
  * @wrap_around: whether focus should wrap around
  *
@@ -2352,7 +2262,7 @@ st_widget_set_label_actor (StWidget     *widget,
 /**
  * st_widget_set_accessible_name:
  * @widget: widget to set the accessible name for
- * @name: (allow-none): a character string to be set as the accessible name
+ * @name: (nullable): a character string to be set as the accessible name
  *
  * This method sets @name as the accessible name for @widget.
  *
@@ -2577,9 +2487,68 @@ st_widget_get_accessible (ClutterActor *actor)
                       NULL);
 
       atk_object_initialize (widget->priv->accessible, actor);
+
+      /* AtkGObjectAccessible, which StWidgetAccessible derives from, clears
+       * the back reference to the object in a weak notify for the object;
+       * weak-ref notification, which occurs during g_object_real_dispose(),
+       * is then the optimal time to clear the forward reference. We
+       * can't clear the reference in dispose() before chaining up, since
+       * clutter_actor_dispose() causes notifications to be sent out, which
+       * will result in a new accessible object being created.
+       */
+      g_object_add_weak_pointer (G_OBJECT (actor),
+                                 (gpointer *)&widget->priv->accessible);
     }
 
   return widget->priv->accessible;
+}
+
+/**
+ * st_widget_set_accessible:
+ * @widget: A #StWidget
+ * @accessible: an accessible (#AtkObject)
+ *
+ * This method allows to set a customly created accessible object to
+ * this widget. For example if you define a new subclass of
+ * #StWidgetAccessible at the javascript code.
+ *
+ * NULL is a valid value for @accessible. That contemplates the
+ * hypothetical case of not needing anymore a custom accessible object
+ * for the widget. Next call of st_widget_get_accessible() would
+ * create and return a default accessible.
+ *
+ * It assumes that the call to atk_object_initialize that bound the
+ * gobject with the custom accessible object was already called, so
+ * not a responsibility of this method.
+ *
+ */
+void
+st_widget_set_accessible (StWidget    *widget,
+                          AtkObject   *accessible)
+{
+  g_return_if_fail (ST_IS_WIDGET (widget));
+  g_return_if_fail (accessible == NULL || ATK_IS_GOBJECT_ACCESSIBLE (accessible));
+
+  if (widget->priv->accessible != accessible)
+    {
+      if (widget->priv->accessible)
+        {
+          g_object_remove_weak_pointer (G_OBJECT (widget),
+                                        (gpointer *)&widget->priv->accessible);
+          g_object_unref (widget->priv->accessible);
+          widget->priv->accessible = NULL;
+        }
+
+      if (accessible)
+        {
+          widget->priv->accessible =  g_object_ref (accessible);
+          /* See note in st_widget_get_accessible() */
+          g_object_add_weak_pointer (G_OBJECT (widget),
+                                     (gpointer *)&widget->priv->accessible);
+        }
+      else
+        widget->priv->accessible = NULL;
+    }
 }
 
 static const gchar *
@@ -2890,8 +2859,8 @@ st_widget_get_focus_chain (StWidget *widget)
  * st_get_align_factors:
  * @x_align: an #StAlign
  * @y_align: an #StAlign
- * @x_align_out: (out) (allow-none): @x_align as a #gdouble
- * @y_align_out: (out) (allow-none): @y_align as a #gdouble
+ * @x_align_out: (out) (optional): @x_align as a #gdouble
+ * @y_align_out: (out) (optional): @y_align as a #gdouble
  *
  * Converts @x_align and @y_align to #gdouble values.
  */

@@ -56,7 +56,7 @@ const GrabHelper = new Lang.Class({
         this._grabStack = [];
 
         this._actors = [];
-        this._ignoreRelease = false;
+        this._ignoreUntilRelease = false;
 
         this._modalCount = 0;
     },
@@ -215,7 +215,7 @@ const GrabHelper = new Lang.Class({
 
         _popGrabHelper(this);
 
-        this._ignoreRelease = false;
+        this._ignoreUntilRelease = false;
 
         Main.popModal(this._owner);
         global.sync_pointer();
@@ -228,7 +228,7 @@ const GrabHelper = new Lang.Class({
     // like the ComboBoxMenu that go away on press, but need to eat
     // the next release event.
     ignoreRelease: function() {
-        this._ignoreRelease = true;
+        this._ignoreUntilRelease = true;
     },
 
     // ungrab:
@@ -280,34 +280,45 @@ const GrabHelper = new Lang.Class({
         if (type == Clutter.EventType.KEY_PRESS &&
             event.get_key_symbol() == Clutter.KEY_Escape) {
             this.ungrab({ isUser: true });
-            return true;
+            return Clutter.EVENT_STOP;
         }
 
+        let motion = type == Clutter.EventType.MOTION;
         let press = type == Clutter.EventType.BUTTON_PRESS;
         let release = type == Clutter.EventType.BUTTON_RELEASE;
         let button = press || release;
 
-        if (release && this._ignoreRelease) {
-            this._ignoreRelease = false;
-            return true;
+        let touchUpdate = type == Clutter.EventType.TOUCH_UPDATE;
+        let touchBegin = type == Clutter.EventType.TOUCH_BEGIN;
+        let touchEnd = type == Clutter.EventType.TOUCH_END;
+        let touch = touchUpdate || touchBegin || touchEnd;
+
+        if (touch && !global.display.is_pointer_emulating_sequence (event.get_event_sequence()))
+            return Clutter.EVENT_PROPAGATE;
+
+        if (this._ignoreUntilRelease && (motion || release || touch)) {
+            if (release || touchEnd)
+                this._ignoreUntilRelease = false;
+            return Clutter.EVENT_STOP;
         }
 
         if (this._isWithinGrabbedActor(event.get_source()))
-            return false;
+            return Clutter.EVENT_PROPAGATE;
 
         if (Main.keyboard.shouldTakeEvent(event))
-            return false;
+            return Clutter.EVENT_PROPAGATE;
 
-        if (button) {
-            // If we have a press event, ignore the next event,
-            // which should be a release event.
-            if (press)
-                this._ignoreRelease = true;
+        if (button || touchBegin) {
+            // If we have a press event, ignore the next
+            // motion/release events.
+            if (press || touchBegin)
+                this._ignoreUntilRelease = true;
+
             let i = this._actorInGrabStack(event.get_source()) + 1;
             this.ungrab({ actor: this._grabStack[i].actor, isUser: true });
-            return true;
+            return Clutter.EVENT_STOP;
         }
 
-        return true;
+        return Clutter.EVENT_STOP;
     },
 });

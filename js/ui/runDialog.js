@@ -38,8 +38,8 @@ const RunDialog = new Lang.Class({
         this.parent({ styleClass: 'run-dialog',
                       destroyOnClose: false });
 
-        this._lockdownSettings = new Gio.Settings({ schema: LOCKDOWN_SCHEMA });
-        this._terminalSettings = new Gio.Settings({ schema: TERMINAL_SCHEMA });
+        this._lockdownSettings = new Gio.Settings({ schema_id: LOCKDOWN_SCHEMA });
+        this._terminalSettings = new Gio.Settings({ schema_id: TERMINAL_SCHEMA });
         global.settings.connect('changed::development-tools', Lang.bind(this, function () {
             this._enableInternalCommands = global.settings.get_boolean('development-tools');
         }));
@@ -50,14 +50,10 @@ const RunDialog = new Lang.Class({
                                        Main.createLookingGlass().open();
                                    }),
 
-                                   'r': Lang.bind(this, function() {
-                                       global.reexec_self();
-                                   }),
+                                   'r': Lang.bind(this, this._restart),
 
                                    // Developer brain backwards compatibility
-                                   'restart': Lang.bind(this, function() {
-                                       global.reexec_self();
-                                   }),
+                                   'restart': Lang.bind(this, this._restart),
 
                                    'debugexit': Lang.bind(this, function() {
                                        Meta.quit(Meta.ExitCode.ERROR);
@@ -73,7 +69,9 @@ const RunDialog = new Lang.Class({
         let label = new St.Label({ style_class: 'run-dialog-label',
                                    text: _("Enter a Command") });
 
-        this.contentLayout.add(label, { y_align: St.Align.START });
+        this.contentLayout.add(label, { x_fill: false,
+                                        x_align: St.Align.START,
+                                        y_align: St.Align.START });
 
         let entry = new St.Entry({ style_class: 'run-dialog-entry',
                                    can_focus: true });
@@ -101,6 +99,8 @@ const RunDialog = new Lang.Class({
         this._errorMessage.clutter_text.line_wrap = true;
 
         this._errorBox.add(this._errorMessage, { expand: true,
+                                                 x_align: St.Align.START,
+                                                 x_fill: false,
                                                  y_align: St.Align.MIDDLE,
                                                  y_fill: false });
 
@@ -124,7 +124,7 @@ const RunDialog = new Lang.Class({
                     !this.pushModal())
                     this.close();
 
-                return true;
+                return Clutter.EVENT_STOP;
             }
             if (symbol == Clutter.Tab) {
                 let text = o.get_text();
@@ -138,9 +138,9 @@ const RunDialog = new Lang.Class({
                     o.insert_text(postfix, -1);
                     o.set_cursor_position(text.length + postfix.length);
                 }
-                return true;
+                return Clutter.EVENT_STOP;
             }
-            return false;
+            return Clutter.EVENT_PROPAGATE;
         }));
     },
 
@@ -182,6 +182,10 @@ const RunDialog = new Lang.Class({
         let results = someResults.reduce(function(a, b) {
             return a.concat(b);
         }, []);
+
+        if (!results.length)
+            return null;
+
         let common = results.reduce(_getCommon, null);
         return common.substr(text.length);
     },
@@ -229,7 +233,7 @@ const RunDialog = new Lang.Class({
                     let file = Gio.file_new_for_path(path);
                     try {
                         Gio.app_info_launch_default_for_uri(file.get_uri(),
-                                                            global.create_app_launch_context());
+                                                            global.create_app_launch_context(0, -1));
                     } catch (e) {
                         // The exception from gjs contains an error string like:
                         //     Error invoking Gio.app_info_launch_default_for_uri: No application
@@ -265,6 +269,12 @@ const RunDialog = new Lang.Class({
                                                      })
                              });
         }
+    },
+
+    _restart: function() {
+        this._shouldFadeOut = false;
+        this.close();
+        Meta.restart(_("Restarting…"));
     },
 
     open: function() {

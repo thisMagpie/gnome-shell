@@ -126,58 +126,7 @@ shell_window_tracker_class_init (ShellWindowTrackerClass *klass)
                                                    G_TYPE_NONE, 0);
 }
 
-/**
- * shell_window_tracker_is_window_interesting:
- *
- * The ShellWindowTracker associates certain kinds of windows with
- * applications; however, others we don't want to
- * appear in places where we want to give a list of windows
- * for an application, such as the alt-tab dialog.
- *
- * An example of a window we don't want to show is the root
- * desktop window.  We skip all override-redirect types, and also
- * exclude other window types like tooltip explicitly, though generally
- * most of these should be override-redirect.
- *
- * Returns: %TRUE iff a window is "interesting"
- */
-gboolean
-shell_window_tracker_is_window_interesting (MetaWindow *window)
-{
-  if (meta_window_is_override_redirect (window)
-      || meta_window_is_skip_taskbar (window))
-    return FALSE;
-
-  switch (meta_window_get_window_type (window))
-    {
-      /* Definitely ignore these. */
-      case META_WINDOW_DESKTOP:
-      case META_WINDOW_DOCK:
-      case META_WINDOW_SPLASHSCREEN:
-      /* Should have already been handled by override_redirect above,
-       * but explicitly list here so we get the "unhandled enum"
-       * warning if in the future anything is added.*/
-      case META_WINDOW_DROPDOWN_MENU:
-      case META_WINDOW_POPUP_MENU:
-      case META_WINDOW_TOOLTIP:
-      case META_WINDOW_NOTIFICATION:
-      case META_WINDOW_COMBO:
-      case META_WINDOW_DND:
-      case META_WINDOW_OVERRIDE_OTHER:
-        return FALSE;
-      case META_WINDOW_NORMAL:
-      case META_WINDOW_DIALOG:
-      case META_WINDOW_MODAL_DIALOG:
-      case META_WINDOW_MENU:
-      case META_WINDOW_TOOLBAR:
-      case META_WINDOW_UTILITY:
-        break;
-    }
-
-  return TRUE;
-}
-
-/**
+/*
  * get_app_from_window_wmclass:
  *
  * Looks only at the given window, and attempts to determine
@@ -191,10 +140,8 @@ get_app_from_window_wmclass (MetaWindow  *window)
 {
   ShellApp *app;
   ShellAppSystem *appsys;
-  char *appid;
   const char *wm_class;
   const char *wm_instance;
-  char *with_desktop;
 
   appsys = shell_app_system_get_default ();
 
@@ -258,6 +205,17 @@ get_app_from_window_wmclass (MetaWindow  *window)
   return NULL;
 }
 
+/*
+ * get_app_from_gapplication_id:
+ * @monitor: a #ShellWindowTracker
+ * @window: a #MetaWindow
+ *
+ * Looks only at the given window, and attempts to determine
+ * an application based on _GTK_APPLICATION_ID.  If one can't be determined,
+ * return %NULL.
+ *
+ * Return value: (transfer full): A newly-referenced #ShellApp, or %NULL
+ */
 static ShellApp *
 get_app_from_gapplication_id (MetaWindow  *window)
 {
@@ -270,16 +228,18 @@ get_app_from_gapplication_id (MetaWindow  *window)
 
   id = meta_window_get_gtk_application_id (window);
   if (!id)
-    return FALSE;
+    return NULL;
 
   desktop_file = g_strconcat (id, ".desktop", NULL);
   app = shell_app_system_lookup_app (appsys, desktop_file);
+  if (app)
+    g_object_ref (app);
 
   g_free (desktop_file);
   return app;
 }
 
-/**
+/*
  * get_app_from_window_group:
  * @monitor: a #ShellWindowTracker
  * @window: a #MetaWindow
@@ -327,7 +287,7 @@ get_app_from_window_group (ShellWindowTracker  *tracker,
   return result;
 }
 
-/**
+/*
  * get_app_from_window_pid:
  * @tracker: a #ShellWindowTracker
  * @window: a #MetaWindow
@@ -372,11 +332,13 @@ static ShellApp *
 get_app_for_window (ShellWindowTracker    *tracker,
                     MetaWindow            *window)
 {
-  ShellAppSystem *app_system;
   ShellApp *result = NULL;
+  MetaWindow *transient_for;
   const char *startup_id;
 
-  app_system = shell_app_system_get_default ();
+  transient_for = meta_window_get_transient_for (window);
+  if (transient_for != NULL)
+    return get_app_for_window (tracker, transient_for);
 
   /* First, we check whether we already know about this window,
    * if so, just return that.
@@ -462,6 +424,16 @@ update_focus_app (ShellWindowTracker *self)
   ShellApp *new_focus_app;
 
   new_focus_win = meta_display_get_focus_window (shell_global_get_display (shell_global_get ()));
+
+  /* we only consider an app focused if the focus window can be clearly
+   * associated with a running app; this is the case if the focus window
+   * or one of its parents is visible in the taskbar, e.g.
+   *   - 'nautilus' should appear focused when its about dialog has focus
+   *   - 'nautilus' should not appear focused when the DESKTOP has focus
+   */
+  while (new_focus_win && meta_window_is_skip_taskbar (new_focus_win))
+    new_focus_win = meta_window_get_transient_for (new_focus_win);
+
   new_focus_app = new_focus_win ? shell_window_tracker_get_window_app (self, new_focus_win) : NULL;
 
   if (new_focus_app)
@@ -471,6 +443,20 @@ update_focus_app (ShellWindowTracker *self)
     }
 
   set_focus_app (self, new_focus_app);
+
+  g_clear_object (&new_focus_app);
+}
+
+static void
+tracked_window_changed (ShellWindowTracker *self,
+                        MetaWindow         *window)
+{
+  /* It's simplest to just treat this as a remove + add. */
+  disassociate_window (self, window);
+  track_window (self, window);
+  /* also just recalculate the focused app, in case it was the focused
+     window that changed */
+  update_focus_app (self);
 }
 
 static void
@@ -479,13 +465,16 @@ on_wm_class_changed (MetaWindow  *window,
                      gpointer     user_data)
 {
   ShellWindowTracker *self = SHELL_WINDOW_TRACKER (user_data);
+  tracked_window_changed (self, window);
+}
 
-  /* It's simplest to just treat this as a remove + add. */
-  disassociate_window (self, window);
-  track_window (self, window);
-  /* also just recaulcuate the focused app, in case it was the focused
-     window that changed */
-  update_focus_app (self);
+static void
+on_gtk_application_id_changed (MetaWindow  *window,
+                               GParamSpec  *pspec,
+                               gpointer     user_data)
+{
+  ShellWindowTracker *self = SHELL_WINDOW_TRACKER (user_data);
+  tracked_window_changed (self, window);
 }
 
 static void
@@ -493,9 +482,6 @@ track_window (ShellWindowTracker *self,
               MetaWindow      *window)
 {
   ShellApp *app;
-
-  if (!shell_window_tracker_is_window_interesting (window))
-    return;
 
   app = get_app_for_window (self, window);
   if (!app)
@@ -505,6 +491,7 @@ track_window (ShellWindowTracker *self,
   g_hash_table_insert (self->window_to_app, window, app);
 
   g_signal_connect (window, "notify::wm-class", G_CALLBACK (on_wm_class_changed), self);
+  g_signal_connect (window, "notify::gtk-application-id", G_CALLBACK (on_gtk_application_id_changed), self);
 
   _shell_app_add_window (app, window);
 
@@ -535,11 +522,9 @@ disassociate_window (ShellWindowTracker   *self,
 
   g_hash_table_remove (self->window_to_app, window);
 
-  if (shell_window_tracker_is_window_interesting (window))
-    {
-      _shell_app_remove_window (app, window);
-      g_signal_handlers_disconnect_by_func (window, G_CALLBACK(on_wm_class_changed), self);
-    }
+  _shell_app_remove_window (app, window);
+  g_signal_handlers_disconnect_by_func (window, G_CALLBACK (on_wm_class_changed), self);
+  g_signal_handlers_disconnect_by_func (window, G_CALLBACK (on_gtk_application_id_changed), self);
 
   g_signal_emit (self, signals[TRACKED_WINDOWS_CHANGED], 0);
 
@@ -679,12 +664,7 @@ ShellApp *
 shell_window_tracker_get_window_app (ShellWindowTracker *tracker,
                                      MetaWindow         *metawin)
 {
-  MetaWindow *transient_for;
   ShellApp *app;
-
-  transient_for = meta_window_get_transient_for (metawin);
-  if (transient_for != NULL)
-    metawin = transient_for;
 
   app = g_hash_table_lookup (tracker->window_to_app, metawin);
   if (app)
@@ -849,6 +829,7 @@ ShellApp *
 shell_startup_sequence_get_app (ShellStartupSequence *sequence)
 {
   const char *appid;
+  char *basename;
   ShellAppSystem *appsys;
   ShellApp *app;
 
@@ -856,8 +837,10 @@ shell_startup_sequence_get_app (ShellStartupSequence *sequence)
   if (!appid)
     return NULL;
 
+  basename = g_path_get_basename (appid);
   appsys = shell_app_system_get_default ();
-  app = shell_app_system_lookup_app_for_path (appsys, appid);
+  app = shell_app_system_lookup_app (appsys, basename);
+  g_free (basename);
   return app;
 }
 
@@ -892,18 +875,25 @@ shell_startup_sequence_create_icon (ShellStartupSequence *sequence, guint size)
   GIcon *themed;
   const char *icon_name;
   ClutterActor *texture;
+  gint scale;
+  ShellGlobal *global;
+  StThemeContext *context;
+
+  global = shell_global_get ();
+  context = st_theme_context_get_for_stage (shell_global_get_stage (global));
+  g_object_get (context, "scale-factor", &scale, NULL);
 
   icon_name = sn_startup_sequence_get_icon_name ((SnStartupSequence*)sequence);
   if (!icon_name)
     {
       texture = clutter_texture_new ();
-      clutter_actor_set_size (texture, size, size);
+      clutter_actor_set_size (texture, size * scale, size * scale);
       return texture;
     }
 
   themed = g_themed_icon_new (icon_name);
   texture = st_texture_cache_load_gicon (st_texture_cache_get_default (),
-                                         NULL, themed, size);
+                                         NULL, themed, size, scale);
   g_object_unref (G_OBJECT (themed));
   return texture;
 }

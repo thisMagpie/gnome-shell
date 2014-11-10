@@ -41,8 +41,7 @@ const ButtonBox = new Lang.Class({
     },
 
     _getPreferredWidth: function(actor, forHeight, alloc) {
-        let children = actor.get_children();
-        let child = children.length > 0 ? children[0] : null;
+        let child = actor.get_first_child();
 
         if (child) {
             [alloc.min_size, alloc.natural_size] = child.get_preferred_width(-1);
@@ -55,8 +54,7 @@ const ButtonBox = new Lang.Class({
     },
 
     _getPreferredHeight: function(actor, forWidth, alloc) {
-        let children = actor.get_children();
-        let child = children.length > 0 ? children[0] : null;
+        let child = actor.get_first_child();
 
         if (child) {
             [alloc.min_size, alloc.natural_size] = child.get_preferred_height(-1);
@@ -66,13 +64,11 @@ const ButtonBox = new Lang.Class({
     },
 
     _allocate: function(actor, box, flags) {
-        let children = actor.get_children();
-        if (children.length == 0)
+        let child = actor.get_first_child();
+        if (!child)
             return;
 
-        let child = children[0];
         let [minWidth, natWidth] = child.get_preferred_width(-1);
-        let [minHeight, natHeight] = child.get_preferred_height(-1);
 
         let availWidth = box.x2 - box.x1;
         let availHeight = box.y2 - box.y1;
@@ -104,8 +100,7 @@ const Button = new Lang.Class({
                       accessible_name: nameText ? nameText : "",
                       accessible_role: Atk.Role.MENU });
 
-        this.actor.connect('button-press-event', Lang.bind(this, this._onButtonPress));
-        this.actor.connect('key-press-event', Lang.bind(this, this._onSourceKeyPress));
+        this.actor.connect('event', Lang.bind(this, this._onEvent));
         this.actor.connect('notify::visible', Lang.bind(this, this._onVisibilityChanged));
 
         if (dontCreateMenu)
@@ -135,31 +130,13 @@ const Button = new Lang.Class({
         }
     },
 
-    _onButtonPress: function(actor, event) {
-        if (!this.menu)
-            return;
-
-        this.menu.toggle();
-    },
-
-    _onSourceKeyPress: function(actor, event) {
-        if (!this.menu)
-            return false;
-
-        let symbol = event.get_key_symbol();
-        if (symbol == Clutter.KEY_space || symbol == Clutter.KEY_Return) {
+    _onEvent: function(actor, event) {
+        if (this.menu &&
+            (event.type() == Clutter.EventType.TOUCH_BEGIN ||
+             event.type() == Clutter.EventType.BUTTON_PRESS))
             this.menu.toggle();
-            return true;
-        } else if (symbol == Clutter.KEY_Escape && this.menu.isOpen) {
-            this.menu.close();
-            return true;
-        } else if (symbol == Clutter.KEY_Down) {
-            if (!this.menu.isOpen)
-                this.menu.toggle();
-            this.menu.actor.navigate_focus(this.actor, Gtk.DirectionType.DOWN, false);
-            return true;
-        } else
-            return false;
+
+        return Clutter.EVENT_PROPAGATE;
     },
 
     _onVisibilityChanged: function() {
@@ -172,7 +149,7 @@ const Button = new Lang.Class({
 
     _onMenuKeyPress: function(actor, event) {
         if (global.focus_manager.navigate_from_event(event))
-            return true;
+            return Clutter.EVENT_STOP;
 
         let symbol = event.get_key_symbol();
         if (symbol == Clutter.KEY_Left || symbol == Clutter.KEY_Right) {
@@ -180,10 +157,10 @@ const Button = new Lang.Class({
             if (group) {
                 let direction = (symbol == Clutter.KEY_Left) ? Gtk.DirectionType.LEFT : Gtk.DirectionType.RIGHT;
                 group.navigate_focus(this.actor, direction, false);
-                return true;
+                return Clutter.EVENT_STOP;
             }
         }
-        return false;
+        return Clutter.EVENT_PROPAGATE;
     },
 
     _onOpenStateChanged: function(menu, open) {

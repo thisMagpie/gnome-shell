@@ -27,6 +27,8 @@ const CHEVRON = '>>> ';
 /* Imports...feel free to add here as needed */
 var commandHeader = 'const Clutter = imports.gi.Clutter; ' +
                     'const GLib = imports.gi.GLib; ' +
+                    'const GObject = imports.gi.GObject; ' +
+                    'const Gio = imports.gi.Gio; ' +
                     'const Gtk = imports.gi.Gtk; ' +
                     'const Mainloop = imports.mainloop; ' +
                     'const Meta = imports.gi.Meta; ' +
@@ -109,6 +111,7 @@ const AutoComplete = new Lang.Class({
             }
             this._lastTabTime = currTime;
         }
+        return Clutter.EVENT_PROPAGATE;
     },
 
     // Insert characters of text not already included in head at cursor position.  i.e., if text="abc" and head="a",
@@ -558,7 +561,7 @@ const Inspector = new Lang.Class({
     _onKeyPressEvent: function (actor, event) {
         if (event.get_key_symbol() == Clutter.Escape)
             this._close();
-        return true;
+        return Clutter.EVENT_STOP;
     },
 
     _onButtonPressEvent: function (actor, event) {
@@ -567,7 +570,7 @@ const Inspector = new Lang.Class({
             this.emit('target', this._target, stageX, stageY);
         }
         this._close();
-        return true;
+        return Clutter.EVENT_STOP;
     },
 
     _onScrollEvent: function (actor, event) {
@@ -601,12 +604,12 @@ const Inspector = new Lang.Class({
         default:
             break;
         }
-        return true;
+        return Clutter.EVENT_STOP;
     },
 
     _onMotionEvent: function (actor, event) {
         this._update(event);
-        return true;
+        return Clutter.EVENT_STOP;
     },
 
     _update: function(event) {
@@ -628,55 +631,6 @@ const Inspector = new Lang.Class({
 });
 
 Signals.addSignalMethods(Inspector.prototype);
-
-const Memory = new Lang.Class({
-    Name: 'Memory',
-
-    _init: function() {
-        this.actor = new St.BoxLayout({ vertical: true });
-        this._glibc_uordblks = new St.Label();
-        this.actor.add(this._glibc_uordblks);
-
-        this._js_bytes = new St.Label();
-        this.actor.add(this._js_bytes);
-
-        this._gjs_boxed = new St.Label();
-        this.actor.add(this._gjs_boxed);
-
-        this._gjs_gobject = new St.Label();
-        this.actor.add(this._gjs_gobject);
-
-        this._gjs_function = new St.Label();
-        this.actor.add(this._gjs_function);
-
-        this._gjs_closure = new St.Label();
-        this.actor.add(this._gjs_closure);
-
-        this._last_gc_seconds_ago = new St.Label();
-        this.actor.add(this._last_gc_seconds_ago);
-
-        this._gcbutton = new St.Button({ label: 'Full GC',
-                                         style_class: 'lg-obj-inspector-button' });
-        this._gcbutton.connect('clicked', Lang.bind(this, function () { System.gc(); this._renderText(); }));
-        this.actor.add(this._gcbutton, { x_align: St.Align.START,
-                                         x_fill: false });
-
-        this.actor.connect('notify::mapped', Lang.bind(this, this._renderText));
-    },
-
-    _renderText: function() {
-        if (!this.actor.mapped)
-            return;
-        let memInfo = global.get_memory_info();
-        this._glibc_uordblks.text = 'glibc_uordblks: ' + memInfo.glibc_uordblks;
-        this._js_bytes.text = 'js bytes: ' + memInfo.js_bytes;
-        this._gjs_boxed.text = 'gjs_boxed: ' + memInfo.gjs_boxed;
-        this._gjs_gobject.text = 'gjs_gobject: ' + memInfo.gjs_gobject;
-        this._gjs_function.text = 'gjs_function: ' + memInfo.gjs_function;
-        this._gjs_closure.text = 'gjs_closure: ' + memInfo.gjs_closure;
-        this._last_gc_seconds_ago.text = 'last_gc_seconds_ago: ' + memInfo.last_gc_seconds_ago;
-    }
-});
 
 const Extensions = new Lang.Class({
     Name: 'Extensions',
@@ -718,13 +672,13 @@ const Extensions = new Lang.Class({
     _onViewSource: function (actor) {
         let extension = actor._extension;
         let uri = extension.dir.get_uri();
-        Gio.app_info_launch_default_for_uri(uri, global.create_app_launch_context());
+        Gio.app_info_launch_default_for_uri(uri, global.create_app_launch_context(0, -1));
         this._lookingGlass.close();
     },
 
     _onWebPage: function (actor) {
         let extension = actor._extension;
-        Gio.app_info_launch_default_for_uri(extension.metadata.url, global.create_app_launch_context());
+        Gio.app_info_launch_default_for_uri(extension.metadata.url, global.create_app_launch_context(0, -1));
         this._lookingGlass.close();
     },
 
@@ -843,7 +797,7 @@ const LookingGlass = new Lang.Class({
                                         reactive: true });
         this.actor.connect('key-press-event', Lang.bind(this, this._globalKeyPressEvent));
 
-        this._interfaceSettings = new Gio.Settings({ schema: 'org.gnome.desktop.interface' });
+        this._interfaceSettings = new Gio.Settings({ schema_id: 'org.gnome.desktop.interface' });
         this._interfaceSettings.connect('changed::monospace-font-name',
                                         Lang.bind(this, this._updateFont));
         this._updateFont();
@@ -877,7 +831,23 @@ const LookingGlass = new Lang.Class({
                 global.stage.set_key_focus(this._entry);
             }));
             this.actor.hide();
-            return true;
+            return Clutter.EVENT_STOP;
+        }));
+
+        let gcIcon = new St.Icon({ icon_name: 'gnome-fs-trash-full',
+                                   icon_size: 24 });
+        toolbar.add_actor(gcIcon);
+        gcIcon.reactive = true;
+        gcIcon.connect('button-press-event', Lang.bind(this, function () {
+           gcIcon.icon_name = 'gnome-fs-trash-empty';
+           System.gc();
+           this._timeoutId = Mainloop.timeout_add(500, Lang.bind(this, function () {
+                gcIcon.icon_name = 'gnome-fs-trash-full';
+                this._timeoutId = 0;
+                return GLib.SOURCE_REMOVE;
+           }));
+           GLib.Source.set_name_by_id(this._timeoutId, '[gnome-shell] gcIcon.icon_name = \'gnome-fs-trash-full\'');
+           return Clutter.EVENT_PROPAGATE;
         }));
 
         let notebook = new Notebook();
@@ -907,9 +877,6 @@ const LookingGlass = new Lang.Class({
         this._windowList = new WindowList(this);
         notebook.appendPage('Windows', this._windowList.actor);
 
-        this._memory = new Memory();
-        notebook.appendPage('Memory', this._memory.actor);
-
         this._extensions = new Extensions(this);
         notebook.appendPage('Extensions', this._extensions.actor);
 
@@ -920,7 +887,7 @@ const LookingGlass = new Lang.Class({
             let text = o.get_text();
             // Ensure we don't get newlines in the command; the history file is
             // newline-separated.
-            text.replace('\n', ' ');
+            text = text.replace('\n', ' ');
             // Strip leading and trailing whitespace
             text = text.replace(/^\s+/g, '').replace(/\s+$/g, '');
             if (text == '')
@@ -1072,15 +1039,15 @@ const LookingGlass = new Lang.Class({
         let myWidth = primary.width * 0.7;
         let availableHeight = primary.height - Main.layoutManager.keyboardBox.height;
         let myHeight = Math.min(primary.height * 0.7, availableHeight * 0.9);
-        this.actor.x = (primary.width - myWidth) / 2;
-        this._hiddenY = Main.layoutManager.panelBox.height - myHeight - 4; // -4 to hide the top corners
+        this.actor.x = primary.x + (primary.width - myWidth) / 2;
+        this._hiddenY = primary.y + Main.layoutManager.panelBox.height - myHeight - 4; // -4 to hide the top corners
         this._targetY = this._hiddenY + myHeight;
         this.actor.y = this._hiddenY;
         this.actor.width = myWidth;
         this.actor.height = myHeight;
         this._objInspector.actor.set_size(Math.floor(myWidth * 0.8), Math.floor(myHeight * 0.8));
-        this._objInspector.actor.set_position(primary.x + this.actor.x + Math.floor(myWidth * 0.1),
-                                              primary.y + this._targetY + Math.floor(myHeight * 0.1));
+        this._objInspector.actor.set_position(this.actor.x + Math.floor(myWidth * 0.1),
+                                              this._targetY + Math.floor(myHeight * 0.1));
     },
 
     insertObject: function(obj) {
@@ -1102,7 +1069,7 @@ const LookingGlass = new Lang.Class({
             } else {
                 this.close();
             }
-            return true;
+            return Clutter.EVENT_STOP;
         }
         // Ctrl+PgUp and Ctrl+PgDown switches tabs in the notebook view
         if (modifierState & Clutter.ModifierType.CONTROL_MASK) {
@@ -1112,7 +1079,7 @@ const LookingGlass = new Lang.Class({
                 this._notebook.nextTab();
             }
         }
-        return false;
+        return Clutter.EVENT_PROPAGATE;
     },
 
     open : function() {

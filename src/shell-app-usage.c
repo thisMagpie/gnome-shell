@@ -419,13 +419,12 @@ shell_app_usage_init (ShellAppUsage *self)
   self->currently_idle = FALSE;
   self->enable_monitoring = FALSE;
 
-  g_object_get (shell_global_get(), "userdatadir", &shell_userdata_dir, NULL),
+  g_object_get (global, "userdatadir", &shell_userdata_dir, NULL),
   path = g_build_filename (shell_userdata_dir, DATA_FILENAME, NULL);
   g_free (shell_userdata_dir);
   self->configfile = g_file_new_for_path (path);
   g_free (path);
   restore_from_file (self);
-
 
   self->privacy_settings = g_settings_new(PRIVACY_SCHEMA);
   g_signal_connect (self->privacy_settings,
@@ -528,19 +527,19 @@ shell_app_usage_get_most_used (ShellAppUsage   *self,
  * shell_app_usage_compare:
  * @self: the usage instance to request
  * @context: Activity identifier
- * @app_a: First app
- * @app_b: Second app
+ * @id_a: ID of first app
+ * @id_b: ID of second app
  *
- * Compare @app_a and @app_b based on frequency of use.
+ * Compare @id_a and @id_b based on frequency of use.
  *
- * Returns: -1 if @app_a ranks higher than @app_b, 1 if @app_b ranks higher
- *          than @app_a, and 0 if both rank equally.
+ * Returns: -1 if @id_a ranks higher than @id_b, 1 if @id_b ranks higher
+ *          than @id_a, and 0 if both rank equally.
  */
 int
 shell_app_usage_compare (ShellAppUsage *self,
                          const char    *context,
-                         ShellApp      *app_a,
-                         ShellApp      *app_b)
+                         const char    *id_a,
+                         const char    *id_b)
 {
   GHashTable *usages;
   UsageData *usage_a, *usage_b;
@@ -549,8 +548,8 @@ shell_app_usage_compare (ShellAppUsage *self,
   if (usages == NULL)
     return 0;
 
-  usage_a = g_hash_table_lookup (usages, shell_app_get_id (app_a));
-  usage_b = g_hash_table_lookup (usages, shell_app_get_id (app_b));
+  usage_a = g_hash_table_lookup (usages, id_a);
+  usage_b = g_hash_table_lookup (usages, id_b);
 
   if (usage_a == NULL && usage_b == NULL)
     return 0;
@@ -568,6 +567,7 @@ ensure_queued_save (ShellAppUsage *self)
   if (self->save_id != 0)
     return;
   self->save_id = g_timeout_add_seconds (SAVE_APPS_TIMEOUT_SECONDS, idle_save_application_usage, self);
+  g_source_set_name_by_id (self->save_id, "[gnome-shell] idle_save_application_usage");
 }
 
 /* Clean up apps we see rarely.

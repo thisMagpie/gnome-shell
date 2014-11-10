@@ -1,7 +1,9 @@
 // -*- mode: js; js-indent-level: 4; indent-tabs-mode: nil -*-
 
+const GLib = imports.gi.GLib;
 const Lang = imports.lang;
 const Mainloop = imports.mainloop;
+const Meta = imports.gi.Meta;
 const GnomeDesktop = imports.gi.GnomeDesktop;
 const Shell = imports.gi.Shell;
 
@@ -41,7 +43,7 @@ const PointerWatcher = new Lang.Class({
     Name: 'PointerWatcher',
 
     _init: function() {
-        this._idleMonitor = new GnomeDesktop.IdleMonitor();
+        this._idleMonitor = Meta.IdleMonitor.get_core();
         this._idleMonitor.add_idle_watch(IDLE_TIME, Lang.bind(this, this._onIdleMonitorBecameIdle));
         this._idle = this._idleMonitor.get_idletime() > IDLE_TIME;
         this._watches = [];
@@ -105,11 +107,12 @@ const PointerWatcher = new Lang.Class({
 
         this._timeoutId = Mainloop.timeout_add(minInterval,
                                                Lang.bind(this, this._onTimeout));
+        GLib.Source.set_name_by_id(this._timeoutId, '[gnome-shell] this._onTimeout');
     },
 
     _onTimeout: function() {
         this._updatePointer();
-        return true;
+        return GLib.SOURCE_CONTINUE;
     },
 
     _updatePointer: function() {

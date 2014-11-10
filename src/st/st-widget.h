@@ -80,7 +80,7 @@ struct _StWidgetClass
   /**
    * StWidgetClass::navigate_focus:
    * @self: the "top level" container
-   * @from: (allow-none): the actor that the focus is coming from
+   * @from: (nullable): the actor that the focus is coming from
    * @direction: the direction focus is moving in
    */
   gboolean (* navigate_focus)      (StWidget         *self,
@@ -167,7 +167,8 @@ void                  st_widget_remove_accessible_state  (StWidget    *widget,
 void                  st_widget_set_accessible_name      (StWidget    *widget,
                                                           const gchar *name);
 const gchar *         st_widget_get_accessible_name      (StWidget    *widget);
-
+void                  st_widget_set_accessible           (StWidget    *widget,
+                                                          AtkObject   *accessible);
 /* utility methods */
 void st_get_align_factors (StAlign   x_align,
                            StAlign   y_align,

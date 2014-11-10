@@ -1,8 +1,23 @@
-wandadir = $(pkgdatadir)
-dist_wanda_DATA = wanda.png
+CLEANFILES =
 
 desktopdir=$(datadir)/applications
-desktop_DATA = gnome-shell.desktop gnome-shell-extension-prefs.desktop
+desktop_DATA = gnome-shell.desktop gnome-shell-wayland.desktop  gnome-shell-extension-prefs.desktop
+
+if HAVE_NETWORKMANAGER
+desktop_DATA += org.gnome.Shell.PortalHelper.desktop
+
+servicedir = $(datadir)/dbus-1/services
+service_DATA = org.gnome.Shell.PortalHelper.service
+
+CLEANFILES += \
+	org.gnome.Shell.PortalHelper.service \
+	org.gnome.Shell.PortalHelper.desktop
+
+endif
+
+%.service: %.service.in
+	$(AM_V_GEN) sed -e "s|@libexecdir[@]|$(libexecdir)|" \
+	    $< > $@ || rm $@
 
 # We substitute in bindir so it works as an autostart
 # file when built in a non-system prefix
@@ -20,40 +35,18 @@ introspection_DATA =				\
 	org.gnome.ShellSearchProvider.xml	\
 	org.gnome.ShellSearchProvider2.xml
 
-themedir = $(pkgdatadir)/theme
-dist_theme_DATA =				\
-	theme/calendar-arrow-left.svg		\
-	theme/calendar-arrow-right.svg		\
-	theme/calendar-today.svg		\
-	theme/checkbox-focused.svg		\
-	theme/checkbox-off-focused.svg		\
-	theme/checkbox-off.svg			\
-	theme/checkbox.svg			\
-	theme/close-window.svg			\
-	theme/close.svg				\
-	theme/corner-ripple-ltr.png		\
-	theme/corner-ripple-rtl.png		\
-	theme/dash-placeholder.svg		\
-	theme/filter-selected-ltr.svg		\
-	theme/filter-selected-rtl.svg		\
-	theme/gnome-shell.css			\
-	theme/logged-in-indicator.svg		\
-	theme/message-tray-background.png	\
-	theme/more-results.svg			\
-	theme/noise-texture.png			\
-	theme/panel-button-border.svg		\
-	theme/panel-button-highlight-narrow.svg	\
-	theme/panel-button-highlight-wide.svg	\
-	theme/process-working.svg		\
-	theme/running-indicator.svg		\
-	theme/source-button-border.svg		\
-	theme/summary-counter.svg		\
-	theme/toggle-off-us.svg			\
-	theme/toggle-off-intl.svg		\
-	theme/toggle-on-us.svg			\
-	theme/toggle-on-intl.svg		\
-	theme/ws-switch-arrow-up.png		\
-	theme/ws-switch-arrow-down.png
+resource_files = $(shell $(GLIB_COMPILE_RESOURCES) --sourcedir=$(srcdir)/theme --generate-dependencies $(srcdir)/gnome-shell-theme.gresource.xml)
+gnome-shell-theme.gresource: gnome-shell-theme.gresource.xml $(resource_files)
+	$(AM_V_GEN) $(GLIB_COMPILE_RESOURCES) --target=$@ --sourcedir=$(srcdir)/theme $<
+resourcedir = $(pkgdatadir)
+resource_DATA = gnome-shell-theme.gresource
+
+backgrounddir = $(pkgdatadir)
+background_DATA = perf-background.xml
+
+perf-background.xml: perf-background.xml.in
+	$(AM_V_GEN) sed -e "s|@datadir[@]|$(datadir)|" \
+	    $< > $@ || rm $@
 
 keysdir = @GNOME_KEYBINDINGS_KEYSDIR@
 keys_in_files = 50-gnome-shell-system.xml.in
@@ -81,19 +74,28 @@ convert_DATA = gnome-shell-overrides.convert
 
 EXTRA_DIST =						\
 	gnome-shell.desktop.in.in			\
+	gnome-shell-wayland.desktop.in.in		\
 	gnome-shell-extension-prefs.desktop.in.in	\
 	$(introspection_DATA)				\
 	$(menu_DATA)					\
 	$(convert_DATA)					\
 	$(keys_in_files)				\
-	org.gnome.shell.gschema.xml.in.in
+	perf-background.xml.in				\
+	org.gnome.Shell.PortalHelper.desktop.in		\
+	org.gnome.Shell.PortalHelper.service.in		\
+	org.gnome.shell.gschema.xml.in.in		\
+	gnome-shell-theme.gresource.xml 		\
+	$(resource_files)
 
-CLEANFILES =						\
+CLEANFILES +=						\
 	gnome-shell.desktop.in				\
+	gnome-shell-wayland.desktop.in			\
 	gnome-shell-extension-prefs.in			\
 	$(desktop_DATA)					\
 	$(keys_DATA)					\
 	$(gsettings_SCHEMAS)				\
+	perf-background.xml				\
 	gschemas.compiled				\
 	org.gnome.shell.gschema.valid			\
-	org.gnome.shell.gschema.xml.in
+	org.gnome.shell.gschema.xml.in			\
+	gnome-shell-theme.gresource

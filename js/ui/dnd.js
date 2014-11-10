@@ -5,6 +5,7 @@ const GLib = imports.gi.GLib;
 const Gtk = imports.gi.Gtk;
 const St = imports.gi.St;
 const Lang = imports.lang;
+const Meta = imports.gi.Meta;
 const Shell = imports.gi.Shell;
 const Signals = imports.signals;
 const Tweener = imports.ui.tweener;
@@ -27,9 +28,9 @@ const DragMotionResult = {
 };
 
 const DRAG_CURSOR_MAP = {
-    0: Shell.Cursor.DND_UNSUPPORTED_TARGET,
-    1: Shell.Cursor.DND_COPY,
-    2: Shell.Cursor.DND_MOVE
+    0: Meta.Cursor.DND_UNSUPPORTED_TARGET,
+    1: Meta.Cursor.DND_COPY,
+    2: Meta.Cursor.DND_MOVE
 };
 
 const DragDropResult = {
@@ -85,11 +86,6 @@ const _Draggable = new Lang.Class({
         this.actor.connect('destroy', Lang.bind(this, function() {
             this._actorDestroyed = true;
 
-            // If the drag actor is destroyed and we were going to fix
-            // up its hover state, fix up the parent hover state instead
-            if (this.actor == this._firstLeaveActor)
-                this._firstLeaveActor = this._dragOrigParent;
-
             if (this._dragInProgress && this._dragCancellable)
                 this._cancelDrag(global.get_current_time());
             this.disconnectAll();
@@ -105,21 +101,15 @@ const _Draggable = new Lang.Class({
         this._animationInProgress = false; // The drag is over and the item is in the process of animating to its original position (snapping back or reverting).
         this._dragCancellable = true;
 
-        // During the drag, we eat enter/leave events so that actors don't prelight.
-        // But we remember the actors that we first left/last entered so we can
-        // fix up the hover state after the drag ends.
-        this._firstLeaveActor = null;
-        this._lastEnterActor = null;
-
         this._eventsGrabbed = false;
     },
 
     _onButtonPress : function (actor, event) {
         if (event.get_button() != 1)
-            return false;
+            return Clutter.EVENT_PROPAGATE;
 
         if (Tweener.getTweenCount(actor))
-            return false;
+            return Clutter.EVENT_PROPAGATE;
 
         this._buttonDown = true;
         this._grabActor();
@@ -128,7 +118,7 @@ const _Draggable = new Lang.Class({
         this._dragStartX = stageX;
         this._dragStartY = stageY;
 
-        return false;
+        return Clutter.EVENT_PROPAGATE;
     },
 
     _grabActor: function() {
@@ -174,11 +164,11 @@ const _Draggable = new Lang.Class({
             } else if (this._dragActor != null && !this._animationInProgress) {
                 // Drag must have been cancelled with Esc.
                 this._dragComplete();
-                return true;
+                return Clutter.EVENT_STOP;
             } else {
                 // Drag has never started.
                 this._ungrabActor();
-                return false;
+                return Clutter.EVENT_PROPAGATE;
             }
         // We intercept MOTION event to figure out if the drag has started and to draw
         // this._dragActor under the pointer when dragging is in progress
@@ -194,16 +184,11 @@ const _Draggable = new Lang.Class({
             let symbol = event.get_key_symbol();
             if (symbol == Clutter.Escape) {
                 this._cancelDrag(event.get_time());
-                return true;
+                return Clutter.EVENT_STOP;
             }
-        } else if (event.type() == Clutter.EventType.LEAVE) {
-            if (this._firstLeaveActor == null)
-                this._firstLeaveActor = event.get_source();
-        } else if (event.type() == Clutter.EventType.ENTER) {
-            this._lastEnterActor = event.get_source();
         }
 
-        return false;
+        return Clutter.EVENT_PROPAGATE;
     },
 
     /**
@@ -244,14 +229,14 @@ const _Draggable = new Lang.Class({
         if (this._onEventId)
             this._ungrabActor();
         this._grabEvents();
-        global.set_cursor(Shell.Cursor.DND_IN_DRAG);
+        global.screen.set_cursor(Meta.Cursor.DND_IN_DRAG);
 
         this._dragX = this._dragStartX = stageX;
         this._dragY = this._dragStartY = stageY;
 
         if (this.actor._delegate && this.actor._delegate.getDragActor) {
             this._dragActor = this.actor._delegate.getDragActor();
-            this._dragActor.reparent(Main.uiGroup);
+            Main.uiGroup.add_child(this._dragActor);
             this._dragActor.raise_top();
             Shell.util_set_hidden_from_pick(this._dragActor, true);
 
@@ -300,7 +285,8 @@ const _Draggable = new Lang.Class({
             this._dragOffsetX = actorStageX - this._dragStartX;
             this._dragOffsetY = actorStageY - this._dragStartY;
 
-            this._dragActor.reparent(Main.uiGroup);
+            this._dragOrigParent.remove_actor(this._dragActor);
+            Main.uiGroup.add_child(this._dragActor);
             this._dragActor.raise_top();
             Shell.util_set_hidden_from_pick(this._dragActor, true);
         }
@@ -360,6 +346,7 @@ const _Draggable = new Lang.Class({
     },
 
     _updateDragHover : function () {
+        this._updateHoverId = 0;
         let target = this._dragActor.get_stage().get_actor_at_pos(Clutter.PickMode.ALL,
                                                                   this._dragX, this._dragY);
         let dragEvent = {
@@ -374,8 +361,8 @@ const _Draggable = new Lang.Class({
             if (motionFunc) {
                 let result = motionFunc(dragEvent);
                 if (result != DragMotionResult.CONTINUE) {
-                    global.set_cursor(DRAG_CURSOR_MAP[result]);
-                    return false;
+                    global.screen.set_cursor(DRAG_CURSOR_MAP[result]);
+                    return GLib.SOURCE_REMOVE;
                 }
             }
         }
@@ -392,22 +379,23 @@ const _Draggable = new Lang.Class({
                                                              targY,
                                                              0);
                 if (result != DragMotionResult.CONTINUE) {
-                    global.set_cursor(DRAG_CURSOR_MAP[result]);
-                    return false;
+                    global.screen.set_cursor(DRAG_CURSOR_MAP[result]);
+                    return GLib.SOURCE_REMOVE;
                 }
             }
             target = target.get_parent();
         }
-        global.set_cursor(Shell.Cursor.DND_IN_DRAG);
-        return false;
+        global.screen.set_cursor(Meta.Cursor.DND_IN_DRAG);
+        return GLib.SOURCE_REMOVE;
     },
 
     _queueUpdateDragHover: function() {
         if (this._updateHoverId)
-            GLib.source_remove(this._updateHoverId);
+            return;
 
         this._updateHoverId = GLib.idle_add(GLib.PRIORITY_DEFAULT,
                                             Lang.bind(this, this._updateDragHover));
+        GLib.Source.set_name_by_id(this._updateHoverId, '[gnome-shell] this._updateDragHover');
     },
 
     _updateDragPosition : function (event) {
@@ -470,7 +458,7 @@ const _Draggable = new Lang.Class({
                     }
 
                     this._dragInProgress = false;
-                    global.unset_cursor();
+                    global.screen.set_cursor(Meta.Cursor.DEFAULT);
                     this.emit('drag-end', event.get_time(), true);
                     this._dragComplete();
                     return true;
@@ -517,17 +505,12 @@ const _Draggable = new Lang.Class({
     },
 
     _cancelDrag: function(eventTime) {
-        if (this._updateHoverId) {
-            GLib.source_remove(this._updateHoverId);
-            this._updateHoverId = 0;
-        }
-
         this.emit('drag-cancelled', eventTime);
         this._dragInProgress = false;
         let [snapBackX, snapBackY, snapBackScale] = this._getRestoreLocation();
 
         if (this._actorDestroyed) {
-            global.unset_cursor();
+            global.screen.set_cursor(Meta.Cursor.DEFAULT);
             if (!this._buttonDown)
                 this._dragComplete();
             this.emit('drag-end', eventTime, false);
@@ -575,13 +558,14 @@ const _Draggable = new Lang.Class({
 
     _onAnimationComplete : function (dragActor, eventTime) {
         if (this._dragOrigParent) {
-            dragActor.reparent(this._dragOrigParent);
+            Main.uiGroup.remove_child(this._dragActor);
+            this._dragOrigParent.add_actor(this._dragActor);
             dragActor.set_scale(this._dragOrigScale, this._dragOrigScale);
             dragActor.set_position(this._dragOrigX, this._dragOrigY);
         } else {
             dragActor.destroy();
         }
-        global.unset_cursor();
+        global.screen.set_cursor(Meta.Cursor.DEFAULT);
         this.emit('drag-end', eventTime, false);
 
         this._animationInProgress = false;
@@ -589,32 +573,16 @@ const _Draggable = new Lang.Class({
             this._dragComplete();
     },
 
-    // Actor is an actor we have entered or left during the drag; call
-    // st_widget_sync_hover on all StWidget ancestors
-    _syncHover: function(actor) {
-        while (actor) {
-            let parent = actor.get_parent();
-            if (actor instanceof St.Widget)
-                actor.sync_hover();
-
-            actor = parent;
-        }
-    },
-
     _dragComplete: function() {
         if (!this._actorDestroyed)
             Shell.util_set_hidden_from_pick(this._dragActor, false);
 
         this._ungrabEvents();
+        global.sync_pointer();
 
-        if (this._firstLeaveActor) {
-            this._syncHover(this._firstLeaveActor);
-            this._firstLeaveActor = null;
-        }
-
-        if (this._lastEnterActor) {
-            this._syncHover(this._lastEnterActor);
-            this._lastEnterActor = null;
+        if (this._updateHoverId) {
+            GLib.source_remove(this._updateHoverId);
+            this._updateHoverId = 0;
         }
 
         this._dragActor = undefined;

@@ -11,6 +11,9 @@ const Main = imports.ui.main;
 
 const MAX_CANDIDATES_PER_PAGE = 16;
 
+const DEFAULT_INDEX_LABELS = [ '1', '2', '3', '4', '5', '6', '7', '8',
+                               '9', '0', 'a', 'b', 'c', 'd', 'e', 'f' ];
+
 const CandidateArea = new Lang.Class({
     Name: 'CandidateArea',
 
@@ -32,6 +35,7 @@ const CandidateArea = new Lang.Class({
             let j = i;
             box.connect('button-release-event', Lang.bind(this, function(actor, event) {
                 this.emit('candidate-clicked', j, event.get_button(), event.get_state());
+                return Clutter.EVENT_PROPAGATE;
             }));
         }
 
@@ -88,7 +92,7 @@ const CandidateArea = new Lang.Class({
             if (!visible)
                 continue;
 
-            box._indexLabel.text = ((indexes && indexes[i]) ? indexes[i] : '%x'.format(i + 1));
+            box._indexLabel.text = ((indexes && indexes[i]) ? indexes[i] : DEFAULT_INDEX_LABELS[i]);
             box._candidateLabel.text = candidates[i];
         }
 
@@ -114,9 +118,6 @@ const CandidatePopup = new Lang.Class({
     Name: 'CandidatePopup',
 
     _init: function() {
-        this._cursor = new St.Bin({ opacity: 0 });
-        Main.uiGroup.add_actor(this._cursor);
-
         this._boxPointer = new BoxPointer.BoxPointer(St.Side.TOP);
         this._boxPointer.actor.visible = false;
         this._boxPointer.actor.style_class = 'candidate-popup-boxpointer';
@@ -157,10 +158,9 @@ const CandidatePopup = new Lang.Class({
 
         panelService.connect('set-cursor-location',
                              Lang.bind(this, function(ps, x, y, w, h) {
-                                 this._cursor.set_position(x, y);
-                                 this._cursor.set_size(w, h);
+                                 Main.layoutManager.setDummyCursorGeometry(x, y, w, h);
                                  if (this._boxPointer.actor.visible)
-                                     this._boxPointer.setPosition(this._cursor, 0);
+                                     this._boxPointer.setPosition(Main.layoutManager.dummyCursor, 0);
                              }));
         panelService.connect('update-preedit-text',
                              Lang.bind(this, function(ps, text, cursorPosition, visible) {
@@ -252,7 +252,7 @@ const CandidatePopup = new Lang.Class({
                          this._candidateArea.actor.visible);
 
         if (isVisible) {
-            this._boxPointer.setPosition(this._cursor, 0);
+            this._boxPointer.setPosition(Main.layoutManager.dummyCursor, 0);
             this._boxPointer.show(BoxPointer.PopupAnimation.NONE);
             this._boxPointer.actor.raise_top();
         } else {

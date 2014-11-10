@@ -23,35 +23,59 @@ const KEYBOARD_TYPE = 'keyboard-type';
 const A11Y_APPLICATIONS_SCHEMA = 'org.gnome.desktop.a11y.applications';
 const SHOW_KEYBOARD = 'screen-keyboard-enabled';
 
-const CaribouKeyboardIface = <interface name='org.gnome.Caribou.Keyboard'>
-<method name='Show'>
-    <arg type='u' direction='in' />
-</method>
-<method name='Hide'>
-    <arg type='u' direction='in' />
-</method>
-<method name='SetCursorLocation'>
-    <arg type='i' direction='in' />
-    <arg type='i' direction='in' />
-    <arg type='i' direction='in' />
-    <arg type='i' direction='in' />
-</method>
-<method name='SetEntryLocation'>
-    <arg type='i' direction='in' />
-    <arg type='i' direction='in' />
-    <arg type='i' direction='in' />
-    <arg type='i' direction='in' />
-</method>
-<property name='Name' access='read' type='s' />
-</interface>;
+const CURSOR_BUS_NAME = 'org.gnome.SettingsDaemon.Cursor';
+const CURSOR_OBJECT_PATH = '/org/gnome/SettingsDaemon/Cursor';
+
+const CARIBOU_BUS_NAME = 'org.gnome.Caribou.Daemon';
+const CARIBOU_OBJECT_PATH = '/org/gnome/Caribou/Daemon';
+
+const CaribouKeyboardIface = '<node> \
+<interface name="org.gnome.Caribou.Keyboard"> \
+<method name="Show"> \
+    <arg type="u" direction="in" /> \
+</method> \
+<method name="Hide"> \
+    <arg type="u" direction="in" /> \
+</method> \
+<method name="SetCursorLocation"> \
+    <arg type="i" direction="in" /> \
+    <arg type="i" direction="in" /> \
+    <arg type="i" direction="in" /> \
+    <arg type="i" direction="in" /> \
+</method> \
+<method name="SetEntryLocation"> \
+    <arg type="i" direction="in" /> \
+    <arg type="i" direction="in" /> \
+    <arg type="i" direction="in" /> \
+    <arg type="i" direction="in" /> \
+</method> \
+<property name="Name" access="read" type="s" /> \
+</interface> \
+</node>';
+
+const CaribouDaemonIface = '<node> \
+<interface name="org.gnome.Caribou.Daemon"> \
+<method name="Run" /> \
+<method name="Quit" /> \
+</interface> \
+</node>';
+
+const CursorManagerIface = '<node> \
+<interface name="org.gnome.SettingsDaemon.Cursor"> \
+<property name="ShowOSK" type="b" access="read" /> \
+</interface> \
+</node>';
+
+const CaribouDaemonProxy = Gio.DBusProxy.makeProxyWrapper(CaribouDaemonIface);
+const CursorManagerProxy = Gio.DBusProxy.makeProxyWrapper(CursorManagerIface);
 
 const Key = new Lang.Class({
     Name: 'Key',
 
     _init : function(key) {
         this._key = key;
-
-        this.actor = this._makeKey();
+        this.actor = this._makeKey(key, GLib.markup_escape_text(key.label, -1));
+        this.actor.connect('destroy', Lang.bind(this, this._onDestroy));
 
         this._extended_keys = this._key.get_extended_keys();
         this._extended_keyboard = null;
@@ -74,14 +98,28 @@ const Key = new Lang.Class({
         }
     },
 
-    _makeKey: function () {
-        let label = GLib.markup_escape_text(this._key.label, -1);
+    _onDestroy: function() {
+        if (this._boxPointer) {
+            this._boxPointer.actor.destroy();
+            this._boxPointer = null;
+        }
+    },
+
+    _makeKey: function (key, label) {
         let button = new St.Button ({ label: label,
                                       style_class: 'keyboard-key' });
 
         button.key_width = this._key.width;
-        button.connect('button-press-event', Lang.bind(this, function () { this._key.press(); }));
-        button.connect('button-release-event', Lang.bind(this, function () { this._key.release(); }));
+        button.connect('button-press-event', Lang.bind(this,
+            function () {
+                key.press();
+                return Clutter.EVENT_PROPAGATE;
+            }));
+        button.connect('button-release-event', Lang.bind(this,
+            function () {
+                key.release();
+                return Clutter.EVENT_PROPAGATE;
+            }));
 
         return button;
     },
@@ -102,10 +140,9 @@ const Key = new Lang.Class({
         for (let i = 0; i < this._extended_keys.length; ++i) {
             let extended_key = this._extended_keys[i];
             let label = this._getUnichar(extended_key);
-            let key = new St.Button({ label: label, style_class: 'keyboard-key' });
+            let key = this._makeKey(extended_key, label);
+
             key.extended_key = extended_key;
-            key.connect('button-press-event', Lang.bind(this, function () { extended_key.press(); }));
-            key.connect('button-release-event', Lang.bind(this, function () { extended_key.release(); }));
             this._extended_keyboard.add(key);
         }
         this._boxPointer.bin.add_actor(this._extended_keyboard);
@@ -143,11 +180,26 @@ const Keyboard = new Lang.Class({
 
         this._timestamp = global.display.get_current_time_roundtrip();
 
-        this._keyboardSettings = new Gio.Settings({ schema: KEYBOARD_SCHEMA });
-        this._keyboardSettings.connect('changed', Lang.bind(this, this._settingsChanged));
-        this._a11yApplicationsSettings = new Gio.Settings({ schema: A11Y_APPLICATIONS_SCHEMA });
-        this._a11yApplicationsSettings.connect('changed', Lang.bind(this, this._settingsChanged));
-        this._settingsChanged();
+        this._keyboardSettings = new Gio.Settings({ schema_id: KEYBOARD_SCHEMA });
+        this._keyboardSettings.connect('changed', Lang.bind(this, this._sync));
+        this._a11yApplicationsSettings = new Gio.Settings({ schema_id: A11Y_APPLICATIONS_SCHEMA });
+        this._a11yApplicationsSettings.connect('changed', Lang.bind(this, this._sync));
+        this._watchNameId = Gio.bus_watch_name(Gio.BusType.SESSION, CURSOR_BUS_NAME, 0,
+                                               Lang.bind(this, this._sync),
+                                               Lang.bind(this, this._sync));
+        this._daemonProxy = null;
+        this._cursorProxy = new CursorManagerProxy(Gio.DBus.session, CURSOR_BUS_NAME,
+                                                   CURSOR_OBJECT_PATH,
+                                                   Lang.bind(this, function(proxy, error) {
+                                                       if (error) {
+                                                           log(error.message);
+                                                           return;
+                                                       }
+                                                       this._cursorProxy.connect('g-properties-changed',
+                                                                                 Lang.bind(this, this._sync));
+                                                       this._sync();
+                                                   }));
+        this._sync();
 
         this._showIdleId = 0;
         this._subkeysBoxPointer = null;
@@ -165,8 +217,9 @@ const Keyboard = new Lang.Class({
         this._redraw();
     },
 
-    _settingsChanged: function (settings, key) {
-        this._enableKeyboard = this._a11yApplicationsSettings.get_boolean(SHOW_KEYBOARD);
+    _sync: function () {
+        this._enableKeyboard = this._a11yApplicationsSettings.get_boolean(SHOW_KEYBOARD) ||
+                               this._cursorProxy.ShowOSK;
         if (!this._enableKeyboard && !this._keyboard)
             return;
         if (this._enableKeyboard && this._keyboard &&
@@ -196,9 +249,35 @@ const Keyboard = new Lang.Class({
         this.actor = null;
 
         this._destroySource();
+        if (this._daemonProxy) {
+            this._daemonProxy.QuitRemote(function (result, error) {
+                if (error) {
+                    log(error.message);
+                    return;
+                }
+            });
+            this._daemonProxy = null;
+        }
     },
 
     _setupKeyboard: function() {
+        if (!this._daemonProxy) {
+            this._daemonProxy = new CaribouDaemonProxy(Gio.DBus.session, CARIBOU_BUS_NAME,
+                                                       CARIBOU_OBJECT_PATH,
+                                                       Lang.bind(this, function(proxy, error) {
+                                                           if (error) {
+                                                               log(error.message);
+                                                               return;
+                                                           }
+                                                       }));
+        }
+        this._daemonProxy.RunRemote(function (result, error) {
+            if (error) {
+                log(error.message);
+                return;
+            }
+        });
+
         this.actor = new St.BoxLayout({ name: 'keyboard', vertical: true, reactive: true });
         Main.layoutManager.keyboardBox.add_actor(this.actor);
         Main.layoutManager.trackChrome(this.actor);
@@ -248,9 +327,14 @@ const Keyboard = new Lang.Class({
             return;
         }
 
-        if (!this._showIdleId)
-            this._showIdleId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE,
-                                             Lang.bind(this, function() { this.Show(time); }));
+        if (!this._showIdleId) {
+          this._showIdleId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE,
+                                           Lang.bind(this, function() {
+                                               this.Show(time);
+                                               return GLib.SOURCE_REMOVE;
+                                           }));
+          GLib.Source.set_name_by_id(this._showIdleId, '[gnome-shell] this.Show');
+        }
     },
 
     _createLayersForGroup: function (gname) {
@@ -292,7 +376,7 @@ const Keyboard = new Lang.Class({
         else if (release && this._capturedPress)
             this._hideSubkeys();
 
-        return true;
+        return Clutter.EVENT_STOP;
     },
 
     _addRows : function (keys, layout) {
@@ -436,7 +520,6 @@ const Keyboard = new Lang.Class({
     _createSource: function () {
         if (this._source == null) {
             this._source = new KeyboardSource(this);
-            this._source.setTransient(true);
             Main.messageTray.add(this._source);
         }
     },
@@ -478,7 +561,9 @@ const Keyboard = new Lang.Class({
                                                    Lang.bind(this, function() {
                                                        this._clearKeyboardRestTimer();
                                                        this._show(monitor);
+                                                       return GLib.SOURCE_REMOVE;
                                                    }));
+        GLib.Source.set_name_by_id(this._keyboardRestingId, '[gnome-shell] this._clearKeyboardRestTimer');
     },
 
     _show: function(monitor) {
@@ -503,7 +588,9 @@ const Keyboard = new Lang.Class({
                                                    Lang.bind(this, function() {
                                                        this._clearKeyboardRestTimer();
                                                        this._hide();
+                                                       return GLib.SOURCE_REMOVE;
                                                    }));
+        GLib.Source.set_name_by_id(this._keyboardRestingId, '[gnome-shell] this._clearKeyboardRestTimer');
     },
 
     _hide: function() {
@@ -529,7 +616,7 @@ const Keyboard = new Lang.Class({
 
     _moveTemporarily: function () {
         let currentWindow = global.screen.get_display().focus_window;
-        let rect = currentWindow.get_outer_rect();
+        let rect = currentWindow.get_frame_rect();
 
         let newX = rect.x;
         let newY = 3 * this.actor.height / 2;

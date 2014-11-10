@@ -18,9 +18,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include "config.h"
@@ -28,13 +26,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define CLUTTER_ENABLE_EXPERIMENTAL_API
-#define COGL_ENABLE_EXPERIMENTAL_API
 #include <clutter/clutter.h>
 #include <clutter/x11/clutter-x11.h>
 #include <gjs/gjs.h>
 #include <meta/display.h>
 #include <meta/meta-plugin.h>
+#include <meta/util.h>
 
 #include "shell-global-private.h"
 #include "shell-perf-log.h"
@@ -69,6 +66,20 @@ static void gnome_shell_plugin_kill_window_effects   (MetaPlugin      *plugin,
                                                       MetaWindowActor *actor);
 static void gnome_shell_plugin_kill_switch_workspace (MetaPlugin      *plugin);
 
+static void gnome_shell_plugin_show_tile_preview (MetaPlugin      *plugin,
+                                                  MetaWindow      *window,
+                                                  MetaRectangle   *tile_rect,
+                                                  int              tile_monitor);
+static void gnome_shell_plugin_hide_tile_preview (MetaPlugin *plugin);
+static void gnome_shell_plugin_show_window_menu  (MetaPlugin         *plugin,
+                                                  MetaWindow         *window,
+                                                  MetaWindowMenuType  menu,
+                                                  int                 x,
+                                                  int                 y);
+static void gnome_shell_plugin_show_window_menu_for_rect (MetaPlugin         *plugin,
+                                                          MetaWindow         *window,
+                                                          MetaWindowMenuType  menu,
+                                                          MetaRectangle      *rect);
 
 static gboolean              gnome_shell_plugin_xevent_filter (MetaPlugin *plugin,
                                                                XEvent     *event);
@@ -133,6 +144,11 @@ gnome_shell_plugin_class_init (GnomeShellPluginClass *klass)
   plugin_class->kill_window_effects   = gnome_shell_plugin_kill_window_effects;
   plugin_class->kill_switch_workspace = gnome_shell_plugin_kill_switch_workspace;
 
+  plugin_class->show_tile_preview = gnome_shell_plugin_show_tile_preview;
+  plugin_class->hide_tile_preview = gnome_shell_plugin_hide_tile_preview;
+  plugin_class->show_window_menu = gnome_shell_plugin_show_window_menu;
+  plugin_class->show_window_menu_for_rect = gnome_shell_plugin_show_window_menu_for_rect;
+
   plugin_class->xevent_filter     = gnome_shell_plugin_xevent_filter;
   plugin_class->keybinding_filter = gnome_shell_plugin_keybinding_filter;
 
@@ -156,7 +172,6 @@ gnome_shell_plugin_has_swap_event (GnomeShellPlugin *shell_plugin)
   const char * (* query_extensions_string) (Display *dpy, int screen);
   Bool (* query_extension) (Display *dpy, int *error, int *event);
   MetaScreen *screen;
-  MetaDisplay *display;
   Display *xdisplay;
   const char *glx_extensions;
 
@@ -165,9 +180,8 @@ gnome_shell_plugin_has_swap_event (GnomeShellPlugin *shell_plugin)
     return FALSE;
 
   screen = meta_plugin_get_screen (plugin);
-  display = meta_screen_get_display (screen);
 
-  xdisplay = meta_display_get_xdisplay (display);
+  xdisplay = clutter_x11_get_default_display ();
 
   query_extensions_string =
     (void *) cogl_get_proc_address ("glXQueryExtensionsString");
@@ -320,14 +334,46 @@ gnome_shell_plugin_kill_switch_workspace (MetaPlugin         *plugin)
   _shell_wm_kill_switch_workspace (get_shell_wm());
 }
 
+static void
+gnome_shell_plugin_show_tile_preview (MetaPlugin      *plugin,
+                                      MetaWindow      *window,
+                                      MetaRectangle   *tile_rect,
+                                      int              tile_monitor)
+{
+  _shell_wm_show_tile_preview (get_shell_wm (), window, tile_rect, tile_monitor);
+}
+
+static void
+gnome_shell_plugin_hide_tile_preview (MetaPlugin *plugin)
+{
+  _shell_wm_hide_tile_preview (get_shell_wm ());
+}
+
+static void
+gnome_shell_plugin_show_window_menu (MetaPlugin         *plugin,
+                                     MetaWindow         *window,
+                                     MetaWindowMenuType  menu,
+                                     int                 x,
+                                     int                 y)
+{
+  _shell_wm_show_window_menu (get_shell_wm (), window, menu, x, y);
+}
+
+static void
+gnome_shell_plugin_show_window_menu_for_rect (MetaPlugin         *plugin,
+                                              MetaWindow         *window,
+                                              MetaWindowMenuType  menu,
+                                              MetaRectangle      *rect)
+{
+  _shell_wm_show_window_menu_for_rect (get_shell_wm (), window, menu, rect);
+}
+
 static gboolean
 gnome_shell_plugin_xevent_filter (MetaPlugin *plugin,
                                   XEvent     *xev)
 {
-  MetaScreen *screen = meta_plugin_get_screen (plugin);
-  MetaDisplay *display = meta_screen_get_display (screen);
-
   GnomeShellPlugin *shell_plugin = GNOME_SHELL_PLUGIN (plugin);
+
 #ifdef GLX_INTEL_swap_event
   if (shell_plugin->have_swap_event &&
       xev->type == (shell_plugin->glx_event_base + GLX_BufferSwapComplete))
@@ -339,19 +385,30 @@ gnome_shell_plugin_xevent_filter (MetaPlugin *plugin,
        * can send this with a ust of 0. Simplify life for consumers
        * by ignoring such events */
       if (swap_complete_event->ust != 0)
-        shell_perf_log_event_x (shell_perf_log_get_default (),
-                                "glx.swapComplete",
-                                swap_complete_event->ust);
+        {
+          gboolean frame_timestamps;
+          g_object_get (shell_plugin->global,
+                        "frame-timestamps", &frame_timestamps,
+                        NULL);
+
+          if (frame_timestamps)
+            shell_perf_log_event_x (shell_perf_log_get_default (),
+                                    "glx.swapComplete",
+                                    swap_complete_event->ust);
+        }
     }
 #endif
 
+  if (meta_is_wayland_compositor ())
+    return FALSE;
+
   /*
-   * Pass the event to shell-global
+   * Pass the event to shell-global for XDND
    */
   if (_shell_global_check_xdnd_event (shell_plugin->global, xev))
     return TRUE;
 
-  return clutter_x11_handle_event (xev) != CLUTTER_X11_FILTER_CONTINUE;
+  return FALSE;
 }
 
 static gboolean
@@ -380,17 +437,3 @@ MetaPluginInfo *gnome_shell_plugin_plugin_info (MetaPlugin *plugin)
 
   return &info;
 }
-
-#if HAVE_BLUETOOTH
-/* HACK:
-   Add a non-static function that calls into libgnome-bluetooth-applet.so,
-   to avoid the linker being too smart and removing the dependency.
-   This function is never actually called.
-*/
-extern GType bluetooth_applet_get_type(void);
-void _shell_link_to_bluetooth(void);
-
-void _shell_link_to_bluetooth(void) {
-  bluetooth_applet_get_type();
-}
-#endif

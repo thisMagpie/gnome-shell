@@ -1,11 +1,13 @@
 // -*- mode: js; js-indent-level: 4; indent-tabs-mode: nil -*-
 
 const Gio = imports.gi.Gio;
+const GLib = imports.gi.GLib;
 const Mainloop = imports.mainloop;
 const Meta = imports.gi.Meta;
 const Shell = imports.gi.Shell;
 
 const Main = imports.ui.main;
+const Params = imports.misc.params;
 
 // This module provides functionality for driving the shell user interface
 // in an automated fashion. The primary current use case for this is
@@ -38,11 +40,12 @@ const Main = imports.ui.main;
 function sleep(milliseconds) {
     let cb;
 
-    Mainloop.timeout_add(milliseconds, function() {
+    let id = Mainloop.timeout_add(milliseconds, function() {
                              if (cb)
                                  cb();
-                             return false;
+                             return GLib.SOURCE_REMOVE;
                          });
+    GLib.Source.set_name_by_id(id, '[gnome-shell] sleep');
 
     return function(callback) {
         cb = callback;
@@ -69,16 +72,19 @@ function waitLeisure() {
     };
 }
 
-const PerfHelperIface = <interface name="org.gnome.Shell.PerfHelper">
-<method name="CreateWindow">
-    <arg type="i" direction="in" />
-    <arg type="i" direction="in" />
-    <arg type="b" direction="in" />
-    <arg type="b" direction="in" />
-</method>
-<method name="WaitWindows" />
-<method name="DestroyWindows" />
-</interface>;
+const PerfHelperIface = '<node> \
+<interface name="org.gnome.Shell.PerfHelper"> \
+<method name="CreateWindow"> \
+    <arg type="i" direction="in" /> \
+    <arg type="i" direction="in" /> \
+    <arg type="b" direction="in" /> \
+    <arg type="b" direction="in" /> \
+    <arg type="b" direction="in" /> \
+</method> \
+<method name="WaitWindows" /> \
+<method name="DestroyWindows" /> \
+</interface> \
+</node>';
 
 var PerfHelperProxy = Gio.DBusProxy.makeProxyWrapper(PerfHelperIface);
 function PerfHelper() {
@@ -93,11 +99,36 @@ function _getPerfHelper() {
     return _perfHelper;
 }
 
+function _callRemote(obj, method, ...args) {
+    let cb;
+    let errcb;
+
+    args.push(function(result, excp) {
+                  if (excp) {
+                      if (errcb)
+                          errcb(excp);
+                  } else {
+                      if (cb)
+                          cb();
+                  }
+             });
+
+    method.apply(obj, args);
+
+    return function(callback, error_callback) {
+        cb = callback;
+        errcb = error_callback;
+    };
+}
+
 /**
  * createTestWindow:
- * @width: width of window, in pixels
- * @height: height of window, in pixels
- * @alpha: whether the window should be alpha transparent
+ * @params: options for window creation.
+ *   width - width of window, in pixels (default 640)
+ *   height - height of window, in pixels (default 480)
+ *   alpha - whether the window should have an alpha channel (default false)
+ *   maximized - whether the window should be created maximized (default false)
+ *   redraws - whether the window should continually redraw itself (default false)
  * @maximized: whethe the window should be created maximized
  *
  * Creates a window using gnome-shell-perf-helper for testing purposes.
@@ -106,19 +137,17 @@ function _getPerfHelper() {
  * because of the normal X asynchronous mapping process, to actually wait
  * until the window has been mapped and exposed, use waitTestWindows().
  */
-function createTestWindow(width, height, alpha, maximized) {
-    let cb;
+function createTestWindow(width, height, params) {
+    params = Params.parse(params, { width: 640,
+                                    height: 480,
+                                    alpha: false,
+                                    maximized: false,
+                                    redraws: false });
+
     let perfHelper = _getPerfHelper();
-
-    perfHelper.CreateWindowRemote(width, height, alpha, maximized,
-                                  function(result, excp) {
-                                      if (cb)
-                                          cb();
-                                  });
-
-    return function(callback) {
-        cb = callback;
-    };
+    return _callRemote(perfHelper, perfHelper.CreateWindowRemote,
+                       params.width, params.height,
+                       params.alpha, params.maximized, params.redraws);
 }
 
 /**
@@ -128,17 +157,8 @@ function createTestWindow(width, height, alpha, maximized) {
  * created with createTestWindow have been mapped and exposed.
  */
 function waitTestWindows() {
-    let cb;
     let perfHelper = _getPerfHelper();
-
-    perfHelper.WaitWindowsRemote(function(result, excp) {
-                                     if (cb)
-                                         cb();
-                                 });
-
-    return function(callback) {
-        cb = callback;
-    };
+    return _callRemote(perfHelper, perfHelper.WaitWindowsRemote);
 }
 
 /**
@@ -151,17 +171,8 @@ function waitTestWindows() {
  * process because of normal X asynchronicity.
  */
 function destroyTestWindows() {
-    let cb;
     let perfHelper = _getPerfHelper();
-
-    perfHelper.DestroyWindowsRemote(function(result, excp) {
-                                        if (cb)
-                                            cb();
-                                    });
-
-    return function(callback) {
-        cb = callback;
-    };
+    return _callRemote(perfHelper, perfHelper.DestroyWindowsRemote);
 }
 
 /**
@@ -204,6 +215,10 @@ function _step(g, finish, onError) {
         let waitFunction = g.next();
         waitFunction(function() {
                          _step(g, finish, onError);
+                     },
+                     function(err) {
+                         if (onError)
+                             onError(err);
                      });
     } catch (err if err instanceof StopIteration) {
         if (finish)
@@ -302,8 +317,8 @@ function _collect(scriptModule, outputFile) {
         print ('------------------------------------------------------------');
         for (let i = 0; i < metrics.length; i++) {
             let metric = metrics[i];
-            print ('# ' + scriptModule.METRIC_DESCRIPTIONS[metric]);
-            print (metric + ': ' +  scriptModule.METRICS[metric]);
+            print ('# ' + scriptModule.METRICS[metric].description);
+            print (metric + ': ' +  scriptModule.METRICS[metric].value + scriptModule.METRICS[metric].units);
         }
         print ('------------------------------------------------------------');
     }
@@ -356,7 +371,12 @@ function runPerfScript(scriptModule, outputFile) {
 
     _step(g,
           function() {
-              _collect(scriptModule, outputFile);
+              try {
+                  _collect(scriptModule, outputFile);
+              } catch (err) {
+                  log("Script failed: " + err + "\n" + err.stack);
+                  Meta.exit(Meta.ExitCode.ERROR);
+              }
               Meta.exit(Meta.ExitCode.SUCCESS);
           },
          function(err) {

@@ -14,9 +14,6 @@ struct _ShellRecorderSrc
   GMutex mutex_data;
   GMutex *mutex;
 
-  GstClock *clock;
-  GstClockTime last_frame_time;
-
   GstCaps *caps;
   GAsyncQueue *queue;
   gboolean closed;
@@ -38,6 +35,7 @@ enum {
 /* Special marker value once the source is closed */
 #define RECORDER_QUEUE_END ((GstBuffer *)1)
 
+#define shell_recorder_src_parent_class parent_class
 G_DEFINE_TYPE(ShellRecorderSrc, shell_recorder_src, GST_TYPE_PUSH_SRC);
 
 static void
@@ -45,9 +43,7 @@ shell_recorder_src_init (ShellRecorderSrc      *src)
 {
   gst_base_src_set_format (GST_BASE_SRC (src), GST_FORMAT_TIME);
   gst_base_src_set_live (GST_BASE_SRC (src), TRUE);
-
-  src->clock = gst_system_clock_obtain ();
-  src->last_frame_time = 0;
+  gst_base_src_set_do_timestamp (GST_BASE_SRC (src), TRUE);
 
   src->queue = g_async_queue_new ();
   src->mutex = &src->mutex_data;
@@ -78,8 +74,44 @@ shell_recorder_src_update_memory_used (ShellRecorderSrc *src,
   g_mutex_lock (src->mutex);
   src->memory_used += delta;
   if (src->memory_used_update_idle == 0)
-    src->memory_used_update_idle = g_idle_add (shell_recorder_src_memory_used_update_idle, src);
+    {
+      src->memory_used_update_idle = g_idle_add (shell_recorder_src_memory_used_update_idle, src);
+      g_source_set_name_by_id (src->memory_used_update_idle, "[gnome-shell] shell_recorder_src_memory_used_update_idle");
+    }
   g_mutex_unlock (src->mutex);
+}
+
+/* _negotiate() is called when we have to decide on a format. We
+ * use the configured format */
+static gboolean
+shell_recorder_src_negotiate (GstBaseSrc * base_src)
+{
+  ShellRecorderSrc *src = SHELL_RECORDER_SRC (base_src);
+  gboolean result;
+
+  result = gst_base_src_set_caps (base_src, src->caps);
+
+  return result;
+}
+
+static gboolean
+shell_recorder_src_send_event (GstElement * element, GstEvent * event)
+{
+  ShellRecorderSrc *src = SHELL_RECORDER_SRC (element);
+  gboolean res;
+
+  switch (GST_EVENT_TYPE (event)) {
+    case GST_EVENT_EOS:
+      shell_recorder_src_close (src);
+      gst_event_unref (event);
+      res = TRUE;
+      break;
+    default:
+      res = GST_CALL_PARENT_WITH_DEFAULT (GST_ELEMENT_CLASS, send_event, (element,
+              event), FALSE);
+      break;
+  }
+  return res;
 }
 
 /* The create() virtual function is responsible for returning the next buffer.
@@ -97,9 +129,6 @@ shell_recorder_src_create (GstPushSrc  *push_src,
 
   buffer = g_async_queue_pop (src->queue);
 
-  if (src->last_frame_time == 0)
-    src->last_frame_time = gst_clock_get_time (GST_CLOCK (src->clock));
-
   if (buffer == RECORDER_QUEUE_END)
     {
       /* Returning UNEXPECTED here will cause a EOS message to be sent */
@@ -111,9 +140,6 @@ shell_recorder_src_create (GstPushSrc  *push_src,
 					 - (int)(gst_buffer_get_size(buffer) / 1024));
 
   *buffer_out = buffer;
-  GST_BUFFER_DURATION(*buffer_out) = GST_CLOCK_DIFF (src->last_frame_time, gst_clock_get_time (GST_CLOCK (src->clock)));
-
-  src->last_frame_time = gst_clock_get_time (GST_CLOCK (src->clock));
 
   return GST_FLOW_OK;
 }
@@ -154,8 +180,6 @@ shell_recorder_src_finalize (GObject *object)
   g_async_queue_unref (src->queue);
 
   g_mutex_clear (src->mutex);
-
-  gst_object_unref (src->clock);
 
   G_OBJECT_CLASS (shell_recorder_src_parent_class)->finalize (object);
 }
@@ -208,6 +232,7 @@ shell_recorder_src_class_init (ShellRecorderSrcClass *klass)
 {
   GObjectClass *object_class = G_OBJECT_CLASS (klass);
   GstElementClass *element_class = GST_ELEMENT_CLASS (klass);
+  GstBaseSrcClass *base_src_class = GST_BASE_SRC_CLASS (klass);
   GstPushSrcClass *push_src_class = GST_PUSH_SRC_CLASS (klass);
 
   static GstStaticPadTemplate src_template =
@@ -219,8 +244,6 @@ shell_recorder_src_class_init (ShellRecorderSrcClass *klass)
   object_class->finalize = shell_recorder_src_finalize;
   object_class->set_property = shell_recorder_src_set_property;
   object_class->get_property = shell_recorder_src_get_property;
-
-  push_src_class->create = shell_recorder_src_create;
 
   g_object_class_install_property (object_class,
                                    PROP_CAPS,
@@ -244,6 +267,12 @@ shell_recorder_src_class_init (ShellRecorderSrcClass *klass)
 					"Generic/Src",
 					"Feed screen capture data to a pipeline",
 					"Owen Taylor <otaylor@redhat.com>");
+
+  element_class->send_event = shell_recorder_src_send_event;
+
+  base_src_class->negotiate = shell_recorder_src_negotiate;
+
+  push_src_class->create = shell_recorder_src_create;
 }
 
 /**
@@ -261,7 +290,6 @@ shell_recorder_src_add_buffer (ShellRecorderSrc *src,
   g_return_if_fail (SHELL_IS_RECORDER_SRC (src));
   g_return_if_fail (src->caps != NULL);
 
-  gst_base_src_set_caps (GST_BASE_SRC (src), src->caps);
   shell_recorder_src_update_memory_used (src,
 					 (int)(gst_buffer_get_size(buffer) / 1024));
 

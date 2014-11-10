@@ -12,9 +12,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: David Zeuthen <davidz@redhat.com>
  *
@@ -539,6 +537,7 @@ app_schedule_changed (App *app)
       app->changed_timeout_id = g_timeout_add (2000,
                                                on_app_schedule_changed_cb,
                                                app);
+      g_source_set_name_by_id (app->changed_timeout_id, "[gnome-shell] on_app_schedule_changed_cb");
     }
 }
 

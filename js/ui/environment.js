@@ -5,6 +5,8 @@ imports.gi.versions.Gio = '2.0';
 imports.gi.versions.Gdk = '3.0';
 imports.gi.versions.GdkPixbuf = '2.0';
 imports.gi.versions.Gtk = '3.0';
+imports.gi.versions.TelepathyGLib = '0.12';
+imports.gi.versions.TelepathyLogger = '0.2';
 
 const Clutter = imports.gi.Clutter;;
 const Gettext = imports.gettext;
@@ -45,8 +47,11 @@ function _patchLayoutClass(layoutClass, styleProps) {
         layoutClass.prototype.hookup_style = function(container) {
             container.connect('style-changed', Lang.bind(this, function() {
                 let node = container.get_theme_node();
-                for (let prop in styleProps)
-                    this[prop] = node.get_length(styleProps[prop]);
+                for (let prop in styleProps) {
+                    let [found, length] = node.lookup_length(styleProps[prop], false);
+                    if (found)
+                        this[prop] = length;
+                }
             }));
         };
     layoutClass.prototype.child_set = function(actor, props) {

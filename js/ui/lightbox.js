@@ -5,11 +5,67 @@ const Lang = imports.lang;
 const Meta = imports.gi.Meta;
 const Signals = imports.signals;
 const St = imports.gi.St;
+const Shell = imports.gi.Shell;
 
 const Params = imports.misc.params;
 const Tweener = imports.ui.tweener;
 
 const DEFAULT_FADE_FACTOR = 0.4;
+const VIGNETTE_BRIGHTNESS = 0.8;
+const VIGNETTE_SHARPNESS = 0.7;
+
+const VIGNETTE_DECLARATIONS = '\
+uniform float brightness;\n\
+uniform float vignette_sharpness;\n';
+
+const VIGNETTE_CODE = '\
+cogl_color_out.a = cogl_color_in.a;\n\
+cogl_color_out.rgb = vec3(0.0, 0.0, 0.0);\n\
+vec2 position = cogl_tex_coord_in[0].xy - 0.5;\n\
+float t = length(2.0 * position);\n\
+t = clamp(t, 0.0, 1.0);\n\
+float pixel_brightness = mix(1.0, 1.0 - vignette_sharpness, t);\n\
+cogl_color_out.a = cogl_color_out.a * (1 - pixel_brightness * brightness);';
+
+const RadialShaderQuad = new Lang.Class({
+    Name: 'RadialShaderQuad',
+    Extends: Shell.GLSLQuad,
+
+    _init: function(params) {
+        this.parent(params);
+
+        this._brightnessLocation = this.get_uniform_location('brightness');
+        this._sharpnessLocation = this.get_uniform_location('vignette_sharpness');
+
+        this.brightness = 1.0;
+        this.vignetteSharpness = 0.0;
+    },
+
+    vfunc_build_pipeline: function() {
+        this.add_glsl_snippet(Shell.SnippetHook.FRAGMENT,
+                              VIGNETTE_DECLARATIONS, VIGNETTE_CODE, true);
+    },
+
+    get brightness() {
+        return this._brightness;
+    },
+
+    set brightness(v) {
+        this._brightness = v;
+        this.set_uniform_float(this._brightnessLocation,
+                               1, [this._brightness]);
+    },
+
+    get vignetteSharpness() {
+        return this._sharpness;
+    },
+
+    set vignetteSharpness(v) {
+        this._sharpness = v;
+        this.set_uniform_float(this._sharpnessLocation,
+                               1, [this._sharpness]);
+    }
+});
 
 /**
  * Lightbox:
@@ -43,15 +99,23 @@ const Lightbox = new Lang.Class({
                                         width: null,
                                         height: null,
                                         fadeFactor: DEFAULT_FADE_FACTOR,
+                                        radialEffect: false,
                                       });
 
         this._container = container;
         this._children = container.get_children();
         this._fadeFactor = params.fadeFactor;
-        this.actor = new St.Bin({ x: 0,
-                                  y: 0,
-                                  style_class: 'lightbox',
-                                  reactive: params.inhibitEvents });
+        this._radialEffect = Clutter.feature_available(Clutter.FeatureFlags.SHADERS_GLSL) && params.radialEffect;
+        if (this._radialEffect)
+            this.actor = new RadialShaderQuad({ x: 0,
+                                                y: 0,
+                                                reactive: params.inhibitEvents });
+        else
+            this.actor = new St.Bin({ x: 0,
+                                      y: 0,
+                                      opacity: 0,
+                                      style_class: 'lightbox',
+                                      reactive: params.inhibitEvents });
 
         container.add_actor(this.actor);
         this.actor.raise_top();
@@ -101,9 +165,18 @@ const Lightbox = new Lang.Class({
         fadeInTime = fadeInTime || 0;
 
         Tweener.removeTweens(this.actor);
-        if (fadeInTime != 0) {
-            this.shown = false;
-            this.actor.opacity = 0;
+        if (this._radialEffect) {
+            Tweener.addTween(this.actor,
+                             { brightness: VIGNETTE_BRIGHTNESS,
+                               vignetteSharpness: VIGNETTE_SHARPNESS,
+                               time: fadeInTime,
+                               transition: 'easeOutQuad',
+                               onComplete: Lang.bind(this, function() {
+                                   this.shown = true;
+                                   this.emit('shown');
+                               })
+                             });
+        } else {
             Tweener.addTween(this.actor,
                              { opacity: 255 * this._fadeFactor,
                                time: fadeInTime,
@@ -113,11 +186,8 @@ const Lightbox = new Lang.Class({
                                    this.emit('shown');
                                })
                              });
-        } else {
-            this.actor.opacity = 255 * this._fadeFactor;
-            this.shown = true;
-            this.emit('shown');
         }
+
         this.actor.show();
     },
 
@@ -126,7 +196,18 @@ const Lightbox = new Lang.Class({
 
         this.shown = false;
         Tweener.removeTweens(this.actor);
-        if (fadeOutTime != 0) {
+        if (this._radialEffect) {
+            Tweener.addTween(this.actor,
+                             { brightness: 1.0,
+                               vignetteSharpness: 0.0,
+                               opacity: 0,
+                               time: fadeOutTime,
+                               transition: 'easeOutQuad',
+                               onComplete: Lang.bind(this, function() {
+                                   this.actor.hide();
+                               })
+                             });
+        } else {
             Tweener.addTween(this.actor,
                              { opacity: 0,
                                time: fadeOutTime,
@@ -135,8 +216,6 @@ const Lightbox = new Lang.Class({
                                    this.actor.hide();
                                })
                              });
-        } else {
-            this.actor.hide();
         }
     },
 

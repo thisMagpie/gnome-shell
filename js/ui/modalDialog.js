@@ -41,9 +41,9 @@ const ModalDialog = new Lang.Class({
     _init: function(params) {
         params = Params.parse(params, { shellReactive: false,
                                         styleClass: null,
-                                        parentActor: Main.uiGroup,
                                         keybindingMode: Shell.KeyBindingMode.SYSTEM_MODAL,
                                         shouldFadeIn: true,
+                                        shouldFadeOut: true,
                                         destroyOnClose: true });
 
         this.state = State.CLOSED;
@@ -51,13 +51,14 @@ const ModalDialog = new Lang.Class({
         this._keybindingMode = params.keybindingMode;
         this._shellReactive = params.shellReactive;
         this._shouldFadeIn = params.shouldFadeIn;
+        this._shouldFadeOut = params.shouldFadeOut;
         this._destroyOnClose = params.destroyOnClose;
 
         this._group = new St.Widget({ visible: false,
                                       x: 0,
                                       y: 0,
                                       accessible_role: Atk.Role.DIALOG });
-        params.parentActor.add_actor(this._group);
+        Main.layoutManager.modalDialogGroup.add_actor(this._group);
 
         let constraint = new Clutter.BindConstraint({ source: global.stage,
                                                       coordinate: Clutter.BindCoordinate.ALL });
@@ -89,7 +90,8 @@ const ModalDialog = new Lang.Class({
 
         if (!this._shellReactive) {
             this._lightbox = new Lightbox.Lightbox(this._group,
-                                                   { inhibitEvents: true });
+                                                   { inhibitEvents: true,
+                                                     radialEffect: true });
             this._lightbox.highlight(this._backgroundBin);
 
             this._eventBlocker = new Clutter.Actor({ reactive: true });
@@ -192,7 +194,7 @@ const ModalDialog = new Lang.Class({
     },
 
     placeSpinner: function(layoutInfo) {
-        let spinnerIcon = global.datadir + '/theme/process-working.svg';
+        let spinnerIcon = Gio.File.new_for_uri('resource:///org/gnome/shell/theme/process-working.svg');
         this._workSpinner = new Animation.AnimatedIcon(spinnerIcon, WORK_SPINNER_ICON_SIZE);
         this._workSpinner.actor.opacity = 0;
         this._workSpinner.actor.show();
@@ -229,6 +231,7 @@ const ModalDialog = new Lang.Class({
 
     _onKeyPressEvent: function(object, event) {
         this._pressedKey = event.get_key_symbol();
+        return Clutter.EVENT_PROPAGATE;
     },
 
     _onKeyReleaseEvent: function(object, event) {
@@ -237,21 +240,21 @@ const ModalDialog = new Lang.Class({
 
         let symbol = event.get_key_symbol();
         if (symbol != pressedKey)
-            return false;
+            return Clutter.EVENT_PROPAGATE;
 
         let buttonInfo = this._buttonKeys[symbol];
         if (!buttonInfo)
-            return false;
+            return Clutter.EVENT_PROPAGATE;
 
         let button = buttonInfo['button'];
         let action = buttonInfo['action'];
 
         if (action && button.reactive) {
             action();
-            return true;
+            return Clutter.EVENT_STOP;
         }
 
-        return false;
+        return Clutter.EVENT_PROPAGATE;
     },
 
     _onGroupDestroy: function() {
@@ -306,6 +309,15 @@ const ModalDialog = new Lang.Class({
         return true;
     },
 
+    _closeComplete: function() {
+        this.state = State.CLOSED;
+        this._group.hide();
+        this.emit('closed');
+
+        if (this._destroyOnClose)
+            this.destroy();
+    },
+
     close: function(timestamp) {
         if (this.state == State.CLOSED || this.state == State.CLOSING)
             return;
@@ -314,20 +326,16 @@ const ModalDialog = new Lang.Class({
         this.popModal(timestamp);
         this._savedKeyFocus = null;
 
-        Tweener.addTween(this._group,
-                         { opacity: 0,
-                           time: OPEN_AND_CLOSE_TIME,
-                           transition: 'easeOutQuad',
-                           onComplete: Lang.bind(this,
-                               function() {
-                                   this.state = State.CLOSED;
-                                   this._group.hide();
-                                   this.emit('closed');
-
-                                   if (this._destroyOnClose)
-                                       this.destroy();
-                               })
-                         });
+        if (this._shouldFadeOut)
+            Tweener.addTween(this._group,
+                             { opacity: 0,
+                               time: OPEN_AND_CLOSE_TIME,
+                               transition: 'easeOutQuad',
+                               onComplete: Lang.bind(this,
+                                                     this._closeComplete)
+                             })
+        else
+            this._closeComplete();
     },
 
     // Drop modal status without closing the dialog; this makes the

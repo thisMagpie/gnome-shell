@@ -6,30 +6,31 @@ const Lang = imports.lang;
 const Shell = imports.gi.Shell;
 const Signals = imports.signals;
 
-const Hash = imports.misc.hash;
 const Main = imports.ui.main;
 
-const ScreencastIface = <interface name="org.gnome.Shell.Screencast">
-<method name="Screencast">
-    <arg type="s" direction="in" name="file_template"/>
-    <arg type="a{sv}" direction="in" name="options"/>
-    <arg type="b" direction="out" name="success"/>
-    <arg type="s" direction="out" name="filename_used"/>
-</method>
-<method name="ScreencastArea">
-    <arg type="i" direction="in" name="x"/>
-    <arg type="i" direction="in" name="y"/>
-    <arg type="i" direction="in" name="width"/>
-    <arg type="i" direction="in" name="height"/>
-    <arg type="s" direction="in" name="file_template"/>
-    <arg type="a{sv}" direction="in" name="options"/>
-    <arg type="b" direction="out" name="success"/>
-    <arg type="s" direction="out" name="filename_used"/>
-</method>
-<method name="StopScreencast">
-    <arg type="b" direction="out" name="success"/>
-</method>
-</interface>;
+const ScreencastIface = '<node> \
+<interface name="org.gnome.Shell.Screencast"> \
+<method name="Screencast"> \
+    <arg type="s" direction="in" name="file_template"/> \
+    <arg type="a{sv}" direction="in" name="options"/> \
+    <arg type="b" direction="out" name="success"/> \
+    <arg type="s" direction="out" name="filename_used"/> \
+</method> \
+<method name="ScreencastArea"> \
+    <arg type="i" direction="in" name="x"/> \
+    <arg type="i" direction="in" name="y"/> \
+    <arg type="i" direction="in" name="width"/> \
+    <arg type="i" direction="in" name="height"/> \
+    <arg type="s" direction="in" name="file_template"/> \
+    <arg type="a{sv}" direction="in" name="options"/> \
+    <arg type="b" direction="out" name="success"/> \
+    <arg type="s" direction="out" name="filename_used"/> \
+</method> \
+<method name="StopScreencast"> \
+    <arg type="b" direction="out" name="success"/> \
+</method> \
+</interface> \
+</node>';
 
 const ScreencastService = new Lang.Class({
     Name: 'ScreencastService',
@@ -40,13 +41,15 @@ const ScreencastService = new Lang.Class({
 
         Gio.DBus.session.own_name('org.gnome.Shell.Screencast', Gio.BusNameOwnerFlags.REPLACE, null, null);
 
-        this._recorders = new Hash.Map();
+        this._recorders = new Map();
+
+        this._lockdownSettings = new Gio.Settings({ schema_id: 'org.gnome.desktop.lockdown' });
 
         Main.sessionMode.connect('updated', Lang.bind(this, this._sessionUpdated));
     },
 
     get isRecording() {
-        return this._recorders.size() > 0;
+        return this._recorders.size > 0;
     },
 
     _ensureRecorderForSender: function(sender) {
@@ -67,9 +70,8 @@ const ScreencastService = new Lang.Class({
         if (Main.sessionMode.allowScreencast)
             return;
 
-        for (let sender in this._recorders.keys())
-            this._recorders.delete(sender);
-        this.emit('updated');
+        for (let sender of this._recorders.keys())
+            this._stopRecordingForSender(sender);
     },
 
     _onNameVanished: function(connection, name) {
@@ -103,8 +105,11 @@ const ScreencastService = new Lang.Class({
 
     ScreencastAsync: function(params, invocation) {
         let returnValue = [false, ''];
-        if (!Main.sessionMode.allowScreencast)
+        if (!Main.sessionMode.allowScreencast ||
+            this._lockdownSettings.get_boolean('disable-save-to-disk')) {
             invocation.return_value(GLib.Variant.new('(bs)', returnValue));
+            return;
+        }
 
         let sender = invocation.get_sender();
         let recorder = this._ensureRecorderForSender(sender);
@@ -115,6 +120,8 @@ const ScreencastService = new Lang.Class({
             this._applyOptionalParameters(recorder, options);
             let [success, fileName] = recorder.record();
             returnValue = [success, fileName ? fileName : ''];
+            if (!success)
+                this._stopRecordingForSender(sender);
         }
 
         invocation.return_value(GLib.Variant.new('(bs)', returnValue));
@@ -122,8 +129,11 @@ const ScreencastService = new Lang.Class({
 
     ScreencastAreaAsync: function(params, invocation) {
         let returnValue = [false, ''];
-        if (!Main.sessionMode.allowScreencast)
+        if (!Main.sessionMode.allowScreencast ||
+            this._lockdownSettings.get_boolean('disable-save-to-disk')) {
             invocation.return_value(GLib.Variant.new('(bs)', returnValue));
+            return;
+        }
 
         let sender = invocation.get_sender();
         let recorder = this._ensureRecorderForSender(sender);
@@ -131,11 +141,23 @@ const ScreencastService = new Lang.Class({
         if (!recorder.is_recording()) {
             let [x, y, width, height, fileTemplate, options] = params;
 
+            if (x < 0 || y < 0 ||
+                width <= 0 || height <= 0 ||
+                x + width > global.screen_width ||
+                y + height > global.screen_height) {
+                invocation.return_error_literal(Gio.IOErrorEnum,
+                                                Gio.IOErrorEnum.CANCELLED,
+                                                "Invalid params");
+                return;
+            }
+
             recorder.set_file_template(fileTemplate);
             recorder.set_area(x, y, width, height);
             this._applyOptionalParameters(recorder, options);
             let [success, fileName] = recorder.record();
             returnValue = [success, fileName ? fileName : ''];
+            if (!success)
+                this._stopRecordingForSender(sender);
         }
 
         invocation.return_value(GLib.Variant.new('(bs)', returnValue));

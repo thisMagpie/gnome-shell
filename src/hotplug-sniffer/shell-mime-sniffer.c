@@ -14,9 +14,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Cosimo Cecchi <cosimoc@redhat.com>
  *
@@ -592,6 +590,7 @@ shell_mime_sniffer_sniff_async (ShellMimeSniffer *self,
   self->priv->watchdog_id =
     g_timeout_add (WATCHDOG_TIMEOUT,
                    watchdog_timeout_reached_cb, self);
+  g_source_set_name_by_id (self->priv->watchdog_id, "[gnome-shell] watchdog_timeout_reached_cb");
 
   start_loading_file (self);
 }

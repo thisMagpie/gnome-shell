@@ -17,8 +17,6 @@ const EntryMenu = new Lang.Class({
     _init: function(entry) {
         this.parent(entry, 0, St.Side.TOP);
 
-        this.actor.add_style_class_name('entry-context-menu');
-
         this._entry = entry;
         this._clipboard = St.Clipboard.get_default();
 
@@ -132,14 +130,14 @@ function _setMenuAlignment(entry, stageX) {
 function _onButtonPressEvent(actor, event, entry) {
     if (entry.menu.isOpen) {
         entry.menu.close(BoxPointer.PopupAnimation.FULL);
-        return true;
+        return Clutter.EVENT_STOP;
     } else if (event.get_button() == 3) {
         let [stageX, stageY] = event.get_coords();
         _setMenuAlignment(entry, stageX);
         entry.menu.open(BoxPointer.PopupAnimation.FULL);
-        return true;
+        return Clutter.EVENT_STOP;
     }
-    return false;
+    return Clutter.EVENT_PROPAGATE;
 };
 
 function _onPopup(actor, entry) {

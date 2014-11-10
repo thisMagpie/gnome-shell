@@ -19,12 +19,9 @@ void     shell_util_get_transformed_allocation (ClutterActor     *actor,
 
 int      shell_util_get_week_start             (void);
 
-char    *shell_util_normalize_and_casefold     (const char       *str);
-
-char    *shell_util_normalize_casefold_and_unaccent (const char  *str);
-
 char    *shell_util_format_date                (const char       *format,
                                                 gint64            time_ms);
+const char *shell_util_translate_time_string   (const char *str);
 
 gboolean shell_write_string_to_stream          (GOutputStream    *stream,
                                                 const char       *str,
@@ -44,8 +41,6 @@ GdkPixbuf *shell_util_create_pixbuf_from_data (const guchar      *data,
                                                int                width,
                                                int                height,
                                                int                rowstride);
-
-void    shell_util_wake_up_screen             (void);
 
 void    shell_util_cursor_tracker_to_clutter (MetaCursorTracker *tracker,
                                               ClutterTexture    *texture);

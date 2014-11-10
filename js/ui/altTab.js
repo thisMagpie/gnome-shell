@@ -2,6 +2,7 @@
 
 const Clutter = imports.gi.Clutter;
 const Gio = imports.gi.Gio;
+const GLib = imports.gi.GLib;
 const Lang = imports.lang;
 const Mainloop = imports.mainloop;
 const Meta = imports.gi.Meta;
@@ -23,7 +24,7 @@ const WINDOW_PREVIEW_SIZE = 128;
 const APP_ICON_SIZE = 96;
 const APP_ICON_SIZE_SMALL = 48;
 
-const iconSizes = [96, 64, 48, 32, 22];
+const baseIconSizes = [96, 64, 48, 32, 22];
 
 const AppIconMode = {
     THUMBNAIL_ONLY: 1,
@@ -57,6 +58,14 @@ const AppSwitcherPopup = new Lang.Class({
         this._currentWindow = -1;
 
         this.thumbnailsVisible = false;
+
+        let apps = Shell.AppSystem.get_default().get_running ();
+
+        if (apps.length == 0)
+            return;
+
+        this._switcherList = new AppSwitcher(apps, this);
+        this._items = this._switcherList.icons;
     },
 
     _allocate: function (actor, box, flags) {
@@ -98,18 +107,6 @@ const AppSwitcherPopup = new Lang.Class({
         }
     },
 
-    _createSwitcher: function() {
-        let apps = Shell.AppSystem.get_default().get_running ();
-
-        if (apps.length == 0)
-            return false;
-
-        this._switcherList = new AppSwitcher(apps, this);
-        this._items = this._switcherList.icons;
-
-        return true;
-    },
-
     _initialSelection: function(backward, binding) {
         if (binding == 'switch-group') {
             if (backward) {
@@ -148,13 +145,13 @@ const AppSwitcherPopup = new Lang.Class({
                                  this._items[this._selectedIndex].cachedWindows.length);
     },
 
-    _keyPressHandler: function(keysym, backwards, action) {
+    _keyPressHandler: function(keysym, action) {
         if (action == Meta.KeyBindingAction.SWITCH_GROUP) {
-            this._select(this._selectedIndex, backwards ? this._previousWindow() : this._nextWindow());
+            this._select(this._selectedIndex, this._nextWindow());
         } else if (action == Meta.KeyBindingAction.SWITCH_GROUP_BACKWARD) {
             this._select(this._selectedIndex, this._previousWindow());
         } else if (action == Meta.KeyBindingAction.SWITCH_APPLICATIONS) {
-            this._select(backwards ? this._previous() : this._next());
+            this._select(this._next());
         } else if (action == Meta.KeyBindingAction.SWITCH_APPLICATIONS_BACKWARD) {
             this._select(this._previous());
         } else if (this._thumbnailsFocused) {
@@ -164,6 +161,8 @@ const AppSwitcherPopup = new Lang.Class({
                 this._select(this._selectedIndex, this._nextWindow());
             else if (keysym == Clutter.Up)
                 this._select(this._selectedIndex, null, true);
+            else
+                return Clutter.EVENT_PROPAGATE;
         } else {
             if (keysym == Clutter.Left)
                 this._select(this._previous());
@@ -171,7 +170,11 @@ const AppSwitcherPopup = new Lang.Class({
                 this._select(this._next());
             else if (keysym == Clutter.Down)
                 this._select(this._selectedIndex, 0);
+            else
+                return Clutter.EVENT_PROPAGATE;
         }
+
+        return Clutter.EVENT_STOP;
     },
 
     _scrollHandler: function(direction) {
@@ -302,6 +305,7 @@ const AppSwitcherPopup = new Lang.Class({
             this._thumbnailTimeoutId = Mainloop.timeout_add (
                 THUMBNAIL_POPUP_TIME,
                 Lang.bind(this, this._timeoutPopupThumbnails));
+            GLib.Source.set_name_by_id(this._thumbnailTimeoutId, '[gnome-shell] this._timeoutPopupThumbnails');
         }
     },
 
@@ -310,7 +314,7 @@ const AppSwitcherPopup = new Lang.Class({
             this._createThumbnails();
         this._thumbnailTimeoutId = 0;
         this._thumbnailsFocused = false;
-        return false;
+        return GLib.SOURCE_REMOVE;
     },
 
     _destroyThumbnails : function() {
@@ -355,37 +359,28 @@ const WindowSwitcherPopup = new Lang.Class({
     Name: 'WindowSwitcherPopup',
     Extends: SwitcherPopup.SwitcherPopup,
 
-    _getWindowList: function() {
-        let settings = new Gio.Settings({ schema: 'org.gnome.shell.window-switcher' });
-        let workspace = settings.get_boolean('current-workspace-only') ? global.screen.get_active_workspace()
-                                                                       : null;
-        return global.display.get_tab_list(Meta.TabList.NORMAL, global.screen, workspace);
-    },
+    _init: function() {
+        this.parent();
+        this._settings = new Gio.Settings({ schema_id: 'org.gnome.shell.window-switcher' });
 
-    _createSwitcher: function() {
         let windows = this._getWindowList();
 
         if (windows.length == 0)
-            return false;
+            return;
 
-        this._switcherList = new WindowList(windows);
+        let mode = this._settings.get_enum('app-icon-mode');
+        this._switcherList = new WindowList(windows, mode);
         this._items = this._switcherList.icons;
-
-        return true;
     },
 
-    _initialSelection: function(backward, binding) {
-        if (binding == 'switch-windows-backward' || backward)
-            this._select(this._items.length - 1);
-        else if (this._items.length == 1)
-            this._select(0);
-        else
-            this._select(1);
+    _getWindowList: function() {
+        let workspace = this._settings.get_boolean('current-workspace-only') ? global.screen.get_active_workspace() : null;
+        return global.display.get_tab_list(Meta.TabList.NORMAL, workspace);
     },
 
-    _keyPressHandler: function(keysym, backwards, action) {
+    _keyPressHandler: function(keysym, action) {
         if (action == Meta.KeyBindingAction.SWITCH_WINDOWS) {
-            this._select(backwards ? this._previous() : this._next());
+            this._select(this._next());
         } else if (action == Meta.KeyBindingAction.SWITCH_WINDOWS_BACKWARD) {
             this._select(this._previous());
         } else {
@@ -393,7 +388,11 @@ const WindowSwitcherPopup = new Lang.Class({
                 this._select(this._previous());
             else if (keysym == Clutter.Right)
                 this._select(this._next());
+            else
+                return Clutter.EVENT_PROPAGATE;
         }
+
+        return Clutter.EVENT_STOP;
     },
 
     _finish: function() {
@@ -420,7 +419,6 @@ const AppIcon = new Lang.Class({
 
     set_size: function(size) {
         this.icon = this.app.create_icon_texture(size);
-        this._iconBin.set_size(size, size);
         this._iconBin.child = this.icon;
     }
 });
@@ -436,11 +434,10 @@ const AppSwitcher = new Lang.Class({
         this._arrows = [];
 
         let windowTracker = Shell.WindowTracker.get_default();
-        let settings = new Gio.Settings({ schema: 'org.gnome.shell.app-switcher' });
+        let settings = new Gio.Settings({ schema_id: 'org.gnome.shell.app-switcher' });
         let workspace = settings.get_boolean('current-workspace-only') ? global.screen.get_active_workspace()
                                                                        : null;
-        let allWindows = global.display.get_tab_list(Meta.TabList.NORMAL,
-                                                     global.screen, workspace);
+        let allWindows = global.display.get_tab_list(Meta.TabList.NORMAL, workspace);
 
         // Construct the AppIcons, add to the popup
         for (let i = 0; i < apps.length; i++) {
@@ -450,9 +447,10 @@ const AppSwitcher = new Lang.Class({
             appIcon.cachedWindows = allWindows.filter(function(w) {
                 return windowTracker.get_window_app (w) == appIcon.app;
             });
-            if (workspace == null || appIcon.cachedWindows.length > 0) {
+            if (appIcon.cachedWindows.length > 0)
                 this._addIcon(appIcon);
-            }
+            else if (workspace == null)
+                throw new Error('%s appears to be running, but doesn\'t have any windows'.format(appIcon.app.get_name()));
         }
 
         this._curApp = -1;
@@ -468,12 +466,13 @@ const AppSwitcher = new Lang.Class({
             Mainloop.source_remove(this._mouseTimeOutId);
     },
 
-    _getPreferredHeight: function (actor, forWidth, alloc) {
+    _setIconSize: function() {
         let j = 0;
         while(this._items.length > 1 && this._items[j].style_class != 'item-box') {
                 j++;
         }
         let themeNode = this._items[j].get_theme_node();
+
         let iconPadding = themeNode.get_horizontal_padding();
         let iconBorder = themeNode.get_border_width(St.Side.LEFT) + themeNode.get_border_width(St.Side.RIGHT);
         let [iconMinHeight, iconNaturalHeight] = this.icons[j].label.get_preferred_height(-1);
@@ -484,19 +483,22 @@ const AppSwitcher = new Lang.Class({
         let primary = Main.layoutManager.primaryMonitor;
         let parentPadding = this.actor.get_parent().get_theme_node().get_horizontal_padding();
         let availWidth = primary.width - parentPadding - this.actor.get_theme_node().get_horizontal_padding();
-        let height = 0;
 
-        for(let i =  0; i < iconSizes.length; i++) {
-                this._iconSize = iconSizes[i];
-                height = iconSizes[i] + iconSpacing;
-                let w = height * this._items.length + totalSpacing;
-                if (w <= availWidth)
-                        break;
-        }
+        let scaleFactor = St.ThemeContext.get_for_stage(global.stage).scale_factor;
+        let iconSizes = baseIconSizes.map(function(s) {
+            return s * scaleFactor;
+        });
 
         if (this._items.length == 1) {
-            this._iconSize = iconSizes[0];
-            height = iconSizes[0] + iconSpacing;
+            this._iconSize = baseIconSizes[0];
+        } else {
+            for(let i =  0; i < baseIconSizes.length; i++) {
+                this._iconSize = baseIconSizes[i];
+                let height = iconSizes[i] + iconSpacing;
+                let w = height * this._items.length + totalSpacing;
+                if (w <= availWidth)
+                    break;
+            }
         }
 
         for(let i = 0; i < this.icons.length; i++) {
@@ -504,9 +506,11 @@ const AppSwitcher = new Lang.Class({
                 break;
             this.icons[i].set_size(this._iconSize);
         }
+    },
 
-        alloc.min_size = height;
-        alloc.natural_size = height;
+    _getPreferredHeight: function (actor, forWidth, alloc) {
+        this._setIconSize();
+        this.parent(actor, forWidth, alloc);
     },
 
     _allocate: function (actor, box, flags) {
@@ -538,8 +542,9 @@ const AppSwitcher = new Lang.Class({
                                                         Lang.bind(this, function () {
                                                                             this._enterItem(index);
                                                                             this._mouseTimeOutId = 0;
-                                                                            return false;
+                                                                            return GLib.SOURCE_REMOVE;
                                                         }));
+            GLib.Source.set_name_by_id(this._mouseTimeOutId, '[gnome-shell] this._enterItem');
         } else
            this._itemEntered(index);
     },
@@ -639,17 +644,19 @@ const ThumbnailList = new Lang.Class({
         totalPadding += this.actor.get_theme_node().get_horizontal_padding() + this.actor.get_theme_node().get_vertical_padding();
         let [labelMinHeight, labelNaturalHeight] = this._labels[0].get_preferred_height(-1);
         let spacing = this._items[0].child.get_theme_node().get_length('spacing');
+        let scaleFactor = St.ThemeContext.get_for_stage(global.stage).scale_factor;
+        let thumbnailSize = THUMBNAIL_DEFAULT_SIZE * scaleFactor;
 
-        availHeight = Math.min(availHeight - labelNaturalHeight - totalPadding - spacing, THUMBNAIL_DEFAULT_SIZE);
+        availHeight = Math.min(availHeight - labelNaturalHeight - totalPadding - spacing, thumbnailSize);
         let binHeight = availHeight + this._items[0].get_theme_node().get_vertical_padding() + this.actor.get_theme_node().get_vertical_padding() - spacing;
-        binHeight = Math.min(THUMBNAIL_DEFAULT_SIZE, binHeight);
+        binHeight = Math.min(thumbnailSize, binHeight);
 
         for (let i = 0; i < this._thumbnailBins.length; i++) {
             let mutterWindow = this._windows[i].get_compositor_private();
             if (!mutterWindow)
                 continue;
 
-            let clone = _createWindowClone(mutterWindow, THUMBNAIL_DEFAULT_SIZE);
+            let clone = _createWindowClone(mutterWindow, thumbnailSize);
             this._thumbnailBins[i].set_height(binHeight);
             this._thumbnailBins[i].add_actor(clone);
             this._clones.push(clone);
@@ -663,7 +670,7 @@ const ThumbnailList = new Lang.Class({
 const WindowIcon = new Lang.Class({
     Name: 'WindowIcon',
 
-    _init: function(window) {
+    _init: function(window, mode) {
         this.window = window;
 
         this.actor = new St.BoxLayout({ style_class: 'alt-tab-app',
@@ -681,8 +688,7 @@ const WindowIcon = new Lang.Class({
 
         this._icon.destroy_all_children();
 
-        let settings = new Gio.Settings({ schema: 'org.gnome.shell.window-switcher' });
-        switch (settings.get_enum('app-icon-mode')) {
+        switch (mode) {
             case AppIconMode.THUMBNAIL_ONLY:
                 size = WINDOW_PREVIEW_SIZE;
                 this._icon.add_actor(_createWindowClone(mutterWindow, WINDOW_PREVIEW_SIZE));
@@ -720,7 +726,7 @@ const WindowList = new Lang.Class({
     Name: 'WindowList',
     Extends: SwitcherPopup.SwitcherList,
 
-    _init : function(windows) {
+    _init : function(windows, mode) {
         this.parent(true);
 
         this._label = new St.Label({ x_align: Clutter.ActorAlign.CENTER,
@@ -732,7 +738,7 @@ const WindowList = new Lang.Class({
 
         for (let i = 0; i < windows.length; i++) {
             let win = windows[i];
-            let icon = new WindowIcon(win);
+            let icon = new WindowIcon(win, mode);
 
             this.addItem(icon.actor, icon.label);
             this.icons.push(icon);

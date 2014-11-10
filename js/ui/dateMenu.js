@@ -3,6 +3,7 @@
 const GLib = imports.gi.GLib;
 const Gio = imports.gi.Gio;
 const GnomeDesktop = imports.gi.GnomeDesktop;
+const GObject = imports.gi.GObject;
 const Lang = imports.lang;
 const Mainloop = imports.mainloop;
 const Cairo = imports.cairo;
@@ -18,8 +19,9 @@ const PanelMenu = imports.ui.panelMenu;
 const PopupMenu = imports.ui.popupMenu;
 const Calendar = imports.ui.calendar;
 
-function _onVertSepRepaint (area)
-{
+const N_ = function(s) { return s; };
+
+function _onVertSepRepaint(area) {
     let cr = area.get_context();
     let themeNode = area.get_theme_node();
     let [width, height] = area.get_surface_size();
@@ -33,7 +35,7 @@ function _onVertSepRepaint (area)
     cr.setLineWidth(stippleWidth);
     cr.stroke();
     cr.$dispose();
-};
+}
 
 const DateMenuButton = new Lang.Class({
     Name: 'DateMenuButton',
@@ -50,6 +52,7 @@ const DateMenuButton = new Lang.Class({
         this.parent(menuAlignment);
 
         this._clockDisplay = new St.Label({ y_align: Clutter.ActorAlign.CENTER });
+        this.actor.label_actor = this._clockDisplay;
         this.actor.add_actor(this._clockDisplay);
         this.actor.add_style_class_name ('clock-display');
 
@@ -62,10 +65,17 @@ const DateMenuButton = new Lang.Class({
         hbox.add(vbox);
 
         // Date
-        this._date = new St.Label();
-        this.actor.label_actor = this._clockDisplay;
-        this._date.style_class = 'datemenu-date-label';
-        vbox.add(this._date);
+        // Having the ability to go to the current date if the user is already
+        // on the current date can be confusing. So don't make the button reactive
+        // until the selected date changes.
+        this._date = new St.Button({ style_class: 'datemenu-date-label',
+                                     reactive: false
+                                   });
+        this._date.connect('clicked',
+                           Lang.bind(this, function() {
+                               this._calendar.setDate(new Date(), false);
+                           }));
+        vbox.add(this._date, { x_fill: false  });
 
         this._eventList = new Calendar.EventsList();
         this._calendar = new Calendar.Calendar();
@@ -77,6 +87,9 @@ const DateMenuButton = new Lang.Class({
                                   // and the calender makes those dates unclickable when instantiated with
                                   // a null event source
                                    this._eventList.setDate(date);
+
+                                   // Make the button reactive only if the selected date is not the current date.
+                                   this._date.can_focus = this._date.reactive = !this._isToday(date)
                                }));
         vbox.add(this._calendar.actor);
 
@@ -113,33 +126,30 @@ const DateMenuButton = new Lang.Class({
         this.menu.connect('open-state-changed', Lang.bind(this, function(menu, isOpen) {
             if (isOpen) {
                 let now = new Date();
-                /* Passing true to setDate() forces events to be reloaded. We
-                 * want this behavior, because
-                 *
-                 *   o It will cause activation of the calendar server which is
-                 *     useful if it has crashed
-                 *
-                 *   o It will cause the calendar server to reload events which
-                 *     is useful if dynamic updates are not supported or not
-                 *     properly working
-                 *
-                 * Since this only happens when the menu is opened, the cost
-                 * isn't very big.
+                this._calendar.setDate(now);
+
+                /* Translators: This is the date format to use when the calendar popup is
+                 * shown - it is shown just below the time in the shell (e.g. "Tue 9:29 AM").
                  */
-                this._calendar.setDate(now, true);
-                // No need to update this._eventList as ::selected-date-changed
-                // signal will fire
+                let dateFormat = Shell.util_translate_time_string (N_("%A %B %e, %Y"));
+                this._date.set_label(now.toLocaleFormat(dateFormat));
             }
         }));
 
         // Done with hbox for calendar and event list
 
         this._clock = new GnomeDesktop.WallClock();
-        this._clock.connect('notify::clock', Lang.bind(this, this._updateClockAndDate));
-        this._updateClockAndDate();
+        this._clock.bind_property('clock', this._clockDisplay, 'text', GObject.BindingFlags.SYNC_CREATE);
 
         Main.sessionMode.connect('updated', Lang.bind(this, this._sessionUpdated));
         this._sessionUpdated();
+    },
+
+    _isToday: function(date) {
+        let now = new Date();
+        return now.getYear() == date.getYear() &&
+               now.getMonth() == date.getMonth() &&
+               now.getDate() == date.getDate();
     },
 
     _appInstalledChanged: function() {
@@ -165,6 +175,10 @@ const DateMenuButton = new Lang.Class({
         }
     },
 
+    _getEventSource: function() {
+        return new Calendar.DBusEventSource();
+    },
+
     _setEventSource: function(eventSource) {
         if (this._eventSource)
             this._eventSource.destroy();
@@ -182,7 +196,7 @@ const DateMenuButton = new Lang.Class({
         let eventSource;
         let showEvents = Main.sessionMode.showCalendarEvents;
         if (showEvents) {
-            eventSource = new Calendar.DBusEventSource();
+            eventSource = this._getEventSource();
         } else {
             eventSource = new Calendar.EmptyEventSource();
         }
@@ -194,30 +208,23 @@ const DateMenuButton = new Lang.Class({
         this._dateAndTimeSeparator.actor.visible = Main.sessionMode.allowSettings;
     },
 
-    _updateClockAndDate: function() {
-        this._clockDisplay.set_text(this._clock.clock);
-        /* Translators: This is the date format to use when the calendar popup is
-         * shown - it is shown just below the time in the shell (e.g. "Tue 9:29 AM").
-         */
-        let dateFormat = _("%A %B %e, %Y");
-        let displayDate = new Date();
-        this._date.set_text(displayDate.toLocaleFormat(dateFormat));
-    },
-
     _getCalendarApp: function() {
         if (this._calendarApp !== undefined)
             return this._calendarApp;
 
         let apps = Gio.AppInfo.get_recommended_for_type('text/calendar');
-        if (apps && (apps.length > 0))
-            this._calendarApp = apps[0];
-        else
+        if (apps && (apps.length > 0)) {
+            let app = Gio.AppInfo.get_default_for_type('text/calendar', false);
+            let defaultInRecommended = apps.some(function(a) { return a.equal(app); });
+            this._calendarApp = defaultInRecommended ? app : apps[0];
+        } else {
             this._calendarApp = null;
+        }
         return this._calendarApp;
     },
 
     _getClockApp: function() {
-        return Shell.AppSystem.get_default().lookup_app('gnome-clocks.desktop');
+        return Shell.AppSystem.get_default().lookup_app('org.gnome.clocks.desktop');
     },
 
     _onOpenCalendarActivate: function() {
@@ -226,7 +233,7 @@ const DateMenuButton = new Lang.Class({
         let app = this._getCalendarApp();
         if (app.get_id() == 'evolution.desktop')
             app = Gio.DesktopAppInfo.new('evolution-calendar.desktop');
-        app.launch([], global.create_app_launch_context());
+        app.launch([], global.create_app_launch_context(0, -1));
     },
 
     _onOpenClocksActivate: function() {

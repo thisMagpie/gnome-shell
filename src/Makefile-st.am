@@ -4,6 +4,8 @@ st_cflags =					\
 	-DLIBDIR=\""$(libdir)"\"		\
 	-DG_LOG_DOMAIN=\"St\"			\
 	-DST_COMPILATION			\
+	-DCLUTTER_ENABLE_EXPERIMENTAL_API	\
+	-DCOGL_ENABLE_EXPERIMENTAL_API		\
 	-DPACKAGE_DATA_DIR=\"$(pkgdatadir)\"	\
 	$(ST_CFLAGS)				\
 	$(NULL)
@@ -52,6 +54,7 @@ st_source_h =					\
 	st/st-drawing-area.h			\
 	st/st-entry.h				\
 	st/st-focus-manager.h			\
+	st/st-generic-accessible.h		\
 	st/st-icon.h				\
 	st/st-icon-colors.h			\
 	st/st-im-text.h				\
@@ -120,6 +123,7 @@ st_source_c =					\
 	st/st-drawing-area.c			\
 	st/st-entry.c				\
 	st/st-focus-manager.c			\
+	st/st-generic-accessible.c		\
 	st/st-icon.c				\
 	st/st-icon-colors.c			\
 	st/st-im-text.c				\
@@ -154,8 +158,10 @@ libst_1_0_la_SOURCES =				\
 	$(st_source_private_h)			\
 	$(st_source_private_c)			\
 	$(st_source_h)				\
-	st.h					\
+	$(NULL)
+nodist_libst_1_0_la_SOURCES =			\
 	$(st_built_sources)			\
+	st.h					\
 	$(NULL)
 libst_1_0_la_CPPFLAGS = $(st_cflags)
 libst_1_0_la_LDFLAGS = $(LDADD)

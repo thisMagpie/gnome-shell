@@ -189,7 +189,6 @@ st_box_layout_get_property (GObject    *object,
                             GValue     *value,
                             GParamSpec *pspec)
 {
-  StBoxLayoutPrivate *priv = ST_BOX_LAYOUT (object)->priv;
   ClutterLayoutManager *layout;
   StAdjustment *adjustment;
   ClutterOrientation orientation;
@@ -496,6 +495,10 @@ st_box_layout_get_paint_volume (ClutterActor       *actor,
   ClutterActorBox content_box;
   ClutterVertex origin;
 
+  /* Setting the paint volume does not make sense when we don't have any allocation */
+  if (!clutter_actor_has_allocation (actor))
+    return FALSE;
+
   /* When have an adjustment we are clipped to the content box, so base
    * our paint volume on that. */
   if (priv->hadjustment || priv->vadjustment)
@@ -531,7 +534,6 @@ st_box_layout_get_paint_volume (ClutterActor       *actor,
 static void
 st_box_layout_style_changed (StWidget *self)
 {
-  StBoxLayoutPrivate *priv = ST_BOX_LAYOUT (self)->priv;
   StThemeNode *theme_node = st_widget_get_theme_node (self);
   ClutterBoxLayout *layout;
   double spacing;

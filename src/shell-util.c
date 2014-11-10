@@ -12,6 +12,7 @@
 #include <gdk/gdkx.h>
 #include <X11/extensions/XTest.h>
 
+#include <locale.h>
 #ifdef HAVE__NL_TIME_FIRST_WEEKDAY
 #include <langinfo.h>
 #endif
@@ -111,98 +112,6 @@ shell_util_get_transformed_allocation (ClutterActor    *actor,
   box->y2 = y_max;
 }
 
-char *
-shell_util_normalize_and_casefold (const char *str)
-{
-  char *normalized, *result;
-
-  if (str == NULL)
-    return NULL;
-
-  /* NOTE: 'ALL' is equivalent to 'NFKD'. If this is ever updated, please
-   * update the unaccenting mechanism as well. */
-  normalized = g_utf8_normalize (str, -1, G_NORMALIZE_ALL);
-  result = g_utf8_casefold (normalized, -1);
-  g_free (normalized);
-  return result;
-}
-
-/* Combining diacritical mark?
- *  Basic range: [0x0300,0x036F]
- *  Supplement:  [0x1DC0,0x1DFF]
- *  For Symbols: [0x20D0,0x20FF]
- *  Half marks:  [0xFE20,0xFE2F]
- */
-#define IS_CDM_UCS4(c) (((c) >= 0x0300 && (c) <= 0x036F)  || \
-                        ((c) >= 0x1DC0 && (c) <= 0x1DFF)  || \
-                        ((c) >= 0x20D0 && (c) <= 0x20FF)  || \
-                        ((c) >= 0xFE20 && (c) <= 0xFE2F))
-
-/* Copied from tracker/src/libtracker-fts/tracker-parser-glib.c under the GPL
- * Originally written by Aleksander Morgado <aleksander@gnu.org>
- */
-char *
-shell_util_normalize_casefold_and_unaccent (const char *str)
-{
-  char *tmp;
-  gsize i = 0, j = 0, ilen;
-
-  if (str == NULL)
-    return NULL;
-
-  /* Get the NFKD-normalized and casefolded string */
-  tmp = shell_util_normalize_and_casefold (str);
-  ilen = strlen (tmp);
-
-  while (i < ilen)
-    {
-      gunichar unichar;
-      gchar *next_utf8;
-      gint utf8_len;
-
-      /* Get next character of the word as UCS4 */
-      unichar = g_utf8_get_char_validated (&tmp[i], -1);
-
-      /* Invalid UTF-8 character or end of original string. */
-      if (unichar == (gunichar) -1 ||
-          unichar == (gunichar) -2)
-        {
-          break;
-        }
-
-      /* Find next UTF-8 character */
-      next_utf8 = g_utf8_next_char (&tmp[i]);
-      utf8_len = next_utf8 - &tmp[i];
-
-      if (IS_CDM_UCS4 ((guint32) unichar))
-        {
-          /* If the given unichar is a combining diacritical mark,
-           * just update the original index, not the output one */
-          i += utf8_len;
-          continue;
-        }
-
-      /* If already found a previous combining
-       * diacritical mark, indexes are different so
-       * need to copy characters. As output and input
-       * buffers may overlap, need to use memmove
-       * instead of memcpy */
-      if (i != j)
-        {
-          memmove (&tmp[j], &tmp[i], utf8_len);
-        }
-
-      /* Update both indexes */
-      i += utf8_len;
-      j += utf8_len;
-    }
-
-  /* Force proper string end */
-  tmp[j] = '\0';
-
-  return tmp;
-}
-
 /**
  * shell_util_format_date:
  * @format: a strftime-style string format, as parsed by
@@ -298,6 +207,32 @@ shell_util_get_week_start ()
 #endif
 
   return week_start;
+}
+
+/**
+ * shell_util_translate_time_string:
+ * @str: String to translate
+ *
+ * Translate @str according to the locale defined by LC_TIME; unlike
+ * dcgettext(), the translations is still taken from the LC_MESSAGES
+ * catalogue and not the LC_TIME one.
+ *
+ * Returns: the translated string
+ */
+const char *
+shell_util_translate_time_string (const char *str)
+{
+  const char *locale = g_getenv ("LC_TIME");
+  const char *res;
+
+  if (locale)
+    setlocale (LC_MESSAGES, locale);
+
+  res = gettext (str);
+
+  setlocale (LC_MESSAGES, "");
+
+  return res;
 }
 
 /**
@@ -405,33 +340,6 @@ shell_util_create_pixbuf_from_data (const guchar      *data,
                                    (GdkPixbufDestroyNotify) g_free, NULL);
 }
 
-/**
- * shell_util_wake_up_screen:
- *
- * Send a fake key event, resetting the IDLETIME counter and
- * causing gnome-settings-daemon to wake up the screen.
- */
-/* Shamelessly taken from gnome-settings-daemon/plugins/power/gpm-common.c */
-void
-shell_util_wake_up_screen (void)
-{
-  static gboolean inited = FALSE;
-  static KeyCode keycode1, keycode2;
-  static gboolean first_keycode = FALSE;
-
-  if (inited == FALSE) {
-    keycode1 = XKeysymToKeycode (GDK_DISPLAY_XDISPLAY (gdk_display_get_default ()), GDK_KEY_Alt_L);
-    keycode2 = XKeysymToKeycode (GDK_DISPLAY_XDISPLAY (gdk_display_get_default ()), GDK_KEY_Alt_R);
-  }
-
-  gdk_error_trap_push ();
-  /* send a left or right alt key; first press, then release */
-  XTestFakeKeyEvent (GDK_DISPLAY_XDISPLAY (gdk_display_get_default ()), first_keycode ? keycode1 : keycode2, True, CurrentTime);
-  XTestFakeKeyEvent (GDK_DISPLAY_XDISPLAY (gdk_display_get_default ()), first_keycode ? keycode1 : keycode2, False, CurrentTime);
-  first_keycode = !first_keycode;
-  gdk_error_trap_pop_ignored ();
-}
-
 void
 shell_util_cursor_tracker_to_clutter (MetaCursorTracker *tracker,
                                       ClutterTexture    *texture)
@@ -439,5 +347,13 @@ shell_util_cursor_tracker_to_clutter (MetaCursorTracker *tracker,
   CoglTexture *sprite;
 
   sprite = meta_cursor_tracker_get_sprite (tracker);
-  clutter_texture_set_cogl_texture (texture, sprite);
+  if (sprite)
+    {
+      clutter_actor_show (CLUTTER_ACTOR (texture));
+      clutter_texture_set_cogl_texture (texture, sprite);
+    }
+  else
+    {
+      clutter_actor_hide (CLUTTER_ACTOR (texture));
+    }
 }

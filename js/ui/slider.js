@@ -1,11 +1,11 @@
 /* -*- mode: js2; js2-basic-offset: 4; indent-tabs-mode: nil -*- */
 
+const Atk = imports.gi.Atk;
 const Cairo = imports.cairo;
 const Clutter = imports.gi.Clutter;
 const Lang = imports.lang;
 const St = imports.gi.St;
 const Signals = imports.signals;
-const Atk = imports.gi.Atk;
 
 const SLIDER_SCROLL_STEP = 0.05; /* Slider scrolling step in % */
 
@@ -24,11 +24,23 @@ const Slider = new Lang.Class({
                                           accessible_role: Atk.Role.SLIDER });
         this.actor.connect('repaint', Lang.bind(this, this._sliderRepaint));
         this.actor.connect('button-press-event', Lang.bind(this, this._startDragging));
+        this.actor.connect('touch-event', Lang.bind(this, this._touchDragging));
         this.actor.connect('scroll-event', Lang.bind(this, this._onScrollEvent));
         this.actor.connect('key-press-event', Lang.bind(this, this.onKeyPressEvent));
 
         this._releaseId = this._motionId = 0;
         this._dragging = false;
+
+        this._customAccessible = St.GenericAccessible.new_for_actor(this.actor);
+        this.actor.set_accessible(this._customAccessible);
+
+        this._customAccessible.connect('get-current-value', Lang.bind(this, this._getCurrentValue));
+        this._customAccessible.connect('get-minimum-value', Lang.bind(this, this._getMinimumValue));
+        this._customAccessible.connect('get-maximum-value', Lang.bind(this, this._getMaximumValue));
+        this._customAccessible.connect('get-minimum-increment', Lang.bind(this, this._getMinimumIncrement));
+        this._customAccessible.connect('set-current-value', Lang.bind(this, this._setCurrentValue));
+
+        this.connect('value-changed', Lang.bind(this, this._valueChanged));
     },
 
     setValue: function(value) {
@@ -100,39 +112,74 @@ const Slider = new Lang.Class({
     },
 
     _startDragging: function(actor, event) {
-        this.startDragging(event);
+        return this.startDragging(event);
     },
 
     startDragging: function(event) {
         if (this._dragging)
-            return false;
+            return Clutter.EVENT_PROPAGATE;
 
         this._dragging = true;
 
         let device = event.get_device();
-        device.grab(this.actor);
-        this._grabbedDevice = device;
+        let sequence = event.get_event_sequence();
 
-        this._releaseId = this.actor.connect('button-release-event', Lang.bind(this, this._endDragging));
-        this._motionId = this.actor.connect('motion-event', Lang.bind(this, this._motionEvent));
+        if (sequence != null)
+            device.sequence_grab(sequence, this.actor);
+        else
+            device.grab(this.actor);
+
+        this._grabbedDevice = device;
+        this._grabbedSequence = sequence;
+
+        if (sequence == null) {
+            this._releaseId = this.actor.connect('button-release-event', Lang.bind(this, this._endDragging));
+            this._motionId = this.actor.connect('motion-event', Lang.bind(this, this._motionEvent));
+        }
+
         let absX, absY;
         [absX, absY] = event.get_coords();
         this._moveHandle(absX, absY);
-        return true;
+        return Clutter.EVENT_STOP;
     },
 
     _endDragging: function() {
         if (this._dragging) {
-            this.actor.disconnect(this._releaseId);
-            this.actor.disconnect(this._motionId);
+            if (this._releaseId)
+                this.actor.disconnect(this._releaseId);
+            if (this._motionId)
+                this.actor.disconnect(this._motionId);
 
-            this._grabbedDevice.ungrab();
+            if (this._grabbedSequence != null)
+                this._grabbedDevice.sequence_ungrab(this._grabbedSequence);
+            else
+                this._grabbedDevice.ungrab();
+
+            this._grabbedSequence = null;
             this._grabbedDevice = null;
             this._dragging = false;
 
             this.emit('drag-end');
         }
-        return true;
+        return Clutter.EVENT_STOP;
+    },
+
+    _touchDragging: function(actor, event) {
+        let device = event.get_device();
+        let sequence = event.get_event_sequence();
+
+        if (!this._dragging &&
+            event.type() == Clutter.EventType.TOUCH_BEGIN) {
+            this.startDragging(event);
+            return Clutter.EVENT_STOP;
+        } else if (device.sequence_get_grabbed_actor(sequence) == actor) {
+            if (event.type() == Clutter.EventType.TOUCH_UPDATE)
+                return this._motionEvent(actor, event);
+            else if (event.type() == Clutter.EventType.TOUCH_END)
+                return this._endDragging();
+        }
+
+        return Clutter.EVENT_PROPAGATE;
     },
 
     scroll: function(event) {
@@ -140,7 +187,7 @@ const Slider = new Lang.Class({
         let delta;
 
         if (event.is_pointer_emulated())
-            return;
+            return Clutter.EVENT_PROPAGATE;
 
         if (direction == Clutter.ScrollDirection.DOWN) {
             delta = -SLIDER_SCROLL_STEP;
@@ -157,17 +204,18 @@ const Slider = new Lang.Class({
 
         this.actor.queue_repaint();
         this.emit('value-changed', this._value);
+        return Clutter.EVENT_STOP;
     },
 
     _onScrollEvent: function(actor, event) {
-        this.scroll(event);
+        return this.scroll(event);
     },
 
     _motionEvent: function(actor, event) {
         let absX, absY;
         [absX, absY] = event.get_coords();
         this._moveHandle(absX, absY);
-        return true;
+        return Clutter.EVENT_STOP;
     },
 
     onKeyPressEvent: function (actor, event) {
@@ -178,9 +226,9 @@ const Slider = new Lang.Class({
             this.actor.queue_repaint();
             this.emit('value-changed', this._value);
             this.emit('drag-end');
-            return true;
+            return Clutter.EVENT_STOP;
         }
-        return false;
+        return Clutter.EVENT_PROPAGATE;
     },
 
     _moveHandle: function(absX, absY) {
@@ -202,6 +250,30 @@ const Slider = new Lang.Class({
         this._value = newvalue;
         this.actor.queue_repaint();
         this.emit('value-changed', this._value);
+    },
+
+    _getCurrentValue: function (actor) {
+        return this._value;
+    },
+
+    _getMinimumValue: function (actor) {
+        return 0;
+    },
+
+    _getMaximumValue: function (actor) {
+        return 1;
+    },
+
+    _getMinimumIncrement: function (actor) {
+        return 0.1;
+    },
+
+    _setCurrentValue: function (actor, value) {
+        this._value = value;
+    },
+
+    _valueChanged: function (slider, value, property) {
+        this._customAccessible.notify ("accessible-value");
     },
 
     get value() {

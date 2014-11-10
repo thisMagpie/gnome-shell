@@ -69,6 +69,8 @@ elliptical_arc (cairo_t *cr,
 static CoglHandle
 create_corner_material (StCornerSpec *corner)
 {
+  ClutterBackend *backend = clutter_get_default_backend ();
+  CoglContext *ctx = clutter_backend_get_cogl_context (backend);
   CoglHandle texture;
   cairo_t *cr;
   cairo_surface_t *surface;
@@ -166,12 +168,11 @@ create_corner_material (StCornerSpec *corner)
 
   cairo_surface_destroy (surface);
 
-  texture = cogl_texture_new_from_data (size, size,
-                                        COGL_TEXTURE_NONE,
-                                        CLUTTER_CAIRO_FORMAT_ARGB32,
-                                        COGL_PIXEL_FORMAT_ANY,
-                                        rowstride,
-                                        data);
+  texture = COGL_TEXTURE (cogl_texture_2d_new_from_data (ctx, size, size,
+                                                         CLUTTER_CAIRO_FORMAT_ARGB32,
+                                                         rowstride,
+                                                         data,
+                                                         NULL));
   g_free (data);
   g_assert (texture != COGL_INVALID_HANDLE);
 
@@ -599,19 +600,21 @@ create_cairo_pattern_of_background_image (StThemeNode *node,
   cairo_pattern_t *pattern;
   cairo_content_t  content;
   cairo_matrix_t   matrix;
-  const char *file;
+  GFile *file;
 
   StTextureCache *texture_cache;
 
   gdouble background_image_width, background_image_height;
   gdouble x, y;
   gdouble scale_w, scale_h;
+  int scale_factor;
 
   file = st_theme_node_get_background_image (node);
 
   texture_cache = st_texture_cache_get_default ();
 
-  surface = st_texture_cache_load_file_to_cairo_surface (texture_cache, file);
+  g_object_get (node->context, "scale-factor", &scale_factor, NULL);
+  surface = st_texture_cache_load_file_to_cairo_surface (texture_cache, file, scale_factor);
 
   if (surface == NULL)
     return NULL;
@@ -939,6 +942,8 @@ st_theme_node_prerender_background (StThemeNode *node,
                                     float        actor_width,
                                     float        actor_height)
 {
+  ClutterBackend *backend = clutter_get_default_backend ();
+  CoglContext *ctx = clutter_backend_get_cogl_context (backend);
   StBorderImage *border_image;
   CoglHandle texture;
   guint radius[4];
@@ -1032,7 +1037,7 @@ st_theme_node_prerender_background (StThemeNode *node,
     }
   else
     {
-      const char *background_image;
+      GFile *background_image;
 
       background_image = st_theme_node_get_background_image (node);
 
@@ -1254,12 +1259,11 @@ st_theme_node_prerender_background (StThemeNode *node,
   if (interior_path != NULL)
     cairo_path_destroy (interior_path);
 
-  texture = cogl_texture_new_from_data (width, height,
-                                        COGL_TEXTURE_NONE,
-                                        CLUTTER_CAIRO_FORMAT_ARGB32,
-                                        COGL_PIXEL_FORMAT_ANY,
-                                        rowstride,
-                                        data);
+  texture = COGL_TEXTURE (cogl_texture_2d_new_from_data (ctx, width, height,
+                                                         CLUTTER_CAIRO_FORMAT_ARGB32,
+                                                         rowstride,
+                                                         data,
+                                                         NULL));
 
   cairo_destroy (cr);
   cairo_surface_destroy (surface);
@@ -1299,10 +1303,14 @@ st_theme_node_load_border_image (StThemeNode *node)
       if (border_image == NULL)
         goto out;
 
-      const char *filename;
-      filename = st_border_image_get_filename (border_image);
+      GFile *file;
+      file = st_border_image_get_file (border_image);
+
+      int scale_factor;
+      g_object_get (node->context, "scale-factor", &scale_factor, NULL);
+
       node->border_slices_texture = st_texture_cache_load_file_to_cogl_texture (st_texture_cache_get_default (),
-                                                                                filename);
+                                                                                file, scale_factor);
       if (node->border_slices_texture == COGL_INVALID_HANDLE)
         goto out;
 
@@ -1340,16 +1348,19 @@ st_theme_node_load_background_image (StThemeNode *node)
 {
   if (node->background_texture == COGL_INVALID_HANDLE)
     {
-      const char *background_image;
+      GFile *background_image;
       StShadow *background_image_shadow_spec;
 
       background_image = st_theme_node_get_background_image (node);
       if (background_image == NULL)
         goto out;
 
+      int scale_factor;
+      g_object_get (node->context, "scale-factor", &scale_factor, NULL);
+
       background_image_shadow_spec = st_theme_node_get_background_image_shadow (node);
       node->background_texture = st_texture_cache_load_file_to_cogl_texture (st_texture_cache_get_default (),
-                                                                             background_image);
+                                                                             background_image, scale_factor);
       if (node->background_texture == COGL_INVALID_HANDLE)
         goto out;
 

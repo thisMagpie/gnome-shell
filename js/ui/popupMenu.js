@@ -1,9 +1,7 @@
 // -*- mode: js; js-indent-level: 4; indent-tabs-mode: nil -*-
 
 const Clutter = imports.gi.Clutter;
-const GLib = imports.gi.GLib;
 const Gtk = imports.gi.Gtk;
-const Gio = imports.gi.Gio;
 const Lang = imports.lang;
 const Shell = imports.gi.Shell;
 const Signals = imports.signals;
@@ -15,7 +13,6 @@ const GrabHelper = imports.ui.grabHelper;
 const Main = imports.ui.main;
 const Params = imports.misc.params;
 const Separator = imports.ui.separator;
-const Slider = imports.ui.slider;
 const Tweener = imports.ui.tweener;
 
 const Ornament = {
@@ -24,15 +21,40 @@ const Ornament = {
     CHECK: 2,
 };
 
-function _ensureStyle(actor) {
-    if (actor.get_children) {
-        let children = actor.get_children();
-        for (let i = 0; i < children.length; i++)
-            _ensureStyle(children[i]);
+function isPopupMenuItemVisible(child) {
+    if (child._delegate instanceof PopupMenuSection)
+        if (child._delegate.isEmpty())
+            return false;
+    return child.visible;
+}
+
+/**
+ * @side Side to which the arrow points.
+ */
+function arrowIcon(side) {
+    let iconName;
+    switch (side) {
+        case St.Side.TOP:
+            iconName = 'pan-up-symbolic';
+            break;
+        case St.Side.RIGHT:
+            iconName = 'pan-end-symbolic';
+            break;
+        case St.Side.BOTTOM:
+            iconName = 'pan-down-symbolic';
+            break;
+        case St.Side.LEFT:
+            iconName = 'pan-start-symbolic';
+            break;
     }
 
-    if (actor instanceof St.Widget)
-        actor.ensure_style();
+    let arrow = new St.Icon({ style_class: 'popup-menu-arrow',
+                              icon_name: iconName,
+                              accessible_role: Atk.Role.ARROW,
+                              y_expand: true,
+                              y_align: Clutter.ActorAlign.CENTER });
+
+    return arrow;
 }
 
 const PopupBaseMenuItem = new Lang.Class({
@@ -70,6 +92,7 @@ const PopupBaseMenuItem = new Lang.Class({
 
         if (this._activatable) {
             this.actor.connect('button-release-event', Lang.bind(this, this._onButtonReleaseEvent));
+            this.actor.connect('touch-event', Lang.bind(this, this._onTouchEvent));
             this.actor.connect('key-press-event', Lang.bind(this, this._onKeyPressEvent));
         }
         if (params.reactive && params.hover)
@@ -77,6 +100,7 @@ const PopupBaseMenuItem = new Lang.Class({
 
         this.actor.connect('key-focus-in', Lang.bind(this, this._onKeyFocusIn));
         this.actor.connect('key-focus-out', Lang.bind(this, this._onKeyFocusOut));
+        this.actor.connect('destroy', Lang.bind(this, this._onDestroy));
     },
 
     _getTopMenu: function() {
@@ -92,7 +116,15 @@ const PopupBaseMenuItem = new Lang.Class({
 
     _onButtonReleaseEvent: function (actor, event) {
         this.activate(event);
-        return true;
+        return Clutter.EVENT_STOP;
+    },
+
+    _onTouchEvent: function (actor, event) {
+        if (event.type() == Clutter.EventType.TOUCH_END) {
+            this.activate(event);
+            return Clutter.EVENT_STOP;
+        }
+        return Clutter.EVENT_PROPAGATE;
     },
 
     _onKeyPressEvent: function (actor, event) {
@@ -100,9 +132,9 @@ const PopupBaseMenuItem = new Lang.Class({
 
         if (symbol == Clutter.KEY_space || symbol == Clutter.KEY_Return) {
             this.activate(event);
-            return true;
+            return Clutter.EVENT_STOP;
         }
-        return false;
+        return Clutter.EVENT_PROPAGATE;
     },
 
     _onKeyFocusIn: function (actor) {
@@ -158,6 +190,9 @@ const PopupBaseMenuItem = new Lang.Class({
 
     destroy: function() {
         this.actor.destroy();
+    },
+
+    _onDestroy: function() {
         this.emit('destroy');
     },
 
@@ -206,8 +241,16 @@ const PopupSeparatorMenuItem = new Lang.Class({
         this.actor.add(this.label);
         this.actor.label_actor = this.label;
 
+        this.label.connect('notify::text',
+                           Lang.bind(this, this._syncVisibility));
+        this._syncVisibility();
+
         this._separator = new Separator.HorizontalSeparator({ style_class: 'popup-separator-menu-item' });
         this.actor.add(this._separator.actor, { expand: true });
+    },
+
+    _syncVisibility: function() {
+        this.label.visible = this.label.text != '';
     }
 });
 
@@ -330,9 +373,9 @@ const PopupImageMenuItem = new Lang.Class({
         this.parent(params);
 
         this.label = new St.Label({ text: text });
-        this.addActor(this.label);
+        this.actor.add_child(this.label);
         this._icon = new St.Icon({ style_class: 'popup-menu-icon' });
-        this.addActor(this._icon, { align: St.Align.END });
+        this.actor.add_child(this._icon, { align: St.Align.END });
 
         this.setIcon(iconName);
     },
@@ -437,7 +480,7 @@ const PopupMenuBase = new Lang.Class({
         let hasVisibleChildren = this.box.get_children().some(function(child) {
             if (child._delegate instanceof PopupSeparatorMenuItem)
                 return false;
-            return child.visible;
+            return isPopupMenuItemVisible(child);
         });
 
         return !hasVisibleChildren;
@@ -518,7 +561,7 @@ const PopupMenuBase = new Lang.Class({
 
         let childBeforeIndex = index - 1;
 
-        while (childBeforeIndex >= 0 && !children[childBeforeIndex].visible)
+        while (childBeforeIndex >= 0 && !isPopupMenuItemVisible(children[childBeforeIndex]))
             childBeforeIndex--;
 
         if (childBeforeIndex < 0
@@ -529,7 +572,7 @@ const PopupMenuBase = new Lang.Class({
 
         let childAfterIndex = index + 1;
 
-        while (childAfterIndex < children.length && !children[childAfterIndex].visible)
+        while (childAfterIndex < children.length && !isPopupMenuItemVisible(children[childAfterIndex]))
             childAfterIndex++;
 
         if (childAfterIndex >= children.length
@@ -688,6 +731,10 @@ const PopupMenu = new Lang.Class({
         global.focus_manager.add_group(this.actor);
         this.actor.reactive = true;
 
+        if (this.sourceActor)
+            this._keyPressId = this.sourceActor.connect('key-press-event',
+                                                        Lang.bind(this, this._onKeyPress));
+
         this._openedSubMenu = null;
     },
 
@@ -697,6 +744,40 @@ const PopupMenu = new Lang.Class({
 
         this._openedSubMenu = submenu;
     },
+
+    _onKeyPress: function(actor, event) {
+        let navKey;
+        switch (this._boxPointer.arrowSide) {
+            case St.Side.TOP:
+                navKey = Clutter.KEY_Down;
+                break;
+            case St.Side.BOTTOM:
+                navKey = Clutter.KEY_Up;
+                break;
+            case St.Side.LEFT:
+                navKey = Clutter.KEY_Right;
+                break;
+            case St.Side.RIGHT:
+                navKey = Clutter.KEY_Left;
+                break;
+        }
+
+        let symbol = event.get_key_symbol();
+        if (symbol == Clutter.KEY_space || symbol == Clutter.KEY_Return) {
+            this.toggle();
+            return Clutter.EVENT_STOP;
+        } else if (symbol == Clutter.KEY_Escape && this.isOpen) {
+            this.close();
+            return Clutter.EVENT_STOP;
+        } else if (symbol == navKey) {
+            if (!this.isOpen)
+                this.toggle();
+            this.actor.navigate_focus(null, Gtk.DirectionType.TAB_FORWARD, false);
+            return Clutter.EVENT_STOP;
+        } else
+            return Clutter.EVENT_PROPAGATE;
+    },
+
 
     setArrowOrigin: function(origin) {
         this._boxPointer.setArrowOrigin(origin);
@@ -738,6 +819,12 @@ const PopupMenu = new Lang.Class({
 
         this.isOpen = false;
         this.emit('open-state-changed', false);
+    },
+
+    destroy: function() {
+        if (this._keyPressId)
+            this.sourceActor.disconnect(this._keyPressId);
+        this.parent();
     }
 });
 
@@ -831,17 +918,19 @@ const PopupSubMenu = new Lang.Class({
         if (animate && needsScrollbar)
             animate = false;
 
+        let targetAngle = this.actor.text_direction == Clutter.TextDirection.RTL ? -90 : 90;
+
         if (animate) {
             let [minHeight, naturalHeight] = this.actor.get_preferred_height(-1);
             this.actor.height = 0;
-            this.actor._arrow_rotation = this._arrow.rotation_angle_z;
+            this.actor._arrowRotation = this._arrow.rotation_angle_z;
             Tweener.addTween(this.actor,
-                             { _arrow_rotation: 90,
+                             { _arrowRotation: targetAngle,
                                height: naturalHeight,
                                time: 0.25,
                                onUpdateScope: this,
                                onUpdate: function() {
-                                   this._arrow.rotation_angle_z = this.actor._arrow_rotation;
+                                   this._arrow.rotation_angle_z = this.actor._arrowRotation;
                                },
                                onCompleteScope: this,
                                onComplete: function() {
@@ -849,7 +938,7 @@ const PopupSubMenu = new Lang.Class({
                                }
                              });
         } else {
-            this._arrow.rotation_angle_z = 90;
+            this._arrow.rotation_angle_z = targetAngle;
         }
     },
 
@@ -867,14 +956,14 @@ const PopupSubMenu = new Lang.Class({
             animate = false;
 
         if (animate) {
-            this.actor._arrow_rotation = this._arrow.rotation_angle_z;
+            this.actor._arrowRotation = this._arrow.rotation_angle_z;
             Tweener.addTween(this.actor,
-                             { _arrow_rotation: 0,
+                             { _arrowRotation: 0,
                                height: 0,
                                time: 0.25,
                                onUpdateScope: this,
                                onUpdate: function() {
-                                   this._arrow.rotation_angle_z = this.actor._arrow_rotation;
+                                   this._arrow.rotation_angle_z = this.actor._arrowRotation;
                                },
                                onCompleteScope: this,
                                onComplete: function() {
@@ -894,10 +983,10 @@ const PopupSubMenu = new Lang.Class({
         if (this.isOpen && event.get_key_symbol() == Clutter.KEY_Left) {
             this.close(BoxPointer.PopupAnimation.FULL);
             this.sourceActor._delegate.setActive(true);
-            return true;
+            return Clutter.EVENT_STOP;
         }
 
-        return false;
+        return Clutter.EVENT_PROPAGATE;
     }
 });
 
@@ -941,27 +1030,29 @@ const PopupSubMenuMenuItem = new Lang.Class({
             this.actor.add_child(this.icon);
         }
 
-        this.label = new St.Label({ text: text });
+        this.label = new St.Label({ text: text,
+                                    y_expand: true,
+                                    y_align: Clutter.ActorAlign.CENTER });
         this.actor.add_child(this.label);
         this.actor.label_actor = this.label;
 
         let expander = new St.Bin({ style_class: 'popup-menu-item-expander' });
         this.actor.add(expander, { expand: true });
 
-        this.status = new St.Label({ style_class: 'popup-status-menu-item' });
+        this.status = new St.Label({ style_class: 'popup-status-menu-item',
+                                     y_expand: true,
+                                     y_align: Clutter.ActorAlign.CENTER });
         this.actor.add_child(this.status);
 
-        this._triangle = new St.Label({ text: '\u25B8',
-                                        style_class: 'popup-submenu-menu-item-triangle' });
+        this._triangle = arrowIcon(St.Side.RIGHT);
         this._triangle.pivot_point = new Clutter.Point({ x: 0.5, y: 0.6 });
 
         this._triangleBin = new St.Widget({ y_expand: true,
                                             y_align: Clutter.ActorAlign.CENTER });
         this._triangleBin.add_child(this._triangle);
-        if (this._triangleBin.get_text_direction() == Clutter.TextDirection.RTL)
-            this._triangleBin.set_scale(-1.0, 1.0);
 
         this.actor.add_child(this._triangleBin);
+        this.actor.add_accessible_state (Atk.StateType.EXPANDABLE);
 
         this.menu = new PopupSubMenu(this.actor, this._triangle);
         this.menu.connect('open-state-changed', Lang.bind(this, this._subMenuOpenStateChanged));
@@ -983,9 +1074,11 @@ const PopupSubMenuMenuItem = new Lang.Class({
         if (open) {
             this.actor.add_style_pseudo_class('open');
             this._getTopMenu()._setOpenedSubMenu(this.menu);
+            this.actor.add_accessible_state (Atk.StateType.EXPANDED);
         } else {
             this.actor.remove_style_pseudo_class('open');
             this._getTopMenu()._setOpenedSubMenu(null);
+            this.actor.remove_accessible_state (Atk.StateType.EXPANDED);
         }
     },
 
@@ -1016,10 +1109,10 @@ const PopupSubMenuMenuItem = new Lang.Class({
         if (symbol == Clutter.KEY_Right) {
             this._setOpenState(true);
             this.menu.actor.navigate_focus(null, Gtk.DirectionType.DOWN, false);
-            return true;
+            return Clutter.EVENT_STOP;
         } else if (symbol == Clutter.KEY_Left && this._getOpenState()) {
             this._setOpenState(false);
-            return true;
+            return Clutter.EVENT_STOP;
         }
 
         return this.parent(actor, event);
@@ -1031,6 +1124,7 @@ const PopupSubMenuMenuItem = new Lang.Class({
 
     _onButtonReleaseEvent: function(actor) {
         this._setOpenState(!this._getOpenState());
+        return Clutter.EVENT_PROPAGATE;
     }
 });
 
@@ -1062,7 +1156,7 @@ const PopupMenuManager = new Lang.Class({
         if (source) {
             if (!menu.blockSourceEvents)
                 this._grabHelper.addActor(source);
-            menudata.enterId = source.connect('enter-event', Lang.bind(this, function() { this._onMenuSourceEnter(menu); }));
+            menudata.enterId = source.connect('enter-event', Lang.bind(this, function() { return this._onMenuSourceEnter(menu); }));
             menudata.focusInId = source.connect('key-focus-in', Lang.bind(this, function() { this._onMenuSourceEnter(menu); }));
         }
 
@@ -1074,7 +1168,7 @@ const PopupMenuManager = new Lang.Class({
 
     removeMenu: function(menu) {
         if (menu == this.activeMenu)
-            this._closeMenu(menu);
+            this._closeMenu(false, menu);
 
         let position = this._findMenu(menu);
         if (position == -1) // not a menu we manage
@@ -1124,13 +1218,13 @@ const PopupMenuManager = new Lang.Class({
 
     _onMenuSourceEnter: function(menu) {
         if (!this._grabHelper.grabbed)
-            return false;
+            return Clutter.EVENT_PROPAGATE;
 
         if (this._grabHelper.isActorGrabbed(menu.actor))
-            return false;
+            return Clutter.EVENT_PROPAGATE;
 
         this._changeMenu(menu);
-        return false;
+        return Clutter.EVENT_PROPAGATE;
     },
 
     _onMenuDestroy: function(menu) {
